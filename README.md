@@ -8,6 +8,10 @@ Nighlight automatically normalizes, aligns, stacks, composites and tunes your im
 
 As a command line tool, Nightlight is ideal for creating an automated build pipeline for your images with tools like GNU [make](https://www.gnu.org/software/make/). Then apply your finishing touches by fine tuning curves in a tool like [GIMP](https://www.gimp.org/).
 
+## Releases
+
+Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors with AVX2.
+
 ## Capabilities
 
 * Read FITS files and normalize them to 32-bit floating point
