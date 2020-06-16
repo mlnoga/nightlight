@@ -1,5 +1,5 @@
 on: push
-name: GoLang build
+name: Build
 jobs:
   checks:
     name: run
