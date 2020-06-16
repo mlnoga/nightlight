@@ -12,6 +12,8 @@ As a command line tool, Nightlight is ideal for creating an automated build pipe
 
 Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors with AVX2.
 
+Some sample data to play with: raw LRGB data for the [Orion Nebula M42](https://github.com/mlnoga/dataset-M42-LRGB).
+
 ## Capabilities
 
 * Read FITS files and normalize them to 32-bit floating point
@@ -41,14 +43,6 @@ Download latest [binary releases](https://github.com/mlnoga/nightlight/releases)
 * Does not support full plate solving
 * Does not support planetary disc alignment without stars in the picture, for planetary imaging
 * Requires a CPU capable of AVX2 processing (Intel or AMD). ARM for RasPi currently not supported
-
-## Build instructions
-
-Linux and Mac already have a proper shell. On Windows, installing [Msys2](https://www.msys2.org/) is recommended to give you that. Msys2 currently needs a small [workaround](https://gist.github.com/k-takata/9b8d143f0f3fef5abdab) for the shell to run quickly. While symbolic links are not required for Nightlight, they are convenient to link into your camera capture folders. They can be enabled for Msys2 under Windows with this [settings change](https://superuser.com/a/1400340).  
-
-If you haven't done so already, install golang via your operating system package manager, or from the [golang repository](https://golang.org/doc/install]).
-
-Then run `go get -u github.com/mlnoga/nightlight`, and Nightlight will be ready for your use in `$GOPATH/bin/nightlight`.
 
 ## Usage via Makefile
 
@@ -154,6 +148,14 @@ Available flags are:
 |whitePerc      |0.0         | percent of pixels to display as white in final screen transfer function |
 |cpuprofile     |            | write cpu profile to `file` |
 |memprofile     |            | write memory profile to `file` |
+
+## Build instructions
+
+Linux and Mac already have a proper shell. On Windows, installing [Msys2](https://www.msys2.org/) is recommended to give you that. Msys2 currently needs a small [workaround](https://gist.github.com/k-takata/9b8d143f0f3fef5abdab) for the shell to run quickly. While symbolic links are not required for Nightlight, they are convenient to link into your camera capture folders. They can be enabled for Msys2 under Windows with this [settings change](https://superuser.com/a/1400340).  
+
+If you haven't done so already, install golang via your operating system package manager, or from the [golang repository](https://golang.org/doc/install]).
+
+Then run `go get -u github.com/mlnoga/nightlight`, and Nightlight will be ready for your use in `$GOPATH/bin/nightlight`.
 
 ## License
 
