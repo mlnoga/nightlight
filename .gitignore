@@ -1,0 +1,12 @@
+*.exe
+*.bak
+*.orig
+*.prof
+*.fits
+*.fit
+*.tif
+*.tiff
+*.jpg
+*.log
+nightlight
+nightlight_*_amd64

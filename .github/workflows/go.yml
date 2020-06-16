@@ -1,0 +1,37 @@
+on: push
+name: GoLang build
+jobs:
+  checks:
+    name: run
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@master
+
+    - name: build
+      uses: cedrickring/golang-action@1.5.2
+      with:
+        args: make cross-platform
+
+    - name: upload linux build
+      uses: actions/upload-artifact@v1
+      with:
+        name: dist
+        path: nightlight_linux_amd64
+
+    - name: upload osx build
+      uses: actions/upload-artifact@v1
+      with:
+        name: dist
+        path: nightlight_darwin_amd64
+
+    - name: upload windows build
+      uses: actions/upload-artifact@v1
+      with:
+        name: dist
+        path: nightlight_windows_amd64.exe
+
+    - name: test
+      uses: cedrickring/golang-action@1.5.2
+      with:
+        args: make test
+
