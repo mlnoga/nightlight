@@ -1,4 +1,4 @@
-![GoLang build](https://github.com/mlnoga/nightlight/workflows/GoLang%20build/badge.svg)
+![Build](https://github.com/mlnoga/nightlight/workflows/Build/badge.svg)
 
 # Nightlight: Astronomic Image Processing
 
