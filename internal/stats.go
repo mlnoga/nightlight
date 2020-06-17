@@ -116,8 +116,8 @@ func MeanStdDev(xs []float32) (mean, stdDev float32) {
 	return xmean, xstddev	
 }
 
-
-func calcMinMeanMax(data []float32) (min, mean, max float32) /* {
+// Calculate minimum, mean and maximum of given data. Pure go implementation
+func calcMinMeanMaxPureGo(data []float32) (min, mean, max float32) {
 	mmin, mmean, mmax:=float32(data[0]), float64(0), float32(data[0])
 	for _,v := range data {
 		mv:=float32(v)
@@ -136,17 +136,18 @@ func calcMinMeanMax(data []float32) (min, mean, max float32) /* {
 		mmean+=float64(mv)
 	}
 	return mmin, float32(mmean/float64(len(data))), mmax
-} */
+}
 
 
-func calcVariance(data []float32, mean float32) (result float64) /* {
+// Calculate variance of given data from provided mean. Pure go implementation
+func calcVariancePureGo(data []float32, mean float32) (result float64) {
 	variance:=float64(0)
 	for _,v :=range data {
 		diff:=float64(v-mean)
 		variance+=diff*diff
 	}
 	return variance/float64(len(data))
-} */
+}
 
 
 // Returns the sigma clipped median of the data. Does not change the data.

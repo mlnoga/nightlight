@@ -18,14 +18,14 @@
 
 #include "textflag.h"
 
-// func calcMinMeanMax(data []float32) (min, mean, max float64)
+// func calcMinMeanMaxAVX2(data []float32) (min, mean, max float64)
 //    0(FP) 8 byte data pointer
 //    8(FP) 8 byte data length
 //   16(FP) 8 byte data capacity
 //   24(FP) 4 byte return value min
 //   28(FP) 4 byte return value mean
 //   32(FP) 4 byte return value max
-TEXT ·calcMinMeanMax(SB),(NOSPLIT|NOFRAME),$0-36
+TEXT ·calcMinMeanMaxAVX2(SB),(NOSPLIT|NOFRAME),$0-36
     // initialize data pointer in DI and end pointer in SI
     MOVQ data_ptr+0(FP),DI  
     MOVQ data_len+8(FP),SI
@@ -92,14 +92,14 @@ mmmLoopCond:
     RET
 
 
-// func calcVariance(data []float32, mean float32) (res float64)
+// func calcVarianceAVX2(data []float32, mean float32) (res float64)
 //    0(FP) 8 byte data pointer
 //    8(FP) 8 byte data length
 //   16(FP) 8 byte data capacity
 //   24(FP) 4 byte mean
 //   28(FP) 4 byte __padding__
 //   32(FP) 8 byte return value
-TEXT ·calcVariance(SB),(NOSPLIT|NOFRAME),$0-36
+TEXT ·calcVarianceAVX2(SB),(NOSPLIT|NOFRAME),$0-36
     // initialize data pointer in DI and end pointer in SI
     MOVQ data_ptr+0(FP),DI  
     MOVQ data_len+8(FP),SI
