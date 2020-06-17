@@ -102,7 +102,7 @@ var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear lig
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
 
-var scaleBlack= flag.Float64("scaleBlack", 0, "0: don't scale (default), 1: scale histogram peak to x")
+var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 var blackPerc = flag.Float64("blackPerc", 0.0, "percent of pixels to display as black in final screen transfer function")
 var whitePerc = flag.Float64("whitePerc", 0.0, "percent of pixels to display as white in final screen transfer function")
 
@@ -716,6 +716,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 
 	// Optionally scale histogram peak
     if (*scaleBlack)!=0 {
+    	targetBlack:=float32((*scaleBlack)/100.0)
 		l:=len(rgb.Data)/3
 		rStats,err:=nl.CalcExtendedStats(rgb.Data[0*l:1*l], rgb.Naxisn[0])
 	   	if err!=nil { nl.LogFatal(err) }
@@ -727,11 +728,11 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		scale:=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale   
 		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
-		if loc>float32(*scaleBlack) {
-			nl.LogPrintf("scaling black to move location to %.2f%%...\n", (*scaleBlack)*100)
-			rgb.ShiftBlackToMove(loc, float32(*scaleBlack))
+		if loc>targetBlack {
+			nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
+			rgb.ShiftBlackToMove(loc, targetBlack)
 		} else {
-			nl.LogPrintf("cannot move location left by scaling black\n")
+			nl.LogPrintf("cannot move to location %.2ff%% by scaling black\n", targetBlack*100.0)
 		}
     }
 

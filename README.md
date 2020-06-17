@@ -145,7 +145,7 @@ Available flags are:
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
-|scaleBlack     |0           | 0: don't scale (default), 1: scale histogram peak to x |
+|scaleBlack     |0           | move black point so histogram peak location is given value in %, 0=don't |
 |blackPerc      |0.0         | percent of pixels to display as black in final screen transfer function |
 |whitePerc      |0.0         | percent of pixels to display as white in final screen transfer function |
 |cpuprofile     |            | write cpu profile to `file` |
