@@ -10,3 +10,4 @@
 *.log
 nightlight
 nightlight_*_amd64
+nightlight_*_arm7
