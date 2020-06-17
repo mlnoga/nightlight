@@ -69,13 +69,13 @@ DATA filterMask2<>+0x38(SB)/4, $0x00000000
 DATA filterMask2<>+0x3C(SB)/4, $0x00000000
 GLOBL filterMask2<>(SB), RODATA|NOPTR, $64
 
-// func EstimateNoiseLineAVX2(source []float32, width int64) float32
+// func estimateNoiseLineAVX2(source []float32, width int64) float32
 //    0(FP) 8 byte source pointer
 //    8(FP) 8 byte source length,   in float32s
 //   16(FP) 8 byte source capacity, in float32s
 //   24(FP) 8 byte line width,      in float32s
 //   32(FP) 4 byte result float32
-TEXT ·EstimateNoiseLineAVX2(SB),(NOSPLIT|NOFRAME),$0-36
+TEXT ·estimateNoiseLineAVX2(SB),(NOSPLIT|NOFRAME),$0-36
     MOVQ source_data+0(FP),SI               // load source pointer in SI
     
     MOVQ width+24(FP),DX                    // load line width into DX and adjust for size in bytes, not float32s

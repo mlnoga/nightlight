@@ -20,15 +20,16 @@ import (
 	"math"
 )
 
+// Weights for noise estimation
 var enWeights []float32 = []float32{
      1, -2,  1,
     -2,  4, -2,
      1, -2,  1,
 }
 
-// Estimate the level of gaussian noise on a natural image.
-// From J. Immerkær, “Fast Noise Variance Estimation”, Computer Vision and Image Understanding, Vol. 64, No. 2, pp. 300-302, Sep. 1996
-func EstimateNoise(data []float32, width int32) float32 {
+// Estimate the level of gaussian noise on a natural image. Pure Go implementation
+// From J. Immerkær, “Fast Noise Variance Estimation”, Computer Vision and Image Understanding, Vol. 64, No. 2, pp. 300-302, Sep. 1996.
+func estimateNoisePureGo(data []float32, width int32) float32 {
 	var enOffsets []int32 = []int32{
 		-width-1, -width  , -width+1,
               -1,        0,        1,
@@ -52,23 +53,3 @@ func EstimateNoise(data []float32, width int32) float32 {
     factor:=float32(math.Sqrt(0.5*math.Pi)) / (6 * float32(width-2) * float32(height - 2))
     return sum*factor
 }
-
-
-// assembly implementation in median3x3_avx.s
-func EstimateNoiseLineAVX2(data []float32, width int64) float32
-
-// Estimate the level of gaussian noise on a natural image.
-// From J. Immerkær, “Fast Noise Variance Estimation”, Computer Vision and Image Understanding, Vol. 64, No. 2, pp. 300-302, Sep. 1996
-func EstimateNoiseAVX2(data []float32, width int32) float32 {
-    height:=len(data)/int(width)
-
-    sum:=float32(0)
-    for line:=int(0); line<height-2; line++ {
-        start, end:=line*int(width), (line+3)*int(width)
-        noise:=EstimateNoiseLineAVX2(data[start:end], int64(width))
-        sum+=noise
-    }
-    factor:=float32(math.Sqrt(0.5*math.Pi)) / (6 * float32(width-2) * float32(height - 2))
-    return sum*factor
-}
-

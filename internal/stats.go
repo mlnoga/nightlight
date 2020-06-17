@@ -98,9 +98,7 @@ func CalcExtendedStats(data []float32, width int32) (s *BasicStats, err error) {
 		s.Location,   s.Scale=FastApproxSigmaClippedMedianAndQn(data, 2, 2, 128*1024)
 	}
 
-	//s.Noise=EstimateNoise(data, width)
-	s.Noise=EstimateNoiseAVX2(data, width)
-	//fmt.Printf("noise %.2f avx2 %.2f delta %g (%g%%)\n", s.Noise, noise2, (s.Noise-noise2), (s.Noise-noise2)*100.0/s.Noise)
+	s.Noise=EstimateNoise(data, width)
 
 	return s, nil
 }	
