@@ -12,7 +12,10 @@ As a command line tool, Nightlight is ideal for creating an automated build pipe
 
 Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors with AVX2.
 
-Some sample data to play with: raw LRGB data for the [Orion Nebula M42](https://github.com/mlnoga/dataset-M42-LRGB).
+Here are some sample datasets to play with: 
+
+* [Orion Nebula M42](https://github.com/mlnoga/dataset-M42-LRGB) in LRGB
+* [Bubble Nebula NGC7635](https://github.com/mlnoga/dataset-NGC7635-nb) in narrowband
 
 ## Capabilities
 
