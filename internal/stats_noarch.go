@@ -19,7 +19,7 @@ package internal
 
 
 // Calculate minimum, mean and maximum of given data
-func calcMinMeanMax(data []float32) (min, mean, max float32) 
+func calcMinMeanMax(data []float32) (min, mean, max float32) {
 	return calcMinMeanMaxPureGo(data)
 }
 
