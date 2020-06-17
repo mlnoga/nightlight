@@ -101,40 +101,6 @@ func QSelectFloat32(a []float32, k int) float32 {
 }
 
 
-// Calculates the median of a float32 slice of length nine
-// Modifies the elements in place
-// From https://stackoverflow.com/questions/45453537/optimal-9-element-sorting-network-that-reduces-to-an-optimal-median-of-9-network
-// See also http://ndevilla.free.fr/median/median/src/optmed.c for other sizes
-// Array must not contain IEEE NaN
-func MedianFloat32Slice9(a []float32) float32 {       // 30x min/max
-    // function swap(i,j) {var tmp = MIN(a[i],a[j]); a[j] = MAX(a[i],a[j]); a[i] = tmp;}
-    // function min(i,j) {a[i] = MIN(a[i],a[j]);}
-    // function max(i,j) {a[j] = MAX(a[i],a[j]);}
-
-    if a[0]>a[1] { a[0], a[1] = a[1], a[0]}  // swap(a,0,1)
-    if a[3]>a[4] { a[3], a[4] = a[4], a[3]}  // swap(a,3,4)
-    if a[6]>a[7] { a[6], a[7] = a[7], a[6]}  // swap(a,6,7)
-    if a[1]>a[2] { a[1], a[2] = a[2], a[1]}  // swap(a,1,2)
-    if a[4]>a[5] { a[4], a[5] = a[5], a[4]}  // swap(a,4,5)
-    if a[7]>a[8] { a[7], a[8] = a[8], a[7]}  // swap(a,7,8)
-    if a[0]>a[1] { a[0], a[1] = a[1], a[0]}  // swap(a,0,1)
-    if a[3]>a[4] { a[3], a[4] = a[4], a[3]}  // swap(a,3,4)
-    if a[6]>a[7] { a[6], a[7] = a[7], a[6]}  // swap(a,6,7)
-    if a[0]>a[3] { a[3]       = a[0]      }  // max (a,0,3)
-    if a[3]>a[6] { a[6]       = a[3]      }  // max (a,3,6)
-    if a[1]>a[4] { a[1], a[4] = a[4], a[1]}  // swap(a,1,4)
-    if a[4]>a[7] { a[4]       = a[7]      }  // min (a,4,7)
-    if a[1]>a[4] { a[4]       = a[1]      }  // max (a,1,4)
-    if a[5]>a[8] { a[5]       = a[8]      }  // min (a,5,8)
-    if a[2]>a[5] { a[2]       = a[5]      }  // min (a,2,5)
-    if a[2]>a[4] { a[2], a[4] = a[4], a[2]}  // swap(a,2,4)
-    if a[4]>a[6] { a[4]       = a[6]      }  // min (a,4,6)
-    if a[2]>a[4] { a[4]       = a[2]      }  // max (a,2,4)
-    return a[4]
-}
-
-
-
 // Sort an array of stars in descending order, based on mass
 // Array must not contain IEEE NaN
 func QSortStarsDesc(a []Star) {
