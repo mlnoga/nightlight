@@ -172,3 +172,4 @@ The binary version of this program uses several open source libraries and compon
 | [pbnjay/memory](https://github.com/pbnjay/memory) | BSD 3-Clause "New" or "Revised" License |
 | [valyala/fastrand](https://github.com/valyala/fastrand) | MIT License |
 | [lucasb-eyer/go-colorful](https://github.com/lucasb-eyer/go-colorful) | MIT License |
+| [klauspost/cpuid](https://github.com/klauspost/cpuid) | MIT License |
