@@ -30,22 +30,7 @@ import (
 // Returns an array of indices into the data.
 func BadPixelMap(data []float32, width int32, mask []int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *BasicStats) {
 	tmp:=GetArrayOfFloat32FromPool(len(data))
-//	MedianFilter(tmp, data, mask)
-	MedianFilter3x3AVX2(tmp, data, width)
-
-/*	tmp2:=GetArrayOfFloat32FromPool(len(data))
-    MedianFilter3x3AVX2(tmp2, data, width)
-	diffCount:=0
-	for line:=int32(1); line<int32(len(data))/width-1; line++ {
-		for col:=int32(1); col<width-1; col++ {
-			index:=line*width+col
-			if tmp[index]!=tmp2[index] {
-				diffCount++
-			}
-		}
-	}
-	LogPrintf("diffCount %d\n", diffCount) */
-
+	MedianFilter3x3(tmp, data, width)
 	Subtract(tmp, data, tmp)
 
 	medianDiffStats=CalcBasicStats(tmp)
@@ -92,22 +77,6 @@ func MedianFilter(output, data []float32, mask []int32) {
 	wg.Wait() // and wait for all goroutines to finish
 }
 
-// assembly implementation in median3x3_avx.s
-func MedianFilterLine3x3AVX2(output, data []float32, width int64)
-
-func MedianFilter3x3AVX2(output, data []float32, width int32) {
-	height:=len(data)/int(width)
-	copy(output[:width], data[:width])                       // copy first row
-
-	for line:=int(0); line<height-2; line++ {
-		start, end:=line*int(width), (line+3)*int(width)
-
-		output[start+int(width)]=data[start+int(width)]                // copy first column
-		MedianFilterLine3x3AVX2(output[start:end], data[start:end], int64(width))
-		output[start+2*int(width)-1]=data[start+2*int(width)-1]        // copy last column
-	}
-	copy(output[(height-1)*int(width):], data[(height-1)*int(width):]) // copy last row
-}
 
 // Applies an element-wise Median filter to the sparse data points provided by the indices,
 // with the local neighborhood defined by the mask, and stores the result in data

@@ -51,7 +51,7 @@ DATA storeMask<>+0x18(SB)/4, $0x80000000
 DATA storeMask<>+0x1C(SB)/4, $0x00000000
 GLOBL storeMask<>(SB), RODATA|NOPTR, $64
 
-// func MedianFilterLine3x3AVX2(dest, source []float32, width int64)
+// func medianFilterLine3x3AVX2(dest, source []float32, width int64)
 //    0(FP) 8 byte dest   pointer
 //    8(FP) 8 byte dest   length,   in float32s
 //   16(FP) 8 byte dest   capacity, in float32s
@@ -59,7 +59,7 @@ GLOBL storeMask<>(SB), RODATA|NOPTR, $64
 //   32(FP) 8 byte source length,   in float32s
 //   40(FP) 8 byte source capacity, in float32s
 //   48(FP) 8 byte line width,      in float32s
-TEXT ·MedianFilterLine3x3AVX2(SB),(NOSPLIT|NOFRAME),$0-56
+TEXT ·medianFilterLine3x3AVX2(SB),(NOSPLIT|NOFRAME),$0-56
     MOVQ source_data+24(FP),SI              // load source pointer in SI
     
     MOVQ width+48(FP),DX                    // load line width into DX and adjust for size in bytes, not float32s
