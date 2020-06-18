@@ -21,7 +21,7 @@ jobs:
 
     - name: zip
       run: |
-        zip --junk-paths nightlight.zip nightlight_* LICENSE README.md
+        chmod a+x nightlight_* && zip --junk-paths nightlight.zip nightlight_* LICENSE README.md
 
     - name: create release
       id: create_release
