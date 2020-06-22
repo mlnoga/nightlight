@@ -57,7 +57,7 @@ func PrintStars(w io.Writer, stars []Star) {
 func FindStars(data []float32, width int32, location, scale, starSig, bpSigma float32, radius int32, medianDiffStats *BasicStats) (stars []Star, sumOfShifts, avgHFR float32) {
 	// Begin star identification based on pixels significantly above the background
 	threshold :=location+scale*starSig
-	stars=findBrightPixels(data, width, threshold)
+	stars=findBrightPixels(data, width, threshold, radius)
 	// LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
 
 	// reject bad pixels which differ significantly from the local median
@@ -95,13 +95,28 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 }
 
 
-// Find pixels above the threshold and return them as stars. Uses central pixel value as initial mass, 1 as initial HFR
-func findBrightPixels(data []float32, width int32, threshold float32) []Star {
+// Find pixels above the threshold and return them as stars. Applies early overlap rejection based on radius to reduce allocations.
+// Uses central pixel value as initial mass, 1 as initial HFR.
+func findBrightPixels(data []float32, width int32, threshold float32, radius int32) []Star {
 	stars:=[]Star{}
 	for i,v :=range data {
 		if v>threshold {
 			is:=Star{Index:int32(i), Value:v, X:float32(int32(i) % width), Y:float32(int32(i) / width), Mass:v, HFR:1}
-			stars=append(stars, is)
+
+			// check if within radius distance of the previously detected candidate star to optimize memory usage
+			if len(stars)>0 {
+				oldS:=stars[len(stars)-1]
+				if oldS.Y==is.Y && oldS.X>=is.X-float32(radius) {
+					if oldS.Value>=is.Value { 
+						continue  // keep old candidate, as it's brighter
+					} else {
+						stars[len(stars)-1]=is
+						continue  // replace old candidate with brighter new one
+					}
+				}
+			}
+
+			stars=append(stars, is)  // add as additional candidate
 		}
 	}	
 	return stars
@@ -192,7 +207,6 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 	yBins  :=(height+binSize-1)/binSize
 	bins   :=make([]*starListItem, xBins*yBins)
 	slis   :=make([]starListItem,  len(stars))
-
 	radiusSquared:=radius*radius
 
 	// For all stars, filter list in place
