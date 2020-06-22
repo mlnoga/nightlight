@@ -17,10 +17,10 @@ package internal
 
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math" 
 	"os"
 	"regexp"
 	"strconv"
@@ -69,83 +69,228 @@ func (fits *FITSImage) Read(f io.Reader) error {
 func (fits *FITSImage) readData(f io.Reader) (err error) {
 	switch fits.Bitpix {
 	case 8: 
-		raw:=GetArrayOfInt8FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-			for i, val:=range(raw) { 
-				fits.Data[i]=float32(val)+fits.Bzero
-			}
-		}
-		PutArrayOfInt8IntoPool(raw)
-		raw=nil
+		return fits.readInt8Data(f)
 
 	case 16:
-		raw:=GetArrayOfInt16FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-			for i, val:=range(raw) { 
-				fits.Data[i]=float32(val)+fits.Bzero
-			}
-		}
-		PutArrayOfInt16IntoPool(raw)
-		raw=nil
+		return fits.readInt16Data(f)
 
 	case 32:
 		LogPrintf("Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
-		raw:=GetArrayOfInt32FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-			for i, val:=range(raw) { 
-				fits.Data[i]=float32(val)+fits.Bzero
-			}
-		}
-		PutArrayOfInt32IntoPool(raw)
-		raw=nil
+		return fits.readInt32Data(f)
 
 	case 64: 
 		LogPrintf("Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
-		raw:=GetArrayOfInt64FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-			for i, val:=range(raw) { 
-				fits.Data[i]=float32(val)+fits.Bzero
-			}
-		}
-		PutArrayOfInt64IntoPool(raw)
-		raw=nil
+		return fits.readInt64Data(f)
 
 	case -32:
-		raw:=GetArrayOfFloat32FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=raw
-			for i, _:=range(raw) { 
-				fits.Data[i]+=fits.Bzero
-			}
-		}
-		// do not return to pool, data used directly!
+		return fits.readFloat32Data(f)
 
 	case -64:
 		LogPrintf("Warning: loss of precision converting float%d to float32 values\n", -fits.Bitpix)
-		raw:=GetArrayOfFloat64FromPool(int(fits.Pixels))
-		err=binary.Read(f, binary.BigEndian, raw)
-		if err==nil {
-			fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-			for i, val:=range(raw) { 
-				fits.Data[i]=float32(val)+fits.Bzero
-			}
-		}
-		PutArrayOfFloat64IntoPool(raw)
-		raw=nil
+		return fits.readFloat64Data(f)
 
 	default:
 		return errors.New("Unknown BITPIX value "+strconv.FormatInt(int64(fits.Bitpix),10))
 	}
 
+	return nil
+}
+
+
+const bufLen int=16*1024  // input buffer length for reading from file
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readInt8Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf:=GetArrayOfByteFromPool(bufLen)
+	defer PutArrayOfByteIntoPool(buf)
+
+	dataIndex:=0	
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*1
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[:bytesToRead])
+		if err!=nil { return err }
+
+		for i, val:=range(buf[:bytesRead]) { 
+			fits.Data[dataIndex+i]=float32(val)+fits.Bzero
+		}
+		dataIndex+=bytesRead
+	}
+	fits.Bzero=0 // offset has been adjusted on data values
+	return nil
+}
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readInt16Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf     :=GetArrayOfByteFromPool(bufLen)
+	defer     PutArrayOfByteIntoPool(buf)
+
+	bytesPerValueShift:=1
+	bytesPerValue:=1<<bytesPerValueShift
+	bytesPerValueMask:=bytesPerValue-1
+	dataIndex:=0	
+	leftoverBytes:=0
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		if err!=nil { return err }
+
+		availableBytes:=leftoverBytes+bytesRead
+		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
+			val:=int16((uint16(buf[i])<<8) | uint16(buf[i+1]))
+			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
+		}
+		dataIndex   += availableBytes>>bytesPerValueShift
+		leftoverBytes= availableBytes& bytesPerValueMask
+		for i:=0; i<leftoverBytes; i++ {
+			buf[i]=buf[availableBytes-leftoverBytes+i]
+		}
+	}
+	fits.Bzero=0 // offset has been adjusted on data values
+	return nil
+}
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readInt32Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf     :=GetArrayOfByteFromPool(bufLen)
+	defer     PutArrayOfByteIntoPool(buf)
+
+	bytesPerValueShift:=2
+	bytesPerValue:=1<<bytesPerValueShift
+	bytesPerValueMask:=bytesPerValue-1
+	dataIndex:=0	
+	leftoverBytes:=0
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		if err!=nil { return err }
+
+		availableBytes:=leftoverBytes+bytesRead
+		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
+			val:=int32((uint32(buf[i])<<24) | uint32(buf[i+1]<<16) | uint32(buf[i+2]<<8) | uint32(buf[i+3]))
+			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
+		}
+		dataIndex   += availableBytes>>bytesPerValueShift
+		leftoverBytes= availableBytes& bytesPerValueMask
+		for i:=0; i<leftoverBytes; i++ {
+			buf[i]=buf[availableBytes-leftoverBytes+i]
+		}
+	}
+	fits.Bzero=0 // offset has been adjusted on data values
+	return nil
+}
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readInt64Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf     :=GetArrayOfByteFromPool(bufLen)
+	defer     PutArrayOfByteIntoPool(buf)
+
+	bytesPerValueShift:=3
+	bytesPerValue:=1<<bytesPerValueShift
+	bytesPerValueMask:=bytesPerValue-1
+	dataIndex:=0	
+	leftoverBytes:=0
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		if err!=nil { return err }
+
+		availableBytes:=leftoverBytes+bytesRead
+		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
+			val:=int64((uint64(buf[i  ])<<56) | uint64(buf[i+1]<<48) | uint64(buf[i+2]<<40) | uint64(buf[i+3]<<32) |
+			           (uint64(buf[i+4])<<24) | uint64(buf[i+5]<<16) | uint64(buf[i+6]<< 8) | uint64(buf[i+7]    )   )
+			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
+		}
+		dataIndex   += availableBytes>>bytesPerValueShift
+		leftoverBytes= availableBytes& bytesPerValueMask
+		for i:=0; i<leftoverBytes; i++ {
+			buf[i]=buf[availableBytes-leftoverBytes+i]
+		}
+	}
+	fits.Bzero=0 // offset has been adjusted on data values
+	return nil
+}
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readFloat32Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf     :=GetArrayOfByteFromPool(bufLen)
+	defer     PutArrayOfByteIntoPool(buf)
+
+	bytesPerValueShift:=2
+	bytesPerValue:=1<<bytesPerValueShift
+	bytesPerValueMask:=bytesPerValue-1
+	dataIndex:=0	
+	leftoverBytes:=0
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		if err!=nil { return err }
+
+		availableBytes:=leftoverBytes+bytesRead
+		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
+			val:=math.Float32frombits((uint32(buf[i])<<24) | uint32(buf[i+1]<<16) | uint32(buf[i+2]<<8) | uint32(buf[i+3]))
+			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
+		}
+		dataIndex   += availableBytes>>bytesPerValueShift
+		leftoverBytes= availableBytes& bytesPerValueMask
+		for i:=0; i<leftoverBytes; i++ {
+			buf[i]=buf[availableBytes-leftoverBytes+i]
+		}
+	}
+	fits.Bzero=0 // offset has been adjusted on data values
+	return nil
+}
+
+// Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
+func (fits *FITSImage) readFloat64Data(r io.Reader) error {
+	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
+	buf     :=GetArrayOfByteFromPool(bufLen)
+	defer     PutArrayOfByteIntoPool(buf)
+
+	bytesPerValueShift:=3
+	bytesPerValue:=1<<bytesPerValueShift
+	bytesPerValueMask:=bytesPerValue-1
+	dataIndex:=0	
+	leftoverBytes:=0
+	for ; dataIndex<len(fits.Data) ; {
+		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
+		if bytesToRead>bufLen {
+			bytesToRead=bufLen
+		}
+		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		if err!=nil { return err }
+
+		availableBytes:=leftoverBytes+bytesRead
+		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
+			val:=math.Float64frombits((uint64(buf[i  ])<<56) | uint64(buf[i+1]<<48) | uint64(buf[i+2]<<40) | uint64(buf[i+3]<<32) |
+			                          (uint64(buf[i+4])<<24) | uint64(buf[i+5]<<16) | uint64(buf[i+6]<< 8) | uint64(buf[i+7]    )   )
+			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
+		}
+		dataIndex   += availableBytes>>bytesPerValueShift
+		leftoverBytes= availableBytes& bytesPerValueMask
+		for i:=0; i<leftoverBytes; i++ {
+			buf[i]=buf[availableBytes-leftoverBytes+i]
+		}
+	}
 	fits.Bzero=0 // offset has been adjusted on data values
 	return nil
 }
