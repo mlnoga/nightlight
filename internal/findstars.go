@@ -99,6 +99,7 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 // Uses central pixel value as initial mass, 1 as initial HFR.
 func findBrightPixels(data []float32, width int32, threshold float32, radius int32) []Star {
 	stars:=[]Star{}
+
 	for i,v :=range data {
 		if v>threshold {
 			is:=Star{Index:int32(i), Value:v, X:float32(int32(i) % width), Y:float32(int32(i) / width), Mass:v, HFR:1}
@@ -133,7 +134,7 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 	if medianDiffStats==nil {
 		// Estimate standard deviation of pixels from local neighborhood median based on random 1% of pixels
 		numSamples:=len(data)/100
-		samples:=make([]float32, numSamples)
+		samples:=GetArrayOfFloat32FromPool(numSamples)
 		rng:=fastrand.RNG{}
 		for i:=0; i<numSamples; i++ {
 			index:=int32(rng.Uint32n(uint32(len(data))))
@@ -141,6 +142,8 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 			samples[i]=data[index]-median
 		}
 		medianDiffStats=CalcBasicStats(samples)
+		PutArrayOfFloat32IntoPool(samples) // free memory
+		samples=nil
 	}
 
 	// Filter out star candidates more than sigma standard deviations away from the estimated local median 
