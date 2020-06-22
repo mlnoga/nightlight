@@ -306,7 +306,7 @@ func cmdStack(args []string, batchPattern string) {
 	fileNames:=globFilenameWildcards(args)
 
 	// Split input into required number of randomized batches, given the permissible amount of memory
-	numBatches, batchSize, overallIDs, overallFileNames:=nl.PrepareBatches(fileNames, *stMemory)
+	numBatches, batchSize, overallIDs, overallFileNames:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
 	batchResults :=make([]*nl.FITSImage, numBatches)
 	batchWeights :=make([]float32, numBatches)
 	batchAvgNoise:=make([]float32, numBatches)
@@ -344,10 +344,18 @@ func cmdStack(args []string, batchPattern string) {
 			batchFileName:=fmt.Sprintf(batchPattern, b)
 			nl.LogPrintf("Writing batch result to %s\n", batchFileName)
 			batch.WriteFile(batchFileName)
-		}					
+		}
 	}
 	nl.PutArrayOfFloat32IntoPool(refFrame.Data) // all other primary frames already freed after stacking
 	refFrame.Data=nil
+	if darkF!=nil {
+		nl.PutArrayOfFloat32IntoPool(darkF.Data) 
+		darkF.Data=nil
+	}
+	if flatF!=nil {
+		nl.PutArrayOfFloat32IntoPool(flatF.Data) 
+		flatF.Data=nil
+	}
 
 	// Combine batch results if necessary
 	stack:=(*nl.FITSImage)(nil)
@@ -401,6 +409,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
 		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, *pre)
+	runtime.GC()					
 
 	avgNoise=float32(0)
 	for _,l:=range lights {
@@ -420,6 +429,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	// Post-process all light frames (align, normalize)
 	nl.LogPrintf("\nPostprocessing %d frames with align=%d alignK=%d alignT=%.3f normHist=%d:\n", len(lights), *align, *alignK, *alignT, *normHist)
 	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, *post)
+	runtime.GC()					
 
 	// Remove nils from lights
 	o:=0
@@ -475,6 +485,8 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 			l.Data=nil
 		}
 	}
+	lights=nil
+	runtime.GC()					
 
 	return stack, refFrame, sigLow, sigHigh, avgNoise
 }

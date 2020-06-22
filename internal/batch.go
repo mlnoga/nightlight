@@ -19,30 +19,55 @@ package internal
 import (
 	"github.com/pbnjay/memory"
 	"math/rand"
+	"runtime"
 	"sort"
 )
 
 
 // Split input into required number of randomized batches, given the permissible amount of memory
-func PrepareBatches(fileNames []string, stMemory int64) (numBatches, batchSize int64, ids []int, shuffledFileNames []string) {
-	LogPrintf("\nEstimating memory needs for %d images from %s:\n", len(fileNames), fileNames[0])
-	first:=NewFITSImage()
-	first.ReadFile(fileNames[0])
-	PutArrayOfFloat32IntoPool(first.Data)
-	first.Data=nil
-	LogPrintf("Image has %dx%d pixels (%.1f MPixels) and takes %d MB in-memory as floating point.\n", 
-	           first.Naxisn[0], first.Naxisn[1], float32(first.Pixels)/1024/1024, int(first.Pixels)*4/1024/1024)
+func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage) (numBatches, batchSize int64, ids []int, shuffledFileNames []string) {
+	numFrames:=int64(len(fileNames))
+	width, height:=int64(0), int64(0)
+	if darkF!=nil {
+		width, height=int64(darkF.Naxisn[0]), int64(darkF.Naxisn[1])
+	}  else if flatF!=nil {
+		width, height=int64(flatF.Naxisn[0]), int64(flatF.Naxisn[1])
+	} else {
+		LogPrintf("\nEstimating memory needs for %d images from %s:\n", numFrames, fileNames[0])
+		first:=NewFITSImage()
+		first.ReadFile(fileNames[0])
+		PutArrayOfFloat32IntoPool(first.Data)
+		first.Data=nil
+		width, height=int64(first.Naxisn[0]), int64(first.Naxisn[1])
+	}
+	pixels:=width*height
+	mPixels:=float32(width)*float32(height)*1e-6
+	bytes:=pixels*4
+	mib:=bytes/1024/1024
+	LogPrintf("%d images of %dx%d pixels (%.1f MPixels), which each take %d MiB in-memory as floating point.\n", 
+	           numFrames, width, height, mPixels, mib)
 
-	LogPrintf("Physical memory is %d MB, -stMemory limit for stacking is %d MB.\n", memory.TotalMemory()/1024/1024, stMemory)
+	availableFrames:=(int64(stMemory)*1024*1024+bytes-1)/bytes
+	LogPrintf("Physical memory is %d MiB, -stMemory limit is %d MiB, this fits %d frames.\n", memory.TotalMemory()/1024/1024, stMemory, availableFrames)
+	LogPrintf("Using %d threads.\n", runtime.GOMAXPROCS(0))
 
-	maxBatchSize:=stMemory*1024*1024/4/int64(first.Pixels)
-	maxBatchMBs :=int(maxBatchSize)*int(first.Pixels)*4/1024/1024
-	LogPrintf("Maximum batch size is %d images which take %d MB for stacking.\n", maxBatchSize, maxBatchMBs )
+	// calculate batch size for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
+	batchSize=availableFrames - int64(runtime.GOMAXPROCS(0))
+	if darkF!=nil { batchSize-- }
+	if flatF!=nil { batchSize-- }
+	if batchSize<2 { LogFatal("Low memory, unable to stack") }
+	// postprocesing has same memory needs as preprocessing, sans light and dark frame
 
-	numBatches =(int64(len(fileNames))+maxBatchSize-1)/maxBatchSize
-	batchSize  =(int64(len(fileNames))+numBatches  -1)/numBatches
-	batchMBs  :=int(batchSize)*int(first.Pixels)*4/1024/1024
-	LogPrintf("Using %d batch(es) of %d images each, which needs %d MB\n", numBatches, batchSize, batchMBs)
+	// correct for memory requirements of stacking: we need the lights in the batch, and as many temporary stacks as we have batches
+	numBatches=(numFrames+batchSize-1)/batchSize
+	for ; batchSize+numBatches>availableFrames; {
+		batchSize--
+		if batchSize<2 { LogFatal("Low memory, unable to stack") }
+		numBatches=(numFrames+batchSize-1)/batchSize
+	}
+	// even out size of the last frame
+	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
+	LogPrintf("Using %d batches of batch size %d\n", numBatches, batchSize)
 
 	perm:=make([]int, len(fileNames))
 	for i,_:=range perm {
