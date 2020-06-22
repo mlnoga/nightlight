@@ -24,6 +24,12 @@ import (
 
 
 // Pool of constant sized arrays of given type, to reduce memory allocation overhead
+var poolByte   =struct{
+    sync.RWMutex
+    m map[int]*sync.Pool
+}{m: make(map[int]*sync.Pool)}
+
+// Pool of constant sized arrays of given type, to reduce memory allocation overhead
 var poolInt8   =struct{
     sync.RWMutex
     m map[int]*sync.Pool
@@ -58,6 +64,38 @@ var poolFloat64=struct{
     sync.RWMutex
     m map[int]*sync.Pool
 }{m: make(map[int]*sync.Pool)}
+
+
+// Returns a pool for byte arrays of the given size
+func getSizedPoolByte(size int) *sync.Pool {
+	poolByte.RLock()
+	pool:=poolByte.m[size]
+	poolByte.RUnlock()
+	if pool==nil {
+		pool=&sync.Pool{
+			New: func() interface{} {
+				return make([]byte, size);
+			},
+		}
+		poolByte.Lock()
+		poolByte.m[size]=pool
+		poolByte.Unlock()
+	}
+	return pool
+}
+
+// Retrieves an array of given size and type from pool
+func GetArrayOfByteFromPool(size int) []byte {
+	pool:=getSizedPoolByte(size)
+	return pool.Get().([]byte)
+}
+
+// Returns an array of given size and type to the pool
+func PutArrayOfByteIntoPool(arr []byte) {
+	pool:=getSizedPoolByte(len(arr))
+	pool.Put(arr)
+	arr=nil
+}
 
 
 // Returns a pool for []int8 arrays of the given size
