@@ -67,7 +67,7 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 			newBatchSize:=preBatchSize-numBatches
 			if newBatchSize<2 { continue outer }
 			if newBatchSize==batchSize { break outer }
-			corrBatchSize=newCorrBatchSize
+			batchSize=newBatchSize
 		}
 	}
 	if imageLevelParallelism<1 || batchSize<2 { LogFatal("Cannot find a stacking execution path within the given memory constraints.") }
