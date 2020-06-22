@@ -65,6 +65,9 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 			// correct for memory requirements of stacking: we also need temp storage for all batch stacks on top
 			numBatches=(numFrames+batchSize-1)/batchSize
 			newBatchSize:=preBatchSize-numBatches
+			if numBatches>1 {
+				newBatchSize--	// and for the reference frame, in all but the first stack
+			}
 			if newBatchSize<2 { continue outer }
 			if newBatchSize==batchSize { break outer }
 			batchSize=newBatchSize
