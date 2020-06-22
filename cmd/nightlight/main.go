@@ -213,8 +213,8 @@ Flags:
         }
         defer f.Close()
         runtime.GC() // get up-to-date statistics
-        if err := pprof.WriteHeapProfile(f); err != nil {
-            nl.LogFatal("Could not write memory profile: ", err)
+        if err := pprof.Lookup("allocs").WriteTo(f,0); err != nil {
+            nl.LogFatal("Could not write allocation profile: ", err)
         }
     }
     nl.LogSync()
