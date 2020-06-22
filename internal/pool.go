@@ -17,6 +17,7 @@
 package internal
 
 import (
+	"runtime"
 	"sync"
 )
 
@@ -65,6 +66,12 @@ var poolFloat64=struct{
     m map[int]*sync.Pool
 }{m: make(map[int]*sync.Pool)}
 
+// Pool of constant sized arrays of given type, to reduce memory allocation overhead
+var poolStar=struct{
+    sync.RWMutex
+    m map[int]*sync.Pool
+}{m: make(map[int]*sync.Pool)}
+
 
 // Returns a pool for byte arrays of the given size
 func getSizedPoolByte(size int) *sync.Pool {
@@ -92,8 +99,8 @@ func GetArrayOfByteFromPool(size int) []byte {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfByteIntoPool(arr []byte) {
-	pool:=getSizedPoolByte(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolByte(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -124,8 +131,8 @@ func GetArrayOfInt8FromPool(size int) []int8 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt8IntoPool(arr []int8) {
-	pool:=getSizedPoolInt8(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolInt8(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -156,8 +163,8 @@ func GetArrayOfInt16FromPool(size int) []int16 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt16IntoPool(arr []int16)  {
-	pool:=getSizedPoolInt16(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolInt16(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -188,8 +195,8 @@ func GetArrayOfInt32FromPool(size int) []int32 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt32IntoPool(arr []int32) {
-	pool:=getSizedPoolInt32(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolInt32(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -220,8 +227,8 @@ func GetArrayOfInt64FromPool(size int) []int64 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt64IntoPool(arr []int64) {
-	pool:=getSizedPoolInt64(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolInt64(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -235,7 +242,11 @@ func getSizedPoolFloat32(size int) *sync.Pool {
 	if pool==nil {
 		pool=&sync.Pool{
 			New: func() interface{} {
-				return make([]float32, size);
+				res:=make([]float32, size);
+				m:=runtime.MemStats{}
+				runtime.ReadMemStats(&m)
+				LogPrintf("make %d alloc %d totalAlloc %d sys %d (all MiB)\n", (size*4)/1024/1024, m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
+				return res
 			},
 		}
 		poolFloat32.Lock()
@@ -253,8 +264,8 @@ func GetArrayOfFloat32FromPool(size int) []float32 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfFloat32IntoPool(arr []float32) {
-	pool:=getSizedPoolFloat32(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolFloat32(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
@@ -285,8 +296,42 @@ func GetArrayOfFloat64FromPool(size int) []float64 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfFloat64IntoPool(arr []float64) {
-	pool:=getSizedPoolFloat64(len(arr))
-	pool.Put(arr)
+	pool:=getSizedPoolFloat64(cap(arr))
+	pool.Put(arr[:cap(arr)])
+	arr=nil
+}
+
+
+
+
+// Returns a pool for []Star arrays of the given size
+func getSizedPoolStar(size int) *sync.Pool {
+	poolStar.RLock()
+	pool:=poolStar.m[size]
+	poolStar.RUnlock()
+	if pool==nil {
+		pool=&sync.Pool{
+			New: func() interface{} {
+				return make([]Star, size);
+			},
+		}
+		poolStar.Lock()
+		poolStar.m[size]=pool
+		poolStar.Unlock()
+	}
+	return pool
+}
+
+// Retrieves an array of given size and type from pool
+func GetArrayOfStarFromPool(size int) []Star {
+	pool:=getSizedPoolStar(size)
+	return pool.Get().([]Star)
+}
+
+// Returns an array of given size and type to the pool
+func PutArrayOfStarIntoPool(arr []Star) {
+	pool:=getSizedPoolStar(cap(arr))
+	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
 
