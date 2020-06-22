@@ -47,7 +47,7 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 	LogPrintf("%d images of %dx%d pixels (%.1f MPixels), which each take %d MiB in-memory as floating point.\n", 
 	           numFrames, width, height, mPixels, mib)
 
-	availableFrames:=(int64(stMemory)*1024*1024+bytes-1)/bytes
+	availableFrames:=(int64(stMemory)*1024*1024)/bytes // rounding down
 	imageLevelParallelism=int32(runtime.GOMAXPROCS(0))
 	LogPrintf("CPU has %d threads. Physical memory is %d MiB, -stMemory is %d MiB, this fits %d frames.\n", imageLevelParallelism, memory.TotalMemory()/1024/1024, stMemory, availableFrames)
 
