@@ -17,7 +17,6 @@
 package internal
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"math"
@@ -63,16 +62,7 @@ func (fits *FITSImage) Write(f io.Writer) error {
 	if err!=nil { return err }
 
 	// Write payload data, replacing NaNs with zeros for compatibility
-	dataNoNan:=GetArrayOfFloat32FromPool(len(fits.Data))
-	for i,d:=range fits.Data {
-		if math.IsNaN(float64(d)) {
-			d=0
-		} 
-		dataNoNan[i]=d
-	}
-	err=binary.Write(f, binary.BigEndian, dataNoNan)
-	PutArrayOfFloat32IntoPool(dataNoNan)
-	return err
+	return writeFloat32Array(f, fits.Data, true)
 }
 
 
@@ -152,4 +142,30 @@ func writeString(w io.Writer, key, value, comment string) {
 // Writes a FITS header end record 
 func writeEnd(w io.Writer) {
 	fmt.Fprintf(w, "END%s", strings.Repeat(" ", 80-3))
+}
+
+
+// Writes FITS binary body data in network byte order. 
+// Optionally replaces NaNs with zeros for compatibility with other software
+func writeFloat32Array(w io.Writer, data []float32, replaceNaNs bool) error {
+	buf:=GetArrayOfByteFromPool(bufLen)
+	defer PutArrayOfByteIntoPool(buf)
+
+	for block:=0; block<len(data); block+=(bufLen>>2) {
+		size:=len(data)-block
+		if size>(bufLen>>2) { size=(bufLen>>2) }
+
+		for offset:=0; offset<size; offset++ {
+			d:=data[block+offset]
+			if replaceNaNs && math.IsNaN(float64(d)) { d=0 }
+			val:=math.Float32bits(d)
+			buf[(offset<<2)+0]=byte(val>>24)
+			buf[(offset<<2)+1]=byte(val>>16)
+			buf[(offset<<2)+2]=byte(val>> 8)
+			buf[(offset<<2)+3]=byte(val    )
+		}
+		_, err:=w.Write(buf[:(size<<2)])
+		if err!=nil { return err }
+	}
+	return nil
 }
