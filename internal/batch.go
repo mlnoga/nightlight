@@ -25,7 +25,7 @@ import (
 
 
 // Split input into required number of randomized batches, given the permissible amount of memory
-func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage) (numBatches, batchSize int64, ids []int, shuffledFileNames []string) {
+func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage) (numBatches, batchSize int64, ids []int, shuffledFileNames []string, imageLevelParallelism int32) {
 	numFrames:=int64(len(fileNames))
 	width, height:=int64(0), int64(0)
 	if darkF!=nil {
@@ -48,26 +48,31 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 	           numFrames, width, height, mPixels, mib)
 
 	availableFrames:=(int64(stMemory)*1024*1024+bytes-1)/bytes
-	LogPrintf("Physical memory is %d MiB, -stMemory limit is %d MiB, this fits %d frames.\n", memory.TotalMemory()/1024/1024, stMemory, availableFrames)
-	LogPrintf("Using %d threads.\n", runtime.GOMAXPROCS(0))
+	imageLevelParallelism=int32(runtime.GOMAXPROCS(0))
+	LogPrintf("CPU has %d threads. Physical memory is %d MiB, -stMemory is %d MiB, this fits %d frames.\n", imageLevelParallelism, memory.TotalMemory()/1024/1024, stMemory, availableFrames)
 
 	// calculate batch size for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
-	batchSize=availableFrames - int64(runtime.GOMAXPROCS(0))
-	if darkF!=nil { batchSize-- }
-	if flatF!=nil { batchSize-- }
-	if batchSize<2 { LogFatal("Low memory, unable to stack") }
-	// postprocesing has same memory needs as preprocessing, sans light and dark frame
+	outer: 
+	for ; imageLevelParallelism>=1; imageLevelParallelism-- {
+		batchSize=availableFrames - int64(imageLevelParallelism)
+		if darkF!=nil { batchSize-- }
+		if flatF!=nil { batchSize-- }
+		if batchSize<5 { continue outer }
+		// postprocesing has same memory needs as preprocessing, sans light and dark frame
 
-	// correct for memory requirements of stacking: we need the lights in the batch, and as many temporary stacks as we have batches
-	numBatches=(numFrames+batchSize-1)/batchSize
-	for ; batchSize+numBatches>availableFrames; {
-		batchSize--
-		if batchSize<2 { LogFatal("Low memory, unable to stack") }
+		// correct for memory requirements of stacking: we need the lights in the batch, and as many temporary stacks as we have batches
 		numBatches=(numFrames+batchSize-1)/batchSize
+		for ; batchSize+numBatches>availableFrames; {
+			batchSize--
+			if batchSize<5 { continue outer }
+			numBatches=(numFrames+batchSize-1)/batchSize
+		}
+		break
 	}
+	if imageLevelParallelism<=1 || batchSize<=1 { LogFatal("Out of memory for stacking") }
 	// even out size of the last frame
 	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
-	LogPrintf("Using %d batches of batch size %d\n", numBatches, batchSize)
+	LogPrintf("Using %d batches of batch size %d with %d images in parallel.\n", numBatches, batchSize, imageLevelParallelism)
 
 	perm:=make([]int, len(fileNames))
 	for i,_:=range perm {
@@ -88,5 +93,5 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 			fileNames[i]=old[perm[i]]
 		}
 	}
-	return numBatches, batchSize, perm, fileNames
+	return numBatches, batchSize, perm, fileNames, imageLevelParallelism
 }

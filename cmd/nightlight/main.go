@@ -36,7 +36,7 @@ type Job struct {
 	Err      error
 }
 
-var totalMBs=memory.TotalMemory()/1024/1024
+var totalMiBs=memory.TotalMemory()/1024/1024
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
@@ -76,7 +76,7 @@ var stClipPercHigh= flag.Float64("stClipPercHigh",0.5,"set desired high clipping
 var stSigLow  = flag.Float64("stSigLow", -1,"low sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
 var stSigHigh = flag.Float64("stSigHigh",-1,"high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
 var stWeight  = flag.Int64("stWeight", 0, "0 unweighted stacking (default), 1 inverse noise weighted stacking")
-var stMemory  = flag.Int64("stMemory", int64((totalMBs*8)/10), "total MB of memory to use for stacking, default=80% of physical memory")
+var stMemory  = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
 
 var scaleR    = flag.Float64("scaleR", 1, "scale red channel by this factor")
 var scaleG    = flag.Float64("scaleG", 1, "scale green channel by this factor")
@@ -306,7 +306,7 @@ func cmdStack(args []string, batchPattern string) {
 	fileNames:=globFilenameWildcards(args)
 
 	// Split input into required number of randomized batches, given the permissible amount of memory
-	numBatches, batchSize, overallIDs, overallFileNames:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
+	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
 	batchResults :=make([]*nl.FITSImage, numBatches)
 	batchWeights :=make([]float32, numBatches)
 	batchAvgNoise:=make([]float32, numBatches)
@@ -326,7 +326,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Stack the files in this batch
 		batch, avgNoise :=(*nl.FITSImage)(nil), float32(0)
-		batch, refFrame, sigLow, sigHigh, avgNoise=stackBatch(ids, fileNames, refFrame, sigLow, sigHigh)
+		batch, refFrame, sigLow, sigHigh, avgNoise=stackBatch(ids, fileNames, refFrame, sigLow, sigHigh, imageLevelParallelism)
 		framesProcessed :=batchEndOffset-batchStartOffset
 		batchResults[b], batchWeights[b], batchAvgNoise[b]=batch, float32(framesProcessed), avgNoise
 
@@ -403,12 +403,12 @@ func cmdStack(args []string, batchPattern string) {
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns image data to to the pool, except for the reference frame.
 // Returns the stack for the batch, and the reference frame
-func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, sigHigh float32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
+func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d:\n", 
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, *pre)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, *pre, imageLevelParallelism)
 	runtime.GC()					
 
 	avgNoise=float32(0)
@@ -428,7 +428,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 
 	// Post-process all light frames (align, normalize)
 	nl.LogPrintf("\nPostprocessing %d frames with align=%d alignK=%d alignT=%.3f normHist=%d:\n", len(lights), *align, *alignK, *alignT, *normHist)
-	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, *post)
+	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, *post, imageLevelParallelism)
 	runtime.GC()					
 
 	// Remove nils from lights
@@ -506,9 +506,11 @@ func cmdRGB(args []string) {
 	ids:=[]int{0,1,2}
 
 	// Read files and detect stars
+	imageLevelParallelism:=int32(runtime.GOMAXPROCS(0))
+	if imageLevelParallelism>3 { imageLevelParallelism=3 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, "")
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, "", imageLevelParallelism)
 
 	// Pick reference frame
 	refFrame, refFrameScore:=nl.SelectReferenceFrame(lights)
@@ -518,7 +520,7 @@ func cmdRGB(args []string) {
 	// Post-process all channels (align, normalize)
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
-	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "")
+	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "", imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
 
 	// Combine RGB channels
@@ -546,9 +548,11 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	ids:=[]int{0,1,2,3}
 
 	// Read files and detect stars
+	imageLevelParallelism:=int32(runtime.GOMAXPROCS(0))
+	if imageLevelParallelism>4 { imageLevelParallelism=4 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, "")
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, "", imageLevelParallelism)
 
 	// Always use luminance as reference frame
 	refFrame:=lights[0]
@@ -568,7 +572,7 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	// Align images
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
-	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "")
+	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "", imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
 
 	// Combine RGB channels

@@ -19,7 +19,6 @@ package internal
 import (
 	"errors"
 	"fmt"
-	"runtime"
 )
 
 
@@ -58,11 +57,11 @@ func LoadFlat(flat string) *FITSImage {
 
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, preprocessedPattern string) (lights []*FITSImage) {
+func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
 	//LogPrintf("CSV Id,%s\n", (&BasicStats{}).ToCSVHeader())
 
 	lights =make([]*FITSImage, len(fileNames))
-	sem   :=make(chan bool, runtime.NumCPU())
+	sem   :=make(chan bool, imageLevelParallelism)
 	for i, fileName := range(fileNames) {
 		id:=ids[i]
 		sem <- true 

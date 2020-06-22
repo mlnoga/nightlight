@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"runtime"
 )
 
 // Replaceemnt mode for out of bounds values when projecting images
@@ -42,13 +41,13 @@ const (
 )
 
 // Postprocess all light frames with given settings, limiting concurrency to the number of available CPUs
-func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align int32, alignK int32, alignThreshold float32, normalize HistoNormMode, oobMode OutOfBoundsMode, postProcessedPattern string) (numErrors int) {
+func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align int32, alignK int32, alignThreshold float32, normalize HistoNormMode, oobMode OutOfBoundsMode, postProcessedPattern string, imageLevelParallelism int32) (numErrors int) {
 	var aligner *Aligner=nil
 	if align!=0 {
 		aligner=NewAligner(alignRef.Naxisn, alignRef.Stars, alignK)
 	}
 	numErrors=0
-	sem   :=make(chan bool, runtime.NumCPU())
+	sem   :=make(chan bool, imageLevelParallelism)
 	for i, lightP := range(lights) {
 		sem <- true 
 		go func(i int, lightP *FITSImage) {
