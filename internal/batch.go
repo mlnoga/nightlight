@@ -51,25 +51,26 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 	imageLevelParallelism=int32(runtime.GOMAXPROCS(0))
 	LogPrintf("CPU has %d threads. Physical memory is %d MiB, -stMemory is %d MiB, this fits %d frames.\n", imageLevelParallelism, memory.TotalMemory()/1024/1024, stMemory, availableFrames)
 
-	// calculate batch size for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
+	// calculate batch sizes for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
 	outer: 
 	for ; imageLevelParallelism>=1; imageLevelParallelism-- {
-		batchSize=availableFrames - int64(imageLevelParallelism)
-		if darkF!=nil { batchSize-- }
-		if flatF!=nil { batchSize-- }
-		if batchSize<5 { continue outer }
-		// postprocesing has same memory needs as preprocessing, sans light and dark frame
+		// batch size for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
+		preBatchSize:=availableFrames - int64(imageLevelParallelism)
+		if darkF!=nil { preBatchSize-- }
+		if flatF!=nil { preBatchSize-- }
+		if preBatchSize<2 { continue outer }
 
-		// correct for memory requirements of stacking: we need the lights in the batch, and as many temporary stacks as we have batches
-		numBatches=(numFrames+batchSize-1)/batchSize
-		for ; batchSize+numBatches>availableFrames; {
-			batchSize--
-			if batchSize<5 { continue outer }
+		batchSize=preBatchSize
+		for {
+			// correct for memory requirements of stacking: we also need temp storage for all batch stacks on top
 			numBatches=(numFrames+batchSize-1)/batchSize
+			newBatchSize:=preBatchSize-numBatches
+			if newBatchSize<2 { continue outer }
+			if newBatchSize==batchSize { break outer }
+			corrBatchSize=newCorrBatchSize
 		}
-		break
 	}
-	if imageLevelParallelism<=1 || batchSize<=1 { LogFatal("Out of memory for stacking") }
+	if imageLevelParallelism<1 || batchSize<2 { LogFatal("Cannot find a stacking execution path within the given memory constraints.") }
 	// even out size of the last frame
 	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
 	LogPrintf("Using %d batches of batch size %d with %d images in parallel.\n", numBatches, batchSize, imageLevelParallelism)
