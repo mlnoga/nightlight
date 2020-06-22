@@ -199,6 +199,8 @@ func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
 
 		res[i]=QSelectMedianFloat32(gatheredCur)
 	}
+	PutArrayOfFloat32IntoPool(gatheredFull)
+	gatheredFull=nil
 }
 
 
@@ -269,7 +271,7 @@ func StackMeanWeighted(lightsData [][]float32, weights []float32, refMedian floa
 // standard deviations away from the mean are excluded from the average calculation.
 // The standard deviation is calculated w.r.t the mean for robustness.
 func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull:=	Float32FromPool(len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
 	// for all pixels
