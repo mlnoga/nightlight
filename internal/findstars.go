@@ -214,7 +214,6 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 	xBins  :=(width +binSize-1)/binSize
 	yBins  :=(height+binSize-1)/binSize
 	bins   :=make([]*starListItem,int(xBins*yBins))
-	for i,_:=range bins { bins[i]=nil }
 	slis   :=make([]starListItem,((len(stars)+1023)/1024)*1024) // use tiered sizing to help the allocator
 	radiusSquared:=radius*radius
 
