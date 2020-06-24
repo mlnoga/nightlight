@@ -327,7 +327,7 @@ func cmdStack(args []string, batchPattern string) {
 		batchFrames     :=batchEndOffset-batchStartOffset
 		ids      :=overallIDs      [batchStartOffset:batchEndOffset]
 		fileNames:=overallFileNames[batchStartOffset:batchEndOffset]
-		nl.LogPrintf("\nStarting batch %d of %d images: %v...\n", b, len(ids), ids)
+		nl.LogPrintf("\nStarting batch %d of %d with %d images: %v...\n", b, numBatches, len(ids), ids)
 
 		// Stack the files in this batch
 		batch, avgNoise :=(*nl.FITSImage)(nil), float32(0)
