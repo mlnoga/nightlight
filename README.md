@@ -4,7 +4,7 @@
 
 Nightlight is a fast, high-quality and repeatable pipeline for astronomic image processing. Starting with faint monochrome FITS subexposures from your camera, Nightlight creates beautiful and striking stacked [images](https://photo.noga.de/#collection/4a66a793-07cd-4a69-bdc5-8dec2e82c4a2): LRGB composites in natural colors, narrowband images in the [Hubble palette](http://bf-astro.com/hubblep.htm), or in many other color schemes thanks to 32 bit floating point image processing. 
 
-Nighlight automatically normalizes, aligns, stacks, composites and tunes your images. The in-memory architecture with randomized batching touches each file exactly once and requires no temporary files. Written in pure GoLang with selected AVX2 optimizations, Nightlight is fast and scales to use all available CPU cores efficiently. It currently supports Linux, Mac and Windows on reasonably modern AMD and Intel processors. 
+Nighlight automatically normalizes, aligns, stacks, composites and tunes your images. The in-memory architecture with randomized batching touches each file exactly once and requires no temporary files. Written in pure GoLang with selected AVX2 optimizations, Nightlight is fast and scales to use all available CPU cores efficiently. It currently supports Linux, Mac and Windows on reasonably modern AMD and Intel processors, and Linux on ARM7 like the Raspberry Pi 4. 
 
 As a command line tool, Nightlight is ideal for creating an automated build pipeline for your images with tools like GNU [make](https://www.gnu.org/software/make/). Then apply your finishing touches by fine tuning curves in a tool like [GIMP](https://www.gimp.org/).
 
@@ -45,7 +45,6 @@ Here are some sample datasets to play with:
 * Does not support mosaicing or auto-cropping, output is currently identical to the extent of the reference frame
 * Does not support full plate solving
 * Does not support planetary disc alignment without stars in the picture, for planetary imaging
-* Requires a CPU capable of AVX2 processing (Intel or AMD). ARM for RasPi currently not supported
 
 ## Usage via Makefile
 
