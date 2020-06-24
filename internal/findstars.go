@@ -69,36 +69,43 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 	// filter out faint stars overlapped by brighter ones
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	//LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	// LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// move stars to centroid position
 	sumOfShifts=shiftToCenterOfMass(stars, data, width, location, radius)
-	//LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
+	// LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
 
 	// filter out faint stars again
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	//LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	// LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// remove implausible stars based on HFR and mass
-	stars,avgHFR=calcHalfFluxRadius(stars, data, width, location, float32(radius))
+	avgHFR=calcHalfFluxRadius(stars, data, width, location, float32(radius))
 	// LogPrintf("%d (%.2g%%) stars left after HFR calc, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
 	stars,avgHFR=filterByMassAndHFR(stars, starSig, scale, float32(radius), width, int32(len(data)/int(width)))
+	// LogPrintf("%d (%.2g%%) stars left after FilterByMassAndHFR, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
 
 	// maxIndex:=10
 	// if maxIndex>len(stars) { maxIndex=len(stars)}
-	// LogPrintf("Top    10 stars: %v\n", stars[:maxIndex])
-	// LogPrintf("Bottom 10 stars: %v\n", stars[len(stars)-maxIndex:])
+	// LogPrintf("Top    %d stars: %v\n", maxIndex, stars[:maxIndex])
+	// LogPrintf("Bottom %d stars: %v\n", maxIndex, stars[len(stars)-maxIndex:])
 	// PrintStars(stars)
 
-	return stars, sumOfShifts, avgHFR
+	// Return a clone of the final shortlist of stars, so the original longlist can go back into the pool
+	res:=make([]Star, len(stars))
+	copy(res, stars)
+	PutArrayOfStarIntoPool(stars)
+	stars=nil
+
+	return res, sumOfShifts, avgHFR
 }
 
 
 // Find pixels above the threshold and return them as stars. Applies early overlap rejection based on radius to reduce allocations.
 // Uses central pixel value as initial mass, 1 as initial HFR.
 func findBrightPixels(data []float32, width int32, threshold float32, radius int32) []Star {
-	stars:=[]Star{}
+	stars:=GetArrayOfStarFromPool(len(data)/100)[:0] // []Star{}
 
 	for i,v :=range data {
 		if v>threshold {
@@ -208,15 +215,15 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 	binSize:=int32(256)
 	xBins  :=(width +binSize-1)/binSize
 	yBins  :=(height+binSize-1)/binSize
-	bins   :=make([]*starListItem, xBins*yBins)
-	slis   :=make([]starListItem,  len(stars))
+	bins   :=GetArrayOfPointerToStarListItemFromPool(int(xBins*yBins))
+	for i,_:=range bins { bins[i]=nil }
+	slis   :=GetArrayOfStarListItemFromPool(((len(stars)+1023)/1024)*1024) // use tiered sizing to help the allocator
 	radiusSquared:=radius*radius
 
 	// For all stars, filter list in place
-	remainingStars:=make([]Star, len(stars))
 	numRemainingStars:=0
 	forAllStars:
-	for i,s:=range stars {
+	for _,s:=range stars {
 		// Find grid cell of this star
 		xCell, yCell:=int32(s.X+0.5)/binSize, int32(s.Y+0.5)/binSize
 
@@ -242,26 +249,31 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 			}
 		}
 
+		// Retain star for output
+		stars[numRemainingStars]=s
+
 		// Insert star into grid cell
-		slis[i]  =starListItem{&(stars[i]),nil}
+		slis[numRemainingStars]  =starListItem{&(stars[numRemainingStars]),nil}
 		cellIndex:=xCell+yCell*xBins
 		ptr      :=bins[cellIndex]
 		if ptr==nil {
-			bins[cellIndex]=&(slis[i])
+			bins[cellIndex]=&(slis[numRemainingStars])
 		} else {
 			for ptr.Next!=nil {
 				ptr=ptr.Next
 			}
-			ptr.Next=&(slis[i])
+			ptr.Next=&(slis[numRemainingStars])
 		}
 
-		// Retain star for output
-		remainingStars[numRemainingStars]=s
 		numRemainingStars++
 	}
 
+	PutArrayOfPointerToStarListItemIntoPool(bins)
+	bins=nil
+	PutArrayOfStarListItemIntoPool(slis)
+	slis=nil
 	// Return shortened list of stars as result
-	return remainingStars[:numRemainingStars]
+	return stars[:numRemainingStars]
 }
 
 // Shifts each star to its floating point-valued center of mass. Modifies stars in place
@@ -317,11 +329,10 @@ func shiftToCenterOfMass(stars []Star, data []float32, width int32, location flo
 
 // Calculate the Half-Flux Radius of each star. Returns a new list of stars, each enriched with the HFR field
 // Based on the algorithm in https://en.wikipedia.org/wiki/Half_flux_diameter
-func calcHalfFluxRadius(stars []Star, data []float32, width int32, location float32, radius float32) (updated []Star, avgHFR float32) {
+func calcHalfFluxRadius(stars []Star, data []float32, width int32, location float32, radius float32) (avgHFR float32) {
 	avgHFR=float32(0)
-	updated=[]Star{}
 	//LogPrintf("bzero=%d location=%g\n", bzero, location)
-	for _,c:=range stars {
+	for i,c:=range stars {
 		moment, mass:=float32(0), float32(0)
 		rad:=int32(radius)
 		for y:=-rad; y<=rad; y++ {
@@ -344,10 +355,10 @@ func calcHalfFluxRadius(stars []Star, data []float32, width int32, location floa
 		hfr:=float32(moment/mass)
 		// LogPrintf("-> mass %6.6g hfr %6.6g\n", c.Mass, hfr)
 		avgHFR+=float32(hfr)
-		updated=append(updated, Star{Index:c.Index, Value:c.Value, X:c.X, Y:c.Y, Mass:c.Mass, HFR: hfr})
+		stars[i].HFR=hfr
 	}
 	avgHFR/=float32(len(stars))
-	return updated, avgHFR
+	return avgHFR
 }
 
 
@@ -356,7 +367,6 @@ func massOverHFA(mass, hfr float32) float32 {
 }
 
 func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, height int32) (res []Star, medianHFR float32) {
-	res  =make([]Star,    len(stars))
 	hfrs:=make([]float32, len(stars))
 	massOverHFAs:=make([]float32, len(stars))
 
@@ -372,27 +382,27 @@ func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, heigh
 		if s.Mass<lowBound || s.HFR<1 { continue } 
 		if s.HFR>=radius*0.5 { continue } // also ignore overly large star candiates, these are usually parts of nebulae
 		//LogPrintf("%.2f,%.2f,%.2f,%.2f,%.2f\n", s.X, s.Y, s.Mass, s.HFR, massOverHFA(s.Mass,s.HFR))
-		res [numRes]=s
+		stars[numRes]=s
 		hfrs[numRes]=s.HFR
 		massOverHFAs[numRes]=s.Mass/(s.HFR*s.HFR*float32(math.Pi))
 		numRes++
 	}
-	res, hfrs, massOverHFAs=res[:numRes], hfrs[:numRes], massOverHFAs[:numRes]
+	stars, hfrs, massOverHFAs=stars[:numRes], hfrs[:numRes], massOverHFAs[:numRes]
 
 	medianHFR=QSelectMedianFloat32(hfrs)
 	medianMassOverHFA:=QSelectMedianFloat32(massOverHFAs)
 
 	// Pass 2: filter out based on expected median HFR and median brightness
 	numRes=0
-	for _, s:=range res {
+	for _, s:=range stars {
 		massOverHFA:=s.Mass/(s.HFR*s.HFR*float32(math.Pi))
 		if s.HFR>medianHFR && massOverHFA<medianMassOverHFA { continue } 
-		res [numRes]=s
+		stars[numRes]=s
 		hfrs[numRes]=s.HFR
 		numRes++
 	}
-	res, hfrs=res[:numRes], hfrs[:numRes]
+	stars, hfrs=stars[:numRes], hfrs[:numRes]
 	medianHFR=QSelectMedianFloat32(hfrs)
 
-	return res, medianHFR
+	return stars, medianHFR
 }

@@ -72,6 +72,19 @@ var poolStar=struct{
     m map[int]*sync.Pool
 }{m: make(map[int]*sync.Pool)}
 
+// Pool of constant sized arrays of given type, to reduce memory allocation overhead
+var poolStarListItem=struct{
+    sync.RWMutex
+    m map[int]*sync.Pool
+}{m: make(map[int]*sync.Pool)}
+
+// Pool of constant sized arrays of given type, to reduce memory allocation overhead
+var poolPointerToStarListItem=struct{
+    sync.RWMutex
+    m map[int]*sync.Pool
+}{m: make(map[int]*sync.Pool)}
+
+
 
 // Returns a pool for byte arrays of the given size
 func getSizedPoolByte(size int) *sync.Pool {
@@ -302,8 +315,6 @@ func PutArrayOfFloat64IntoPool(arr []float64) {
 }
 
 
-
-
 // Returns a pool for []Star arrays of the given size
 func getSizedPoolStar(size int) *sync.Pool {
 	poolStar.RLock()
@@ -331,6 +342,70 @@ func GetArrayOfStarFromPool(size int) []Star {
 // Returns an array of given size and type to the pool
 func PutArrayOfStarIntoPool(arr []Star) {
 	pool:=getSizedPoolStar(cap(arr))
+	pool.Put(arr[:cap(arr)])
+	arr=nil
+}
+
+
+// Returns a pool for []Star arrays of the given size
+func getSizedPoolStarListItem(size int) *sync.Pool {
+	poolStarListItem.RLock()
+	pool:=poolStarListItem.m[size]
+	poolStarListItem.RUnlock()
+	if pool==nil {
+		pool=&sync.Pool{
+			New: func() interface{} {
+				return make([]starListItem, size);
+			},
+		}
+		poolStarListItem.Lock()
+		poolStarListItem.m[size]=pool
+		poolStarListItem.Unlock()
+	}
+	return pool
+}
+
+// Retrieves an array of given size and type from pool
+func GetArrayOfStarListItemFromPool(size int) []starListItem {
+	pool:=getSizedPoolStarListItem(size)
+	return pool.Get().([]starListItem)
+}
+
+// Returns an array of given size and type to the pool
+func PutArrayOfStarListItemIntoPool(arr []starListItem) {
+	pool:=getSizedPoolStarListItem(cap(arr))
+	pool.Put(arr[:cap(arr)])
+	arr=nil
+}
+
+
+// Returns a pool for []Star arrays of the given size
+func getSizedPoolPointerToStarListItem(size int) *sync.Pool {
+	poolPointerToStarListItem.RLock()
+	pool:=poolPointerToStarListItem.m[size]
+	poolPointerToStarListItem.RUnlock()
+	if pool==nil {
+		pool=&sync.Pool{
+			New: func() interface{} {
+				return make([]*starListItem, size);
+			},
+		}
+		poolPointerToStarListItem.Lock()
+		poolPointerToStarListItem.m[size]=pool
+		poolPointerToStarListItem.Unlock()
+	}
+	return pool
+}
+
+// Retrieves an array of given size and type from pool
+func GetArrayOfPointerToStarListItemFromPool(size int) []*starListItem {
+	pool:=getSizedPoolPointerToStarListItem(size)
+	return pool.Get().([]*starListItem)
+}
+
+// Returns an array of given size and type to the pool
+func PutArrayOfPointerToStarListItemIntoPool(arr []*starListItem) {
+	pool:=getSizedPoolPointerToStarListItem(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
 }
