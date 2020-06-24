@@ -44,6 +44,9 @@ const (
 func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align int32, alignK int32, alignThreshold float32, normalize HistoNormMode, oobMode OutOfBoundsMode, postProcessedPattern string, imageLevelParallelism int32) (numErrors int) {
 	var aligner *Aligner=nil
 	if align!=0 {
+		if alignRef==nil || alignRef.Stars==nil || len(alignRef.Stars)==0 {
+			LogFatal("Unable to align without star detections in reference frame")
+		}
 		aligner=NewAligner(alignRef.Naxisn, alignRef.Stars, alignK)
 	}
 	numErrors=0
@@ -90,8 +93,16 @@ func postProcessLight(aligner *Aligner, histoRef, light *FITSImage, alignThresho
 	    	if err!=nil { return nil, err }
 	}
 
-	// skip alignment if this is the reference frame
-	if aligner==nil || (len(aligner.RefStars)==len(light.Stars) && (&aligner.RefStars[0]==&light.Stars[0])) {
+	if aligner==nil || aligner.RefStars==nil || len(aligner.RefStars)==0 {
+		light.Trans=IdentityTransform2D()		
+		return light, nil
+	} else if light.Stars==nil || len(light.Stars)==0 {
+		// skip alignment and warn if the current frame lacks stars
+		LogPrintf("%d: no stars found, skipping alignment", light.ID)
+		light.Trans=IdentityTransform2D()		
+		return light, nil
+	} else if (len(aligner.RefStars)==len(light.Stars) && (&aligner.RefStars[0]==&light.Stars[0])) {
+		// skip alignment if this is the reference frame
 		light.Trans=IdentityTransform2D()		
 		return light, nil
 	}
