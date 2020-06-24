@@ -22,6 +22,7 @@ Here are some sample datasets to play with:
 * Read FITS files and normalize them to 32-bit floating point
 * Estimate image location (histogram peak) and scale (peak width) via robust statistics
 * Subtract dark frame and divide by flat frame
+* Debayer one-shot color images
 * NxN Binning
 * Auto-detect stars
 * Measure half-flux radius (HFR)
@@ -41,7 +42,6 @@ Here are some sample datasets to play with:
 ## Limitations
 
 * Does not support RAW input from regular digital cameras, only FITS
-* Does not support color cameras which need debayering of images into separate color channels
 * Does not support mosaicing or auto-cropping, output is currently identical to the extent of the reference frame
 * Does not support full plate solving
 * Does not support planetary disc alignment without stars in the picture, for planetary imaging
