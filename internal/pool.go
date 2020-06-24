@@ -161,12 +161,16 @@ func getSizedPoolByte(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfByteFromPool(size int) []byte {
+	return make([]byte, size)
+
 	pool:=getSizedPoolByte(size)
 	return pool.Get().([]byte)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfByteIntoPool(arr []byte) {
+	return 
+
 	pool:=getSizedPoolByte(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -193,12 +197,16 @@ func getSizedPoolInt8(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfInt8FromPool(size int) []int8 {
+	return make([]int8, size)
+
 	pool:=getSizedPoolInt8(size)
 	return pool.Get().([]int8)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt8IntoPool(arr []int8) {
+	return 
+	
 	pool:=getSizedPoolInt8(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -225,12 +233,16 @@ func getSizedPoolInt16(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfInt16FromPool(size int) []int16 {
+	return make([]int16, size)
+
 	pool:=getSizedPoolInt16(size)
 	return pool.Get().([]int16)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt16IntoPool(arr []int16)  {
+	return 
+	
 	pool:=getSizedPoolInt16(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -257,12 +269,16 @@ func getSizedPoolInt32(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfInt32FromPool(size int) []int32 {
+	return make([]int32, size)
+
 	pool:=getSizedPoolInt32(size)
 	return pool.Get().([]int32)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt32IntoPool(arr []int32) {
+	return 
+	
 	pool:=getSizedPoolInt32(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -289,12 +305,16 @@ func getSizedPoolInt64(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfInt64FromPool(size int) []int64 {
+	return make([]int64, size)
+
 	pool:=getSizedPoolInt64(size)
 	return pool.Get().([]int64)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfInt64IntoPool(arr []int64) {
+	return 
+	
 	pool:=getSizedPoolInt64(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -340,6 +360,8 @@ func GetArrayOfFloat32FromPool(size int) []float32 {
 
 // Returns an array of given size and type to the pool
 func PutArrayOfFloat32IntoPool(arr []float32) {
+	return 
+	
 	pool:=getSizedPoolFloat32(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	m:=runtime.MemStats{}
@@ -371,12 +393,16 @@ func getSizedPoolFloat64(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfFloat64FromPool(size int) []float64 {
+	return make([]float64, size)
+
 	pool:=getSizedPoolFloat64(size)
 	return pool.Get().([]float64)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfFloat64IntoPool(arr []float64) {
+	return 
+	
 	pool:=getSizedPoolFloat64(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -403,12 +429,16 @@ func getSizedPoolStar(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfStarFromPool(size int) []Star {
+	return make([]Star, size)
+
 	pool:=getSizedPoolStar(size)
 	return pool.Get().([]Star)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfStarIntoPool(arr []Star) {
+	return 
+	
 	pool:=getSizedPoolStar(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -435,12 +465,16 @@ func getSizedPoolStarListItem(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfStarListItemFromPool(size int) []starListItem {
+	return make([]starListItem, size)
+
 	pool:=getSizedPoolStarListItem(size)
 	return pool.Get().([]starListItem)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfStarListItemIntoPool(arr []starListItem) {
+	return 
+	
 	pool:=getSizedPoolStarListItem(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil
@@ -467,12 +501,16 @@ func getSizedPoolPointerToStarListItem(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfPointerToStarListItemFromPool(size int) []*starListItem {
+	return make([]*starListItem, size)
+
 	pool:=getSizedPoolPointerToStarListItem(size)
 	return pool.Get().([]*starListItem)
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfPointerToStarListItemIntoPool(arr []*starListItem) {
+	return 
+	
 	pool:=getSizedPoolPointerToStarListItem(cap(arr))
 	pool.Put(arr[:cap(arr)])
 	arr=nil

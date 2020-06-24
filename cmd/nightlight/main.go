@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"runtime/debug"
 	"strings"
 	"time"
 	nl "noga.de/nightlight/internal"
@@ -112,6 +113,7 @@ var flatF *nl.FITSImage=nil
 var lights   =[]*nl.FITSImage{}
 
 func main() {
+	debug.SetGCPercent(10)
 	start:=time.Now()
 	flag.Usage=func(){
  	    nl.LogPrintf(`Nightlight Copyright (c) 2020 Markus L. Noga
@@ -363,7 +365,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Free memory
 		ids, fileNames=nil, nil
-		nl.ClearPools()
+		runtime.GC()
 	}
 
 	// Free more memory
@@ -380,7 +382,7 @@ func cmdStack(args []string, batchPattern string) {
 		flatF.Data=nil
 		flatF=nil
 	}
-	nl.ClearPools()
+	runtime.GC()
 
 	if numBatches>1 {
 		// Finalize stack of stacks
