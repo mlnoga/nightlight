@@ -57,7 +57,7 @@ func LoadFlat(flat string) *FITSImage {
 
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
+func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
 	//LogPrintf("CSV Id,%s\n", (&BasicStats{}).ToCSVHeader())
 
 	lights =make([]*FITSImage, len(fileNames))
@@ -67,7 +67,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, bi
 		sem <- true 
 		go func(i int, id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starRadius)
+			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, debayer, cfa, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starRadius)
 			if err!=nil {
 				LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -91,7 +91,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, bi
 // Preprocess a single light frame with given settings.
 // Pre-processing includes loading, basic statistics, dark subtraction, flat division, 
 // bad pixel removal, star detection and HFR calculation.
-func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, binning, normRange int32, bpSigLow, bpSigHigh, 
+func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, 
 	starSig, starBpSig float32, starRadius int32) (lightP *FITSImage, err error) {
 	// Load light frame
 	light:=NewFITSImage()
@@ -118,7 +118,17 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, binning, 
 		Divide(light.Data, light.Data, flatF.Data, flatF.Stats.Mean)
 	}
 
+	// debayer color filter array data if desired
+	if debayer!="" {
+		light.Data, light.Naxisn[0], err=DebayerBilinear(light.Data, light.Naxisn[0], debayer, cfa)
+		if err!=nil { return nil, err }
+		light.Pixels=int32(len(light.Data))
+		light.Naxisn[1]=light.Pixels/light.Naxisn[0]
+		LogPrintf("%d: Debayered channel %s from cfa %s, new size %dx%d\n", id, debayer, cfa, light.Naxisn[0], light.Naxisn[1])
+	}
+
 	// remove bad pixels if flagged
+	// FIXME: wont work well on debayered data, need to rethink this!
 	var medianDiffStats *BasicStats
 	if bpSigLow!=0 && bpSigHigh!=0 {
 		mask:=CreateMask(light.Naxisn[0], 1.5)

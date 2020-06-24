@@ -16,40 +16,54 @@
 
 package internal
 
-
-// Color filter array type, from top to bottom and left to right
-type CFAType int
-const (
-	CFATypeRGGB CFAType = iota
-	CFATypeGRBG
-	CFATypeGBRG
-	CFATypeBGGR
+import (
+	"errors"
 )
 
-// Textual names for color filter array types. Indexed by CFAType
-var CFANames=[]string{"RGGB", "GRBG", "GBRG", "BGGR"}
 
-
-func DebayerBilinearToRed(data []float32, width int32, cfaType CFAType) (rs []float32, adjWidth int32) {
-	switch cfaType {
-	case CFATypeRGGB:
-		return DebayerBilinearRGGBToRed(data, width)
+func DebayerBilinear(data []float32, width int32, debayer, cfa string) (res []float32, adjWidth int32, err error) {
+	// Translate color filter array type into offsets
+	// Pattern: RGRGRGRG
+	//          GBGBGBGB
+	//          RGRGRGRG
+	//          GBGBGBGB
+	var xOffset, yOffset int32
+	switch cfa {
+	case "RGGB","rggb": xOffset, yOffset=0,0
+	case "GRBG","grbg": xOffset, yOffset=1,0
+	case "GBRG","gbrg": xOffset, yOffset=0,1
+	case "BGGR","bggr": xOffset, yOffset=1,1
+	default: return nil, 0, errors.New("Unknown CFA value "+cfa)
 	}
-	LogFatalf("Unimplemented CFA type for debayering: %d\n", cfaType)
-	return nil, 0 // never reached
+
+	// Select color channel and debayer
+	switch(debayer) {
+	case "R","r": 
+		res, adjWidth=DebayerBilinearRGGBToRed(data, width, xOffset, yOffset)
+		return res, adjWidth, nil
+	case "G","g": 
+		res, adjWidth=DebayerBilinearRGGBToGreen(data, width, xOffset, yOffset)
+		return res, adjWidth, nil
+	case "B","b":
+		res, adjWidth=DebayerBilinearRGGBToBlue(data, width, xOffset, yOffset)
+		return res, adjWidth, nil
+	default:      
+		return nil, 0, errors.New("Unknown debayering value " + debayer)
+	}
 }
 
-func DebayerBilinearRGGBToRed(data []float32, width int32) (rs []float32, adjWidth int32) {
+
+func DebayerBilinearRGGBToRed(data []float32, width, xOffset, yOffset int32) (rs []float32, adjWidth int32) {
 	height   :=int32(len(data))/width
-	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
-	adjHeight:=height & ^1
+	adjWidth  =(width-xOffset)  & ^1            // ignore last column and row in odd-sized images
+	adjHeight:=(height-yOffset) & ^1
 	rs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
 		for col:=int32(0); col<adjWidth; col+=2 {
-			srcOffset :=row*width   +col
-			destOffset:=row*adjWidth+col
+			srcOffset :=(row+yOffset)*   width +(col+xOffset)
+			destOffset:=(row        )*adjWidth +(col        )
 
 			// read relevant red values
 			r:=data[srcOffset]
@@ -75,17 +89,17 @@ func DebayerBilinearRGGBToRed(data []float32, width int32) (rs []float32, adjWid
 	return rs, adjWidth
 }
 
-func DebayerBilinearRGGBToGreen(data []float32, width int32) (gs []float32, adjWidth int32) {
+func DebayerBilinearRGGBToGreen(data []float32, width, xOffset, yOffset int32) (gs []float32, adjWidth int32) {
 	height   :=int32(len(data))/width
-	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
-	adjHeight:=height & ^1
+	adjWidth  =(width-xOffset)  & ^1            // ignore last column and row in odd-sized images
+	adjHeight:=(height-yOffset) & ^1
 	gs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
 		for col:=int32(0); col<adjWidth; col+=2 {
-			srcOffset :=row*width   +col
-			destOffset:=row*adjWidth+col
+			srcOffset :=(row+yOffset)*   width +(col+xOffset)
+			destOffset:=(row        )*adjWidth +(col        )
 
 			// read relevant green values
 			g1:=data[srcOffset+1      ]
@@ -117,17 +131,17 @@ func DebayerBilinearRGGBToGreen(data []float32, width int32) (gs []float32, adjW
 	return gs, adjWidth
 }
 
-func DebayerBilinearRGGBToBlue(data []float32, width int32) (bs []float32, adjWidth int32) {
+func DebayerBilinearRGGBToBlue(data []float32, width, xOffset, yOffset int32) (bs []float32, adjWidth int32) {
 	height   :=int32(len(data))/width
-	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
-	adjHeight:=height & ^1
+	adjWidth  =(width-xOffset)  & ^1            // ignore last column and row in odd-sized images
+	adjHeight:=(height-yOffset) & ^1
 	bs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
 		for col:=int32(0); col<adjWidth; col+=2 {
-			srcOffset :=row*width   +col
-			destOffset:=row*adjWidth+col
+			srcOffset :=(row+yOffset)*   width +(col+xOffset)
+			destOffset:=(row        )*adjWidth +(col        )
 
 			// read relevant blue values
 			b:=data[srcOffset+1+width]
