@@ -348,6 +348,8 @@ func getSizedPoolFloat32(size int) *sync.Pool {
 
 // Retrieves an array of given size and type from pool
 func GetArrayOfFloat32FromPool(size int) []float32 {
+	return make([]float32, size)
+
 	pool:=getSizedPoolFloat32(size)
 	res:=pool.Get().([]float32)
 	m:=runtime.MemStats{}
