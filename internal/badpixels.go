@@ -38,7 +38,7 @@ func BadPixelMap(data []float32, width int32, mask []int32, sigmaLow, sigmaHigh 
 	thresholdHigh:=   medianDiffStats.StdDev * sigmaHigh
 	// LogPrintf("Mediansub stats: %v  threslow: %.2f thresHigh: %.2f\n", stats, thresholdLow, thresholdHigh)
 
-	bpm=[]int32{}
+	bpm=GetArrayOfInt32FromPool(len(data)/100)[:0] // []int32{}
 	for i, t:=range(tmp) {
 		if t<thresholdLow || t>thresholdHigh {
 			bpm=append(bpm, int32(i))
