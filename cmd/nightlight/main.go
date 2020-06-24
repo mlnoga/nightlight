@@ -365,7 +365,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Free memory
 		ids, fileNames=nil, nil
-		runtime.GC()
+		debug.FreeOSMemory()
 	}
 
 	// Free more memory
@@ -382,7 +382,7 @@ func cmdStack(args []string, batchPattern string) {
 		flatF.Data=nil
 		flatF=nil
 	}
-	runtime.GC()
+	debug.FreeOSMemory()
 
 	if numBatches>1 {
 		// Finalize stack of stacks
@@ -421,7 +421,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
 		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, *pre, imageLevelParallelism)
-	//runtime.GC()					
+	debug.FreeOSMemory()					
 
 	avgNoise=float32(0)
 	for _,l:=range lights {
@@ -441,7 +441,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	// Post-process all light frames (align, normalize)
 	nl.LogPrintf("\nPostprocessing %d frames with align=%d alignK=%d alignT=%.3f normHist=%d:\n", len(lights), *align, *alignK, *alignT, *normHist)
 	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, *post, imageLevelParallelism)
-	//runtime.GC()					
+	debug.FreeOSMemory()					
 
 	// Remove nils from lights
 	o:=0
@@ -498,7 +498,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		}
 	}
 	lights=nil
-	//runtime.GC()					
+	debug.FreeOSMemory()
 
 	return stack, refFrame, sigLow, sigHigh, avgNoise
 }
