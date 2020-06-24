@@ -752,3 +752,39 @@ func StackLinearFit(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float
 
 	return numClippedLow, numClippedHigh
 }
+
+
+// Incrementally stacks the light onto the given stack, weighted by the given weight. 
+// Creates a new stack with same dimensions as light if stack is nil. 
+// Returns the modified or created stack. Does not calculate statistics, run star detections etc.
+func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
+	if stack==nil {
+		stack=&FITSImage{
+			Header: NewFITSHeader(),
+			Bitpix: -32,
+			Bzero : 0,
+			Naxisn: append([]int32(nil), light.Naxisn...), // clone slice
+			Pixels: light.Pixels,
+			Data  : GetArrayOfFloat32FromPool(len(light.Data)),
+			Stats : nil, 
+			Trans : IdentityTransform2D(),
+			Residual: 0,
+		}
+		for i,d:=range light.Data {
+			stack.Data[i]=d*weight
+		}
+	}	else {
+		for i,d:=range light.Data {
+			stack.Data[i]+=d*weight
+		}
+	}
+	return stack
+}
+
+// Finalizes an incremental stack. Divides pixel values by weight sum, and calculates extended stats
+func StackIncrementalFinalize(stack *FITSImage, weightSum float32) (err error) {
+	factor:=1.0/weightSum
+	for i,d:=range stack.Data { stack.Data[i]=d*factor }
+	stack.Stats, err=CalcExtendedStats(stack.Data, stack.Naxisn[0])
+	return err
+}

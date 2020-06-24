@@ -275,6 +275,11 @@ func cmdStack(args []string, batchPattern string) {
 	if *normHist==nl.HNMAuto { *normHist=nl.HNMLocScale }
 	if *starBpSig<0 { *starBpSig=5 } // default to noise elimination when working with individual subexposures
 
+	// The stack of stacks
+	var stack *nl.FITSImage = nil
+	var stackFrames int64 = 0
+	var stackNoise  float32 = 0
+
     // Load dark and flat in parallel if flagged
     sem   :=make(chan bool, 2) // limit parallelism to 2
     if *dark!="" { 
@@ -307,9 +312,6 @@ func cmdStack(args []string, batchPattern string) {
 
 	// Split input into required number of randomized batches, given the permissible amount of memory
 	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
-	batchResults :=make([]*nl.FITSImage, numBatches)
-	batchWeights :=make([]float32, numBatches)
-	batchAvgNoise:=make([]float32, numBatches)
 
 	// Process each batch. The first batch sets the reference image, and if solving for sigLow/High also those. 
 	// They are then reused in subsequent batches
@@ -320,6 +322,7 @@ func cmdStack(args []string, batchPattern string) {
 		batchStartOffset:= b   *batchSize
 		batchEndOffset  :=(b+1)*batchSize
 		if batchEndOffset>int64(len(fileNames)) { batchEndOffset=int64(len(fileNames)) }
+		batchFrames     :=batchEndOffset-batchStartOffset
 		ids      :=overallIDs      [batchStartOffset:batchEndOffset]
 		fileNames:=overallFileNames[batchStartOffset:batchEndOffset]
 		nl.LogPrintf("\nStarting batch %d of %d images: %v...\n", b, len(ids), ids)
@@ -327,23 +330,35 @@ func cmdStack(args []string, batchPattern string) {
 		// Stack the files in this batch
 		batch, avgNoise :=(*nl.FITSImage)(nil), float32(0)
 		batch, refFrame, sigLow, sigHigh, avgNoise=stackBatch(ids, fileNames, refFrame, sigLow, sigHigh, imageLevelParallelism)
-		framesProcessed :=batchEndOffset-batchStartOffset
-		batchResults[b], batchWeights[b], batchAvgNoise[b]=batch, float32(framesProcessed), avgNoise
 
 		// Find stars in the newly stacked batch and report out on them
 		batch.Stars, _, batch.HFR=nl.FindStars(batch.Data, batch.Naxisn[0], batch.Stats.Location, batch.Stats.Scale, 
 			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
 		nl.LogPrintf("Batch %d stack: Stars %d HFR %.2f %v\n", b, len(batch.Stars), batch.HFR, batch.Stats)
 
-		expectedNoise:=avgNoise/float32(math.Sqrt(float64(framesProcessed)))
-		nl.LogPrintf("Expected noise %.4g from stacking %d frames with average noise %.4g\n",
-					expectedNoise, int(framesProcessed), avgNoise )
+		expectedNoise:=avgNoise/float32(math.Sqrt(float64(batchFrames)))
+		nl.LogPrintf("Batch %d expected noise %.4g from stacking %d frames with average noise %.4g\n",
+					b, expectedNoise, int(batchFrames), avgNoise )
 
-		// Save if desired
+		// Save batch if desired
 		if batchPattern!="" {
 			batchFileName:=fmt.Sprintf(batchPattern, b)
 			nl.LogPrintf("Writing batch result to %s\n", batchFileName)
 			batch.WriteFile(batchFileName)
+		}
+
+		// Update stack of stacks
+		if numBatches>1 {
+			stack=nl.StackIncremental(stack, batch, float32(batchFrames))
+			stackFrames+=batchFrames
+			stackNoise +=batch.Stats.Noise*float32(batchFrames)
+
+			// Return batch image storage to pool
+			nl.PutArrayOfFloat32IntoPool(batch.Data)
+			batch.Data=nil
+		} else {
+			stack=batch
+			batch=nil
 		}
 	}
 	nl.PutArrayOfFloat32IntoPool(refFrame.Data) // all other primary frames already freed after stacking
@@ -357,35 +372,20 @@ func cmdStack(args []string, batchPattern string) {
 		flatF.Data=nil
 	}
 
-	// Combine batch results if necessary
-	stack:=(*nl.FITSImage)(nil)
-	avgNoise, framesProcessed:=float32(0), float32(0)
-	if numBatches<=1 {
-		stack          =batchResults[0] // no further combination necessary
-		avgNoise       =batchAvgNoise[0]
-		framesProcessed=batchWeights[0]
-	} else {
-	    // stack together the batches, then free memory for the batch results
-		nl.LogPrintf("\nAll %d batches done, now stacking them into %s with weights %v...\n", numBatches, *out, batchWeights)
-	    var err error
-		stack, _, _, err=nl.Stack(batchResults, nl.StMean, batchWeights, refFrame.Stats.Location, 0, 0)
-		if err!=nil { nl.LogFatal(err.Error()) }
-		for batch, br:=range batchResults {
-			nl.PutArrayOfFloat32IntoPool(br.Data)		
-			br.Data=nil
-			avgNoise+=batchAvgNoise[batch]*batchWeights[batch]
-			framesProcessed+=batchWeights[batch]
-		}
-		avgNoise/=framesProcessed
+	if numBatches>1 {
+		// Finalize stack of stacks
+		err:=nl.StackIncrementalFinalize(stack, float32(stackFrames))
+		if err!=nil { nl.LogPrintf("Error calculating extended stats: %s\n", err) }
 
 		// Find stars in newly stacked image and report out on them
 		stack.Stars, _, stack.HFR=nl.FindStars(stack.Data, stack.Naxisn[0], stack.Stats.Location, stack.Stats.Scale, 
 			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
 		nl.LogPrintf("Overall stack: Stars %d HFR %.2f %v\n", len(stack.Stars), stack.HFR, stack.Stats)
 
-		expectedNoise:=avgNoise/float32(math.Sqrt(float64(framesProcessed)))
-		nl.LogPrintf("Expected noise %.4g from stacking %d frames with average noise %.4g\n",
-					expectedNoise, int(framesProcessed), avgNoise )
+		avgNoise:=stackNoise/float32(stackFrames)
+		expectedNoise:=avgNoise/float32(math.Sqrt(float64(numBatches)))
+		nl.LogPrintf("Expected noise %.4g from stacking %d batches with average noise %.4g\n",
+					expectedNoise, int(numBatches), avgNoise )
 	}
 
 	// Apply output gamma if desired

@@ -51,27 +51,23 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 	imageLevelParallelism=int32(runtime.GOMAXPROCS(0))
 	LogPrintf("CPU has %d threads. Physical memory is %d MiB, -stMemory is %d MiB, this fits %d frames.\n", imageLevelParallelism, memory.TotalMemory()/1024/1024, stMemory, availableFrames)
 
-	// calculate batch sizes for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
-	outer: 
+	// Calculate batch sizes for preprocessing
 	for ; imageLevelParallelism>=1; imageLevelParallelism-- {
-		// batch size for preprocessing. Need to hold all frames, the light, the dark, and as many temp pictures as we have threads
-		preBatchSize:=availableFrames - int64(imageLevelParallelism)
-		if darkF!=nil { preBatchSize-- }
-		if flatF!=nil { preBatchSize-- }
-		if preBatchSize<2 { continue outer }
+		// Besides the lights in the current batch, we need one temp frame per thread,
+		// the optional dark and flat, the reference frame from batch 0 (if >1 batches), 
+		// and the stack of stacks (if >1 bacthes) 
+		batchSize=availableFrames - int64(imageLevelParallelism)
+		if darkF!=nil { batchSize-- }
+		if flatF!=nil { batchSize-- }
+		if batchSize<2 { continue }
 
-		batchSize=preBatchSize
-		for {
-			// correct for memory requirements of stacking: we also need temp storage for all batch stacks on top
-			numBatches=(numFrames+batchSize-1)/batchSize
-			newBatchSize:=preBatchSize-numBatches
-			if numBatches>1 {
-				newBatchSize--	// and for the reference frame, in all but the first stack
-			}
-			if newBatchSize<2 { continue outer }
-			if newBatchSize==batchSize { break outer }
-			batchSize=newBatchSize
+		// correct for multi-batch memory requirements 
+		numBatches=(numFrames+batchSize-1)/batchSize
+		if numBatches>1 {
+			batchSize-=2	// reference frame from batch 0, and stack of stacks
 		}
+		if batchSize<2 { continue }
+		break
 	}
 	if imageLevelParallelism<1 || batchSize<2 { LogFatal("Cannot find a stacking execution path within the given memory constraints.") }
 	// even out size of the last frame
