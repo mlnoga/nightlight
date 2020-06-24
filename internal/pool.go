@@ -258,7 +258,9 @@ func getSizedPoolFloat32(size int) *sync.Pool {
 				res:=make([]float32, size);
 				m:=runtime.MemStats{}
 				runtime.ReadMemStats(&m)
-				LogPrintf("make %d alloc %d totalAlloc %d sys %d (all MiB)\n", (size*4)/1024/1024, m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
+				if size>10000000 {
+					LogPrintf("make %d %d alloc %d totalAlloc %d sys %d (all MiB)\n", size, (size*4)/1024/1024, m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
+				}
 				return res
 			},
 		}
@@ -272,13 +274,24 @@ func getSizedPoolFloat32(size int) *sync.Pool {
 // Retrieves an array of given size and type from pool
 func GetArrayOfFloat32FromPool(size int) []float32 {
 	pool:=getSizedPoolFloat32(size)
-	return pool.Get().([]float32)
+	res:=pool.Get().([]float32)
+	m:=runtime.MemStats{}
+	runtime.ReadMemStats(&m)
+	if size>10000000 {
+		LogPrintf("get  %d %d alloc %d totalAlloc %d sys %d (all MiB)\n", size, (size*4)/1024/1024, m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
+	}
+	return res
 }
 
 // Returns an array of given size and type to the pool
 func PutArrayOfFloat32IntoPool(arr []float32) {
 	pool:=getSizedPoolFloat32(cap(arr))
 	pool.Put(arr[:cap(arr)])
+	m:=runtime.MemStats{}
+	runtime.ReadMemStats(&m)
+	if len(arr)>10000000 {
+		LogPrintf("put  %d %d alloc %d totalAlloc %d sys %d (all MiB)\n", len(arr), (len(arr)*4)/1024/1024, m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
+	}
 	arr=nil
 }
 
