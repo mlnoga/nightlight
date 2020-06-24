@@ -29,7 +29,7 @@ func TestDebayerBilinearRGGBToRed(t *testing.T) {
 		data[i]=float32(sum)
 	}
 
-	rs, adjWidth:=DebayerBilinearRGGBToRed(data, width)
+	rs, adjWidth:=DebayerBilinearRGGBToRed(data, width, 0, 0)
 	if adjWidth!=(width&^1)  { t.Errorf("adjWidth=%d; want %d", adjWidth, (width&^1)) }
 	if int32(len(rs))!=(width&^1)*(height&^1) { t.Errorf("len(rs)=%d; want %d", len(rs), (width&^1)*(height&^1)) }
 	adjHeight:=int32(len(rs))/adjWidth
@@ -50,7 +50,7 @@ func TestDebayerBilinearRGGBToGreen(t *testing.T) {
 		data[i]=float32(sum)
 	}
 
-	rs, adjWidth:=DebayerBilinearRGGBToGreen(data, width)
+	rs, adjWidth:=DebayerBilinearRGGBToGreen(data, width, 0, 0)
 	if adjWidth!=(width&^1)  { t.Errorf("adjWidth=%d; want %d", adjWidth, (width&^1)) }
 	if int32(len(rs))!=(width&^1)*(height&^1) { t.Errorf("len(rs)=%d; want %d", len(rs), (width&^1)*(height&^1)) }
 	adjHeight:=int32(len(rs))/adjWidth
@@ -72,7 +72,7 @@ func TestDebayerBilinearRGGBToBlue(t *testing.T) {
 		data[i]=float32(sum)
 	}
 
-	rs, adjWidth:=DebayerBilinearRGGBToBlue(data, width)
+	rs, adjWidth:=DebayerBilinearRGGBToBlue(data, width, 0, 0)
 	if adjWidth!=(width&^1)  { t.Errorf("adjWidth=%d; want %d", adjWidth, (width&^1)) }
 	if int32(len(rs))!=(width&^1)*(height&^1) { t.Errorf("len(rs)=%d; want %d", len(rs), (width&^1)*(height&^1)) }
 	adjHeight:=int32(len(rs))/adjWidth
