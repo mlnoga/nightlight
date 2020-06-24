@@ -61,7 +61,7 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 	}
 
 	// create return value array
-	data:=GetArrayOfFloat32FromPool(len(lights[0].Data))
+	data:=make([]float32,len(lights[0].Data))
 
 	// split into 8 MB work packages, no fewer than 8*NumCPU()
 	numBatches:=4*len(lights)*len(lights[0].Data)/(8192*1024)
@@ -172,7 +172,7 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 
 // Stacking with median function
 func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
-	gatheredFull:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull:=make([]float32,len(lightsData))
 
 	// for all pixels
 	for i, _:=range lightsData[0] {
@@ -199,7 +199,6 @@ func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
 
 		res[i]=QSelectMedianFloat32(gatheredCur)
 	}
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
 }
 
@@ -271,7 +270,7 @@ func StackMeanWeighted(lightsData [][]float32, weights []float32, refMedian floa
 // standard deviations away from the mean are excluded from the average calculation.
 // The standard deviation is calculated w.r.t the mean for robustness.
 func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull:=make([]float32,len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
 	// for all pixels
@@ -332,7 +331,6 @@ func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, 
 		}
 	}
 
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
 	return numClippedLow, numClippedHigh
 }
@@ -342,8 +340,8 @@ func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, 
 // standard deviations away from the mean are excluded from the average calculation.
 // The standard deviation is calculated w.r.t the mean for robustness.
 func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull:=GetArrayOfFloat32FromPool(len(lightsData))
-	weightsFull :=GetArrayOfFloat32FromPool(len(weights))
+	gatheredFull:=make([]float32,len(lightsData))
+	weightsFull :=make([]float32,len(weights))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
 	// for all pixels
@@ -426,9 +424,7 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, si
 		}
 	}
 
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
-	PutArrayOfFloat32IntoPool(weightsFull)
 	weightsFull=nil
 
 	return numClippedLow, numClippedHigh
@@ -438,8 +434,8 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, si
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are replaced with the lowest/highest valid value.
 func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull  :=GetArrayOfFloat32FromPool(len(lightsData))
-	winsorizedFull:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull  :=make([]float32,len(lightsData))
+	winsorizedFull:=make([]float32,len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
 	// for all pixels
@@ -527,9 +523,7 @@ func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh flo
         }
 	}
 
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
-	PutArrayOfFloat32IntoPool(winsorizedFull)
 	winsorizedFull=nil
 
 	return numClippedLow, numClippedHigh
@@ -539,9 +533,9 @@ func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh flo
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are replaced with the lowest/highest valid value.
 func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull  :=GetArrayOfFloat32FromPool(len(lightsData))
-	weightsFull   :=GetArrayOfFloat32FromPool(len(weights))
-	winsorizedFull:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull  :=make([]float32,len(lightsData))
+	weightsFull   :=make([]float32,len(weights))
+	winsorizedFull:=make([]float32,len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
 	// for all pixels
@@ -652,11 +646,8 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedi
         }
 	}
 
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
-	PutArrayOfFloat32IntoPool(weightsFull)
 	weightsFull=nil
-	PutArrayOfFloat32IntoPool(winsorizedFull)
 	winsorizedFull=nil
 
 	return numClippedLow, numClippedHigh
@@ -666,8 +657,8 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedi
 // Stacking with linear regression fit. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from linear fit  are excluded from the average calculation.
 func StackLinearFit(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
-	gatheredFull:=GetArrayOfFloat32FromPool(len(lightsData))
-	xs:=GetArrayOfFloat32FromPool(len(lightsData))
+	gatheredFull:=make([]float32,len(lightsData))
+	xs:=make([]float32,len(lightsData))
 	for i, _:=range(xs) {
 		xs[i]=float32(i)
 	}
@@ -745,9 +736,7 @@ func StackLinearFit(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float
 		res[i]=mean
 	}
 
-	PutArrayOfFloat32IntoPool(gatheredFull)
 	gatheredFull=nil
-	PutArrayOfFloat32IntoPool(xs)
 	xs=nil
 
 	return numClippedLow, numClippedHigh
@@ -765,7 +754,7 @@ func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
 			Bzero : 0,
 			Naxisn: append([]int32(nil), light.Naxisn...), // clone slice
 			Pixels: light.Pixels,
-			Data  : GetArrayOfFloat32FromPool(len(light.Data)),
+			Data  : make([]float32,len(light.Data)),
 			Stats : nil, 
 			Trans : IdentityTransform2D(),
 			Residual: 0,

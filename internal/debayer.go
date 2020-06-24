@@ -43,7 +43,7 @@ func DebayerBilinearRGGBToRed(data []float32, width int32) (rs []float32, adjWid
 	height   :=int32(len(data))/width
 	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
 	adjHeight:=height & ^1
-	rs        =GetArrayOfFloat32FromPool(int(adjWidth)*int(adjHeight))
+	rs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
@@ -79,7 +79,7 @@ func DebayerBilinearRGGBToGreen(data []float32, width int32) (gs []float32, adjW
 	height   :=int32(len(data))/width
 	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
 	adjHeight:=height & ^1
-	gs        =GetArrayOfFloat32FromPool(int(adjWidth)*int(adjHeight))
+	gs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
@@ -121,7 +121,7 @@ func DebayerBilinearRGGBToBlue(data []float32, width int32) (bs []float32, adjWi
 	height   :=int32(len(data))/width
 	adjWidth  =width  & ^1            // ignore last column and row in odd-sized images
 	adjHeight:=height & ^1
-	bs        =GetArrayOfFloat32FromPool(int(adjWidth)*int(adjHeight))
+	bs        =make([]float32,int(adjWidth)*int(adjHeight))
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {

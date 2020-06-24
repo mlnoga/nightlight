@@ -78,8 +78,6 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, bi
 				if starsShow!="" {
 					stars:=ShowStars(lightP)
 					stars.WriteFile(fmt.Sprintf(starsShow, id))
-					PutArrayOfFloat32IntoPool(stars.Data)
-					stars.Data=nil
 				}
 			}
 		}(i, id, fileName)
@@ -129,15 +127,12 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, binning, 
 		MedianFilterSparse(light.Data, bpm, mask)
 		LogPrintf("%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
 			id, len(bpm), 100.0*float32(len(bpm))/float32(light.Pixels), bpSigLow, bpSigHigh)
-		PutArrayOfInt32IntoPool(bpm)
 		bpm=nil
 	}
 
 	// apply binning if desired
 	if binning>1 {
 		binned:=BinNxN(&light, binning)
-		PutArrayOfFloat32IntoPool(light.Data)
-		light.Data=nil
  		light=binned
 	}
 

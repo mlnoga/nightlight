@@ -95,7 +95,7 @@ func CombineRGB(chans []*FITSImage, ref *FITSImage) FITSImage {
 		Bzero :0,
 		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
 		Pixels:pixelsComb,
-		Data  :GetArrayOfFloat32FromPool(int(pixelsComb)),
+		Data  :make([]float32,int(pixelsComb)),
 		Stars :ref.Stars,
 		HFR   :ref.HFR,
 	}
@@ -141,7 +141,7 @@ func CombineLRGB(chans []*FITSImage) FITSImage {
 		Bzero :0,
 		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
 		Pixels:pixelsComb,
-		Data  :GetArrayOfFloat32FromPool(int(pixelsComb)),
+		Data  :make([]float32,int(pixelsComb)),
 		Stars :chans[0].Stars,
 		HFR   :chans[0].HFR,
 	}
@@ -264,7 +264,7 @@ func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
 func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
 	height:=int32(len(data))/width
 	// Gather together channel values for all stars
-	gathered:=GetArrayOfFloat32FromPool(len(data))
+	gathered:=make([]float32,len(data))
 	numGathered:=0
 	for _, s:=range stars {
 		starX,starY:=s.Index%width, s.Index/width
@@ -289,7 +289,7 @@ func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
 	}
 
 	median:=QSelectMedianFloat32(gathered[:numGathered])
-	PutArrayOfFloat32IntoPool(gathered)
+	gathered=nil
 	return median
 }
 
@@ -311,7 +311,7 @@ func BinNxN(src *FITSImage, n int32) FITSImage {
 		Bzero :0,
 		Naxisn:binnedNaxisn,
 		Pixels:binnedPixels,
-		Data  :GetArrayOfFloat32FromPool(int(binnedPixels)),
+		Data  :make([]float32,int(binnedPixels)),
 		ID    :src.ID,
 	}
 
@@ -362,7 +362,7 @@ func ShowStars(src *FITSImage) FITSImage {
 		Bzero :0,
 		Naxisn:src.Naxisn,
 		Pixels:src.Pixels,
-		Data  :GetArrayOfFloat32FromPool(int(src.Pixels)),
+		Data  :make([]float32,int(src.Pixels)),
 	}
 
 	for _,s:=range(src.Stars) {

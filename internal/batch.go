@@ -36,8 +36,6 @@ func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage)
 		LogPrintf("\nEstimating memory needs for %d images from %s:\n", numFrames, fileNames[0])
 		first:=NewFITSImage()
 		first.ReadFile(fileNames[0])
-		PutArrayOfFloat32IntoPool(first.Data)
-		first.Data=nil
 		width, height=int64(first.Naxisn[0]), int64(first.Naxisn[1])
 	}
 	pixels:=width*height

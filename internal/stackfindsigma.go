@@ -17,6 +17,7 @@
 package internal
 
 import (
+	"runtime/debug"
 )
 
 
@@ -71,9 +72,8 @@ func binarySearchAndStack(lights []*FITSImage, mode StackMode, weights []float32
 			return stack, numClippedLow, numClippedHigh, lowMid, highMid, nil
 		}
 
-		// Next attempt necessary, free memory
-		PutArrayOfFloat32IntoPool(stack.Data)
-		stack.Data=nil
+		stack=nil // mark memory for free-up
+		debug.FreeOSMemory()
 
 		// Adjust binary search interval for lower stacking sigma
 		if deltaL>0 {
@@ -123,8 +123,8 @@ func newtonMethodAndStack(lights []*FITSImage, mode StackMode, weights []float32
 			LogPrintf("Warning: Newton method did not converge, proceeding with last approximation %.2f and %.2f\n", sigLow, sigHigh)
 			return stack, numClippedLow, numClippedHigh, sigLow, sigHigh, nil
 		}
-		PutArrayOfFloat32IntoPool(stack.Data) // free memory
-		stack.Data=nil
+		stack=nil // mark memory for free-up
+		debug.FreeOSMemory()
 
 		// Vary sigmaLow by epsilon, and compute new value via Newton's rule x_n+1 = x_n - f(x_n)/f'(x_n)
 		i++
@@ -141,8 +141,8 @@ func newtonMethodAndStack(lights []*FITSImage, mode StackMode, weights []float32
 		newSigLow:=sigLow-deltaL/deltaLDiff
 		if newSigLow<0.1 { newSigLow=0.1 }
 		if newSigLow>20  { newSigLow=20  }
-		PutArrayOfFloat32IntoPool(stack2.Data) // free memory
-		stack2.Data=nil
+		stack2=nil // mark memory for free-up
+		debug.FreeOSMemory()
 
 		// Vary sigmaHigh by epsilon, and compute new value via Newton's rule x_n+1 = x_n - f(x_n)/f'(x_n)
 		i++
@@ -159,8 +159,8 @@ func newtonMethodAndStack(lights []*FITSImage, mode StackMode, weights []float32
 		newSigHigh:=sigHigh-deltaH/deltaHDiff
 		if newSigHigh<0.1 { newSigHigh=0.1 }
 		if newSigHigh>20  { newSigHigh=20  }
-		PutArrayOfFloat32IntoPool(stack3.Data) // free memory
-		stack3.Data=nil
+		stack3=nil // mark memory for free-up
+		debug.FreeOSMemory()
 
 		// Update them last, so the new value for sigLow does not modify the eval for sigHigh
 		sigLow, sigHigh=newSigLow, newSigHigh

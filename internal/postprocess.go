@@ -64,7 +64,6 @@ func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align
 				res.WriteFile(fmt.Sprintf(postProcessedPattern, lightP.ID))				
 			}
 			if res!=lightP {
-				PutArrayOfFloat32IntoPool(lightP.Data)
 				lightP.Data=nil
 				lights[i]=res
 			}

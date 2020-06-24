@@ -144,12 +144,10 @@ func writeEnd(w io.Writer) {
 	fmt.Fprintf(w, "END%s", strings.Repeat(" ", 80-3))
 }
 
-
 // Writes FITS binary body data in network byte order. 
 // Optionally replaces NaNs with zeros for compatibility with other software
 func writeFloat32Array(w io.Writer, data []float32, replaceNaNs bool) error {
-	buf:=GetArrayOfByteFromPool(bufLen)
-	defer PutArrayOfByteIntoPool(buf)
+	buf:=make([]byte,bufLen)
 
 	for block:=0; block<len(data); block+=(bufLen>>2) {
 		size:=len(data)-block

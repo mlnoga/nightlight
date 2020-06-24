@@ -101,9 +101,8 @@ const bufLen int=16*1024  // input buffer length for reading from file
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readInt8Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf:=GetArrayOfByteFromPool(bufLen)
-	defer PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf:=make([]byte,bufLen)
 
 	dataIndex:=0	
 	for ; dataIndex<len(fits.Data) ; {
@@ -125,9 +124,8 @@ func (fits *FITSImage) readInt8Data(r io.Reader) error {
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readInt16Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf     :=GetArrayOfByteFromPool(bufLen)
-	defer     PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf     :=make([]byte,bufLen)
 
 	bytesPerValueShift:=1
 	bytesPerValue:=1<<bytesPerValueShift
@@ -159,9 +157,8 @@ func (fits *FITSImage) readInt16Data(r io.Reader) error {
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readInt32Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf     :=GetArrayOfByteFromPool(bufLen)
-	defer     PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf     :=make([]byte,bufLen)
 
 	bytesPerValueShift:=2
 	bytesPerValue:=1<<bytesPerValueShift
@@ -178,7 +175,7 @@ func (fits *FITSImage) readInt32Data(r io.Reader) error {
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=int32((uint32(buf[i])<<24) | uint32(buf[i+1]<<16) | uint32(buf[i+2]<<8) | uint32(buf[i+3]))
+			val:=int32((uint32(buf[i])<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3])))
 			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
 		}
 		dataIndex   += availableBytes>>bytesPerValueShift
@@ -193,9 +190,8 @@ func (fits *FITSImage) readInt32Data(r io.Reader) error {
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readInt64Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf     :=GetArrayOfByteFromPool(bufLen)
-	defer     PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf     :=make([]byte,bufLen)
 
 	bytesPerValueShift:=3
 	bytesPerValue:=1<<bytesPerValueShift
@@ -212,8 +208,8 @@ func (fits *FITSImage) readInt64Data(r io.Reader) error {
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=int64((uint64(buf[i  ])<<56) | uint64(buf[i+1]<<48) | uint64(buf[i+2]<<40) | uint64(buf[i+3]<<32) |
-			           (uint64(buf[i+4])<<24) | uint64(buf[i+5]<<16) | uint64(buf[i+6]<< 8) | uint64(buf[i+7]    )   )
+			val:=int64((uint64(buf[i  ])<<56) | (uint64(buf[i+1])<<48) | (uint64(buf[i+2])<<40) | (uint64(buf[i+3])<<32) |
+			           (uint64(buf[i+4])<<24) | (uint64(buf[i+5])<<16) | (uint64(buf[i+6])<< 8) | (uint64(buf[i+7])    )   )
 			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
 		}
 		dataIndex   += availableBytes>>bytesPerValueShift
@@ -228,9 +224,8 @@ func (fits *FITSImage) readInt64Data(r io.Reader) error {
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readFloat32Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf     :=GetArrayOfByteFromPool(bufLen)
-	defer     PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf     :=make([]byte,bufLen)
 
 	bytesPerValueShift:=2
 	bytesPerValue:=1<<bytesPerValueShift
@@ -242,12 +237,17 @@ func (fits *FITSImage) readFloat32Data(r io.Reader) error {
 		if bytesToRead>bufLen {
 			bytesToRead=bufLen
 		}
+		//LogPrintf("dataIndex %d bytesToRead %d\n", dataIndex, bytesToRead)
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
+		//LogPrintf("bytesRead %d err %d\n", bytesRead, err)
 		if err!=nil { return err }
 
 		availableBytes:=leftoverBytes+bytesRead
+		//LogPrintf("availableBytes %d\n", availableBytes)
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=math.Float32frombits((uint32(buf[i])<<24) | uint32(buf[i+1]<<16) | uint32(buf[i+2]<<8) | uint32(buf[i+3]))
+			bits:=((uint32(buf[i]))<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3]))
+			val:=math.Float32frombits(bits)
+			//LogPrintf("%d: %02x %02x %02x %02x = %08x =%f\n", i, buf[i], buf[i+1], buf[i+2], buf[i+3], bits, val)
 			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
 		}
 		dataIndex   += availableBytes>>bytesPerValueShift
@@ -262,9 +262,8 @@ func (fits *FITSImage) readFloat32Data(r io.Reader) error {
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *FITSImage) readFloat64Data(r io.Reader) error {
-	fits.Data=GetArrayOfFloat32FromPool(int(fits.Pixels))
-	buf     :=GetArrayOfByteFromPool(bufLen)
-	defer     PutArrayOfByteIntoPool(buf)
+	fits.Data=make([]float32,int(fits.Pixels))
+	buf     :=make([]byte,bufLen)
 
 	bytesPerValueShift:=3
 	bytesPerValue:=1<<bytesPerValueShift
@@ -281,8 +280,9 @@ func (fits *FITSImage) readFloat64Data(r io.Reader) error {
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=math.Float64frombits((uint64(buf[i  ])<<56) | uint64(buf[i+1]<<48) | uint64(buf[i+2]<<40) | uint64(buf[i+3]<<32) |
-			                          (uint64(buf[i+4])<<24) | uint64(buf[i+5]<<16) | uint64(buf[i+6]<< 8) | uint64(buf[i+7]    )   )
+			bits:=((uint64(buf[i  ])<<56) | (uint64(buf[i+1])<<48) | (uint64(buf[i+2])<<40) | (uint64(buf[i+3])<<32) |
+			       (uint64(buf[i+4])<<24) | (uint64(buf[i+5])<<16) | (uint64(buf[i+6])<< 8) | (uint64(buf[i+7])    )   )
+			val:=math.Float64frombits(bits)
 			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
 		}
 		dataIndex   += availableBytes>>bytesPerValueShift

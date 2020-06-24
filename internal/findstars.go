@@ -95,7 +95,6 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 	// Return a clone of the final shortlist of stars, so the original longlist can go back into the pool
 	res:=make([]Star, len(stars))
 	copy(res, stars)
-	PutArrayOfStarIntoPool(stars)
 	stars=nil
 
 	return res, sumOfShifts, avgHFR
@@ -105,7 +104,7 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 // Find pixels above the threshold and return them as stars. Applies early overlap rejection based on radius to reduce allocations.
 // Uses central pixel value as initial mass, 1 as initial HFR.
 func findBrightPixels(data []float32, width int32, threshold float32, radius int32) []Star {
-	stars:=GetArrayOfStarFromPool(len(data)/100)[:0] // []Star{}
+	stars:=make([]Star,len(data)/100)[:0] // []Star{}
 
 	for i,v :=range data {
 		if v>threshold {
@@ -141,7 +140,7 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 	if medianDiffStats==nil {
 		// Estimate standard deviation of pixels from local neighborhood median based on random 1% of pixels
 		numSamples:=len(data)/100
-		samples:=GetArrayOfFloat32FromPool(numSamples)
+		samples:=make([]float32,numSamples)
 		rng:=fastrand.RNG{}
 		for i:=0; i<numSamples; i++ {
 			index:=int32(rng.Uint32n(uint32(len(data))))
@@ -149,7 +148,6 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 			samples[i]=data[index]-median
 		}
 		medianDiffStats=CalcBasicStats(samples)
-		PutArrayOfFloat32IntoPool(samples) // free memory
 		samples=nil
 	}
 
@@ -215,9 +213,9 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 	binSize:=int32(256)
 	xBins  :=(width +binSize-1)/binSize
 	yBins  :=(height+binSize-1)/binSize
-	bins   :=GetArrayOfPointerToStarListItemFromPool(int(xBins*yBins))
+	bins   :=make([]*starListItem,int(xBins*yBins))
 	for i,_:=range bins { bins[i]=nil }
-	slis   :=GetArrayOfStarListItemFromPool(((len(stars)+1023)/1024)*1024) // use tiered sizing to help the allocator
+	slis   :=make([]starListItem,((len(stars)+1023)/1024)*1024) // use tiered sizing to help the allocator
 	radiusSquared:=radius*radius
 
 	// For all stars, filter list in place
@@ -268,9 +266,7 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 		numRemainingStars++
 	}
 
-	PutArrayOfPointerToStarListItemIntoPool(bins)
 	bins=nil
-	PutArrayOfStarListItemIntoPool(slis)
 	slis=nil
 	// Return shortened list of stars as result
 	return stars[:numRemainingStars]

@@ -152,7 +152,7 @@ func calcVariancePureGo(data []float32, mean float32) (result float64) {
 
 // Returns the sigma clipped median of the data. Does not change the data.
 func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (median, mad float32) {
-	tmp:=GetArrayOfFloat32FromPool(len(data))
+	tmp:=make([]float32,len(data))
 	copy(tmp, data)
 	remaining:=tmp
 	for {
@@ -188,7 +188,6 @@ func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (medi
 			}
 			mad=QSelectMedianFloat32(tmp)*1.4826
 
-			PutArrayOfFloat32IntoPool(tmp)
 			tmp, remaining=nil, nil
 
 			return median, mad
@@ -199,7 +198,7 @@ func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (medi
 
 // Calculates fast approximate median of the (presumably large) data by subsampling the given number of values and taking the median of that. 
 func FastApproxMedian(data []float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -207,13 +206,13 @@ func FastApproxMedian(data []float32, numSamples int) float32 {
 		samples[i]=data[index]
 	}
 	median:=QSelectMedianFloat32(samples)
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return median
 }
 
 // Calculates fast approximate median of the (presumably large) data by subsampling the given number of values and taking the median of that. 
 func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -225,7 +224,7 @@ func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, numSam
 		samples[i]=d
 	}
 	median:=QSelectMedianFloat32(samples)
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return median
 }
 
@@ -267,7 +266,7 @@ func FastApproxBoundedStdDev(data []float32, location float32, lowBound, highBou
 
 // Calculates fast approximate median of absolute differences of the (presumably large) data by subsampling the given number of values and taking the MAD of that. 
 func FastApproxMAD(data []float32, location float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -275,13 +274,13 @@ func FastApproxMAD(data []float32, location float32, numSamples int) float32 {
 		samples[i]=float32(math.Abs(float64(data[index]-location)))
 	}
 	mad:=QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return mad
 }
 
 // Calculates fast approximate median of absolute differences of the (presumably large) data by subsampling the given number of values and taking the MAD of that. 
 func FastApproxBoundedMAD(data []float32, location float32, lowBound, highBound float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -293,7 +292,7 @@ func FastApproxBoundedMAD(data []float32, location float32, lowBound, highBound 
 		samples[i]=float32(math.Abs(float64(d-location)))
 	}
 	mad:=QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return mad
 }
 
@@ -303,7 +302,7 @@ func FastApproxBoundedMAD(data []float32, location float32, lowBound, highBound 
 // Original n*log n implementation technical report https://www.researchgate.net/profile/Christophe_Croux/publication/228595593_Time-Efficient_Algorithms_for_Two_Highly_Robust_Estimators_of_Scale/links/09e4150f52c2fcabb0000000/Time-Efficient-Algorithms-for-Two-Highly-Robust-Estimators-of-Scale.pdf
 // Sampling approach appears to be mine
 func FastApproxQn(data []float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -313,14 +312,14 @@ func FastApproxQn(data []float32, numSamples int) float32 {
 	}
 	qn:=QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000. 
 	// Original paper had wrong constant, source for constant https://rdrr.io/cran/robustbase/man/Qn.html
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return qn
 }
 
 
 // Calculates fast approximate Qn scale estimate of the (presumably large) data by subsampling the given number of pairs and taking the first quartile of that. 
 func FastApproxBoundedQn(data []float32, lowBound, highBound float32, numSamples int) float32 {
-	samples:=GetArrayOfFloat32FromPool(numSamples)
+	samples:=make([]float32,numSamples)
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -336,7 +335,7 @@ func FastApproxBoundedQn(data []float32, lowBound, highBound float32, numSamples
 	}
 	qn:=QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000
 	// Original paper had wrong constant, source for constant https://rdrr.io/cran/robustbase/man/Qn.html
-	PutArrayOfFloat32IntoPool(samples)
+	samples=nil
 	return qn
 }
 
@@ -400,13 +399,11 @@ func bwmv(xs []float32, median float32, tmp []float32) float32 {
 
 // Returns the iterative k-sigma estimators of locations and scale
 func IKSS(data []float32, epsilon float32, e float32) (location, scale float32) {
-   	xs :=GetArrayOfFloat32FromPool(len(data))
-   	defer PutArrayOfFloat32IntoPool(xs)
+   	xs :=make([]float32,len(data))
    	copy(xs, data)
    	QSortFloat32(xs)
 
-   	tmp:=GetArrayOfFloat32FromPool(len(data))
-   	defer PutArrayOfFloat32IntoPool(tmp)
+   	tmp:=make([]float32,len(data))
 
    	i, j:=0, len(xs)
    	s0:=float32(1)
@@ -452,11 +449,10 @@ func LinearRegression(xs, ys []float32) (slope, intercept, xmean, xstddev, ymean
 // Turned out not to be that robust after all, not using this.
 // From Bickel and Fruehwirth 2006, https://arxiv.org/ftp/math/papers/0505/0505419.pdf
 func HalfSampleMode(data []float32) float32 {
-	tmp:=GetArrayOfFloat32FromPool(len(data))
+	tmp:=make([]float32,len(data))
 	copy(tmp, data)
 	QSortFloat32(tmp)
 	hsm:=HalfSampleModeSorted(tmp)
-	PutArrayOfFloat32IntoPool(tmp)
 	tmp=nil
 	return hsm
 }

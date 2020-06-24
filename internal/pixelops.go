@@ -392,7 +392,7 @@ func (f* FITSImage) SetBlackWhite(blackPerc, whitePerc float32) {
 		if d<min { min=d }
 		if d>max { max=d }
 	}	
-	hist:=GetArrayOfInt32FromPool(65536)
+	hist:=make([]int32,65536)
 	Histogram(data, min, max, hist)
 
 	// calculate black level
@@ -418,8 +418,6 @@ func (f* FITSImage) SetBlackWhite(blackPerc, whitePerc float32) {
 		whitePixels+=h
 	}
 	whiteX:=min+(float32(whiteIndex)+0.5)*(max-min)/float32(len(hist)-1)
-
-	PutArrayOfInt32IntoPool(hist)  // free histogram memory
 	hist=nil
 
 	// apply black and white point correction

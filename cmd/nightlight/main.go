@@ -257,10 +257,8 @@ func cmdStats(args []string, batchPattern string) {
 				if (*starsShow)!="" {
 					stars:=nl.ShowStars(lightP)
 					stars.WriteFile(fmt.Sprintf((*starsShow), id))
-					nl.PutArrayOfFloat32IntoPool(stars.Data)
 					stars.Data=nil
 				}
-				nl.PutArrayOfFloat32IntoPool(lightP.Data)
 				lightP.Data=nil
 			}
 		}(id, fileName)
@@ -354,34 +352,19 @@ func cmdStack(args []string, batchPattern string) {
 			stack=nl.StackIncremental(stack, batch, float32(batchFrames))
 			stackFrames+=batchFrames
 			stackNoise +=batch.Stats.Noise*float32(batchFrames)
-
-			// Return batch image storage to pool
-			nl.PutArrayOfFloat32IntoPool(batch.Data)
-			batch.Data=nil
 		} else {
 			stack=batch
-			batch=nil
 		}
 
 		// Free memory
-		ids, fileNames=nil, nil
+		ids, fileNames, batch=nil, nil, nil
 		debug.FreeOSMemory()
 	}
 
 	// Free more memory
-	nl.PutArrayOfFloat32IntoPool(refFrame.Data) // all other primary frames already freed after stacking
-	refFrame.Data=nil
-	refFrame=nil
-	if darkF!=nil {
-		nl.PutArrayOfFloat32IntoPool(darkF.Data) 
-		darkF.Data=nil
-		darkF=nil
-	}
-	if flatF!=nil {
-		nl.PutArrayOfFloat32IntoPool(flatF.Data) 
-		flatF.Data=nil
-		flatF=nil
-	}
+	refFrame=nil  // all other primary frames already freed after stacking
+	if darkF!=nil { darkF=nil }
+	if flatF!=nil { flatF=nil }
 	debug.FreeOSMemory()
 
 	if numBatches>1 {
@@ -408,12 +391,10 @@ func cmdStack(args []string, batchPattern string) {
 
     // write out results, then free memory for the overall stack
 	stack.WriteFile(*out)
-	nl.PutArrayOfFloat32IntoPool(stack.Data)
-	stack.Data=nil
+	stack=nil
 }
 
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
-// Returns image data to to the pool, except for the reference frame.
 // Returns the stack for the batch, and the reference frame
 func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
@@ -491,12 +472,6 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	}
 
 	// Free memory
-	for _,l:=range lights {
-		if l!=refFrame {
-			nl.PutArrayOfFloat32IntoPool(l.Data)
-			l.Data=nil
-		}
-	}
 	lights=nil
 	debug.FreeOSMemory()
 
@@ -540,8 +515,6 @@ func cmdRGB(args []string) {
 	rgb:=nl.CombineRGB(lights, refFrame)
 
 	postProcessAndSaveRGBComposite(&rgb)
-
-	nl.PutArrayOfFloat32IntoPool(rgb.Data)
 	rgb.Data=nil
 }
 
@@ -598,8 +571,6 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	}
 
 	postProcessAndSaveRGBComposite(&rgb)
-
-	nl.PutArrayOfFloat32IntoPool(rgb.Data)
 	rgb.Data=nil
 }
 

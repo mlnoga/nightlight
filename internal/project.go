@@ -37,7 +37,7 @@ func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds
 		Bzero : 0,
 		Naxisn: []int32{destNaxisn[0], destNaxisn[1]},
 		Pixels: destPixels,
-		Data:   GetArrayOfFloat32FromPool(int(destPixels)),
+		Data:   make([]float32,int(destPixels)),
 		Trans:  IdentityTransform2D(),
 	}
 
