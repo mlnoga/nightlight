@@ -92,7 +92,7 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 	// LogPrintf("Bottom %d stars: %v\n", maxIndex, stars[len(stars)-maxIndex:])
 	// PrintStars(stars)
 
-	// Return a clone of the final shortlist of stars, so the original longlist can go back into the pool
+	// Return a clone of the final shortlist of stars, so the longer original object can be reclaimed
 	res:=make([]Star, len(stars))
 	copy(res, stars)
 	stars=nil
