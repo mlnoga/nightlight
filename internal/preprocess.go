@@ -129,6 +129,8 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, binning, 
 		MedianFilterSparse(light.Data, bpm, mask)
 		LogPrintf("%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
 			id, len(bpm), 100.0*float32(len(bpm))/float32(light.Pixels), bpSigLow, bpSigHigh)
+		PutArrayOfInt32IntoPool(bpm)
+		bpm=nil
 	}
 
 	// apply binning if desired
