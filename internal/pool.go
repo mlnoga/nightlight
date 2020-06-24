@@ -85,6 +85,61 @@ var poolPointerToStarListItem=struct{
 }{m: make(map[int]*sync.Pool)}
 
 
+// Clears all memory pools and triggers garbage collection
+func ClearPools() {
+	poolByte   =struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolInt8   =struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolInt16  =struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolInt32  =struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolInt64  =struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolFloat32=struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolFloat64=struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolStar=struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolStarListItem=struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	poolPointerToStarListItem=struct{
+	    sync.RWMutex
+	    m map[int]*sync.Pool
+	}{m: make(map[int]*sync.Pool)}
+
+	runtime.GC()
+}
+
 
 // Returns a pool for byte arrays of the given size
 func getSizedPoolByte(size int) *sync.Pool {

@@ -360,17 +360,27 @@ func cmdStack(args []string, batchPattern string) {
 			stack=batch
 			batch=nil
 		}
+
+		// Free memory
+		ids, fileNames=nil, nil
+		nl.ClearPools()
 	}
+
+	// Free more memory
 	nl.PutArrayOfFloat32IntoPool(refFrame.Data) // all other primary frames already freed after stacking
 	refFrame.Data=nil
+	refFrame=nil
 	if darkF!=nil {
 		nl.PutArrayOfFloat32IntoPool(darkF.Data) 
 		darkF.Data=nil
+		darkF=nil
 	}
 	if flatF!=nil {
 		nl.PutArrayOfFloat32IntoPool(flatF.Data) 
 		flatF.Data=nil
+		flatF=nil
 	}
+	nl.ClearPools()
 
 	if numBatches>1 {
 		// Finalize stack of stacks
