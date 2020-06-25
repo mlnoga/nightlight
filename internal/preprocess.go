@@ -57,7 +57,7 @@ func LoadFlat(flat string) *FITSImage {
 
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
+func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, backGrid int32, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
 	//LogPrintf("CSV Id,%s\n", (&BasicStats{}).ToCSVHeader())
 
 	lights =make([]*FITSImage, len(fileNames))
@@ -67,7 +67,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, de
 		sem <- true 
 		go func(i int, id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, debayer, cfa, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starRadius)
+			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, debayer, cfa, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starRadius, backGrid)
 			if err!=nil {
 				LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -92,7 +92,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, de
 // Pre-processing includes loading, basic statistics, dark subtraction, flat division, 
 // bad pixel removal, star detection and HFR calculation.
 func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, 
-	starSig, starBpSig float32, starRadius int32) (lightP *FITSImage, err error) {
+	starSig, starBpSig float32, starRadius int32, backGrid int32) (lightP *FITSImage, err error) {
 	// Load light frame
 	light:=NewFITSImage()
 	light.ID=id
@@ -152,6 +152,24 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 	light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starRadius, medianDiffStats)
 	LogPrintf("%d: Stars %d HFR %.3g %v\n", id, len(light.Stars), light.HFR, light.Stats)
 	//LogPrintf("CSV %d,%s\n", id, light.Stats.ToCSVLine())
+
+	// automatic background extraction, if desired
+	if backGrid>0 {
+		LogPrintf("%d: Automatic background extraction with grid size %d\n", id, backGrid)
+		stars:=ShowStars(&light)
+		bg, err:=NewBackground(light.Data, stars.Data, light.Naxisn[0], backGrid)
+		if err!=nil { return nil, err }
+		bgImage:=bg.Render()
+		// lightP.WriteFile(fmt.Sprintf(preprocessedPattern, id))
+
+		Subtract(light.Data, light.Data, bgImage)
+
+		// re-do stats and star detection
+		light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
+		if err!=nil { return nil, err }
+		light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starRadius, medianDiffStats)
+		LogPrintf("%d: Stars %d HFR %.3g %v\n", id, len(light.Stars), light.HFR, light.Stats)
+	}
 
 	// Normalize value range if desired
 	if normRange>0 {
