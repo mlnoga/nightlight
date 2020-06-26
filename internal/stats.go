@@ -81,7 +81,7 @@ func CalcBasicStats(data []float32) (s *BasicStats) {
 }
 
 
-// Calculates etended statistics and stores in f.Stats 
+// Calculates extended statistics and stores in f.Stats 
 func CalcExtendedStats(data []float32, width int32) (s *BasicStats, err error) {
 	s=CalcBasicStats(data)
 	numSamples:=128*1024
@@ -90,12 +90,14 @@ func CalcExtendedStats(data []float32, width int32) (s *BasicStats, err error) {
 	case LSEMeanStdDev:
 		s.Location, s.Scale=s.Mean, s.StdDev
 	case LSEMedianMAD:
-		s.Location=FastApproxMedian(data, numSamples)
-		s.Scale   =FastApproxMAD(data, s.Location, numSamples)
+		samples:=make([]float32, numSamples)
+		s.Location=FastApproxMedian(data, samples)
+		s.Scale   =FastApproxMAD(data, s.Location, samples)
+		samples=nil
 	case LSEIKSS:
 		s.Location, s.Scale=IKSS(data, 1e-6, float32(math.Pow(2,-23)))
 	case LSESCMedianQn:
-		s.Location,   s.Scale=FastApproxSigmaClippedMedianAndQn(data, 2, 2, 128*1024)
+		s.Location,   s.Scale=FastApproxSigmaClippedMedianAndQn(data, 2, 2, (s.Max-s.Min)/(65535.0), numSamples)
 	}
 
 	s.Noise=EstimateNoise(data, width)
@@ -197,8 +199,8 @@ func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (medi
 
 
 // Calculates fast approximate median of the (presumably large) data by subsampling the given number of values and taking the median of that. 
-func FastApproxMedian(data []float32, numSamples int) float32 {
-	samples:=make([]float32,numSamples)
+// Uses provided samples array as scratchpad
+func FastApproxMedian(data []float32, samples []float32) float32 {
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -206,13 +208,12 @@ func FastApproxMedian(data []float32, numSamples int) float32 {
 		samples[i]=data[index]
 	}
 	median:=QSelectMedianFloat32(samples)
-	samples=nil
 	return median
 }
 
 // Calculates fast approximate median of the (presumably large) data by subsampling the given number of values and taking the median of that. 
-func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, numSamples int) float32 {
-	samples:=make([]float32,numSamples)
+// Uses provided samples array as scratchpad
+func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, samples []float32) float32 {
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -224,7 +225,6 @@ func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, numSam
 		samples[i]=d
 	}
 	median:=QSelectMedianFloat32(samples)
-	samples=nil
 	return median
 }
 
@@ -265,8 +265,7 @@ func FastApproxBoundedStdDev(data []float32, location float32, lowBound, highBou
 
 
 // Calculates fast approximate median of absolute differences of the (presumably large) data by subsampling the given number of values and taking the MAD of that. 
-func FastApproxMAD(data []float32, location float32, numSamples int) float32 {
-	samples:=make([]float32,numSamples)
+func FastApproxMAD(data []float32, location float32, samples []float32) float32 {
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -274,7 +273,6 @@ func FastApproxMAD(data []float32, location float32, numSamples int) float32 {
 		samples[i]=float32(math.Abs(float64(data[index]-location)))
 	}
 	mad:=QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
-	samples=nil
 	return mad
 }
 
@@ -301,8 +299,7 @@ func FastApproxBoundedMAD(data []float32, location float32, lowBound, highBound 
 // Original paper http://web.ipac.caltech.edu/staff/fmasci/home/astro_refs/BetterThanMAD.pdf
 // Original n*log n implementation technical report https://www.researchgate.net/profile/Christophe_Croux/publication/228595593_Time-Efficient_Algorithms_for_Two_Highly_Robust_Estimators_of_Scale/links/09e4150f52c2fcabb0000000/Time-Efficient-Algorithms-for-Two-Highly-Robust-Estimators-of-Scale.pdf
 // Sampling approach appears to be mine
-func FastApproxQn(data []float32, numSamples int) float32 {
-	samples:=make([]float32,numSamples)
+func FastApproxQn(data []float32, samples []float32) float32 {
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -312,14 +309,12 @@ func FastApproxQn(data []float32, numSamples int) float32 {
 	}
 	qn:=QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000. 
 	// Original paper had wrong constant, source for constant https://rdrr.io/cran/robustbase/man/Qn.html
-	samples=nil
 	return qn
 }
 
 
 // Calculates fast approximate Qn scale estimate of the (presumably large) data by subsampling the given number of pairs and taking the first quartile of that. 
-func FastApproxBoundedQn(data []float32, lowBound, highBound float32, numSamples int) float32 {
-	samples:=make([]float32,numSamples)
+func FastApproxBoundedQn(data []float32, lowBound, highBound float32, samples []float32) float32 {
 	max:=uint32(len(data))
 	rng:=fastrand.RNG{}
 	for i,_:=range samples {
@@ -342,22 +337,25 @@ func FastApproxBoundedQn(data []float32, lowBound, highBound float32, numSamples
 
 
 // Returns a rapid robust estimation of location and scale. Uses a fast approximate median based on randomized sampling,
-// iteratively sigma clipped with a fast approximate Qn based on random sampling.
-func FastApproxSigmaClippedMedianAndQn(data []float32, sigmaLow, sigmaHigh float32, numSamples int) (location, scale float32) {
-	location=FastApproxMedian(data, numSamples) // sampling
-	scale   =FastApproxQn    (data, numSamples) // sampling
+// iteratively sigma clipped with a fast approximate Qn based on random sampling. Exits once the absolute change in 
+// location and scale is below epsilon.
+func FastApproxSigmaClippedMedianAndQn(data []float32, sigmaLow, sigmaHigh float32, epsilon float32, numSamples int) (location, scale float32) {
+	samples:=make([]float32, numSamples)
+	location=FastApproxMedian(data, samples) // sampling
+	scale   =FastApproxQn    (data, samples) // sampling
 
-	for {
+	for i:=0; ; i++ {
 		lowBound :=location - sigmaLow*scale
 		highBound:=location + sigmaLow*scale
 
-		newLocation:=FastApproxBoundedMedian(data, lowBound, highBound, numSamples) // sampling
-		newScale   :=FastApproxBoundedQn    (data, lowBound, highBound, numSamples) // sampling
+		newLocation:=FastApproxBoundedMedian(data, lowBound, highBound, samples) // sampling
+		newScale   :=FastApproxBoundedQn    (data, lowBound, highBound, samples) // sampling
 		newScale   *=1.134                                    // adjust for subsequent clipping
 
 		// once converged, return results
-		if math.Abs(float64(newLocation-location)/float64(location))+math.Abs(float64(newScale-scale)/float64(scale))<0.001 {
-			scale=FastApproxQn(data, numSamples) // sampling
+		if float32(math.Abs(float64(newLocation-location))+math.Abs(float64(newScale-scale)))<=epsilon {
+			scale=FastApproxQn(data, samples) // sampling
+			samples=nil
 			return location, scale
 		}
 		location, scale = newLocation, newScale
