@@ -96,7 +96,7 @@ func (b Background) Render() (dest []float32) {
 // Subtract full background from given data array, changing it in place.
 func (b Background) Subtract(dest []float32) {
 	if int(b.Width)*int(b.Height)!=len(dest) { 
-		LogFatal("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
+		LogFatalf("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
 	}
 
 	// For all grid cells
