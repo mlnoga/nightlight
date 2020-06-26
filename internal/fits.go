@@ -354,7 +354,7 @@ func (f* FITSImage) FillCircle(xc,yc,r,color float32) {
 
 
 // Show stars detected on the source image as circles in a new resulting image
-func ShowStars(src *FITSImage) FITSImage {
+func ShowStars(src *FITSImage, hfrMultiple float32) FITSImage {
 	// created new image header
 	res:=FITSImage{
 		Header:NewFITSHeader(),
@@ -366,7 +366,8 @@ func ShowStars(src *FITSImage) FITSImage {
 	}
 
 	for _,s:=range(src.Stars) {
-		res.FillCircle(s.X, s.Y, 2*s.HFR, s.Mass/(s.HFR*s.HFR*float32(math.Pi)) )
+		radius:=s.HFR*hfrMultiple
+		res.FillCircle(s.X, s.Y, radius, s.Mass/(radius*radius*float32(math.Pi)) )
 	}
 	return res
 }
