@@ -17,7 +17,6 @@
 package internal
 
 import (
-	"gonum.org/v1/gonum/optimize"
 )
 
 // A piecewise linear background, for automated background extraction (ABE)
@@ -36,13 +35,15 @@ type BGCell struct {
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
-func NewBackground(src, mask []float32, width int32, gridSpacing int32) (b *Background, err error) {
+func NewBackground(src, mask []float32, width int32, gridSpacing int32) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
 	numCellCols:=(width+gridSpacing-1)/gridSpacing
 	numCellRows:=(height+gridSpacing-1)/gridSpacing
 	numCells   :=numCellCols*numCellRows
 	cells      :=make([]BGCell, numCells)
+
+	buffer:=make([]float32, gridSpacing*gridSpacing) // reuse for all grid cells to ease GC pressure
 
 	// For all grid cells
 	c:=0
@@ -55,13 +56,16 @@ func NewBackground(src, mask []float32, width int32, gridSpacing int32) (b *Back
 			if xEnd>width { xEnd=width }
 
 			// Fit linear gradient to masked source image within that cell
-			err=cells[c].Fit(src, mask, width, xStart, xEnd, yStart, yEnd)
-			if err!= nil { return nil, err }			
+			//err=cells[c].Fit(src, mask, width, xStart, xEnd, yStart, yEnd)
+			//if err!= nil { return nil, err }
+			cells[c].Fit(src, mask, width, xStart, xEnd, yStart, yEnd, buffer)
 			c++
 		}	
 	}	
 
-	return &Background{width, height, gridSpacing, cells}, nil
+	buffer=nil
+
+	return &Background{width, height, gridSpacing, cells}
 }
 
 
@@ -89,19 +93,68 @@ func (b Background) Render() (dest []float32) {
 }
 
 
-// Fit background cell to given source image, except where masked out
-func (cell *BGCell) Fit(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32) (err error) {
-  	x0:=[]float64{float64(0), float64(0), float64(0)}
-    problem := optimize.Problem{
-		Func:func(x []float64) float64 {
-			cell:=BGCell{float32(x[0]), float32(x[1]), float32(x[2])}	
-			delta:=cell.Delta(src, mask, width, xStart, xEnd, yStart, yEnd)
-	        return delta
-		},			
+// Subtract full background from given data array, changing it in place.
+func (b Background) Subtract(dest []float32) {
+	if int(b.Width)*int(b.Height)!=len(dest) { 
+		LogFatal("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
 	}
-	result, err := optimize.Minimize(problem, x0, nil, &optimize.NelderMead{})
-	cell.Alpha, cell.Beta, cell.Gamma=float32(result.X[0]), float32(result.X[1]), float32(result.X[2])
-	return err
+
+	// For all grid cells
+	c:=0
+	for yStart:=int32(0); yStart<b.Height; yStart+=b.GridSpacing {
+		yEnd:=yStart+b.GridSpacing
+		if yEnd>b.Height { yEnd=b.Height }
+
+		for xStart:=int32(0); xStart<b.Width; xStart+=b.GridSpacing {
+			xEnd:=xStart+b.GridSpacing
+			if xEnd>b.Width { xEnd=b.Width }
+
+			// Subtract linear gradient cell from destination image
+			b.Cells[c].Subtract(dest, b.Width, xStart, xEnd, yStart, yEnd)
+			c++
+		}	
+	}	
+}
+
+
+// Fit background cell to given source image, except where masked out
+// FIXME: what to do if entire cell masked out?
+func (cell *BGCell) Fit(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) {
+	// Key idea: the x scale factor alpha, the Y scale factor beta and the constant offset gamma are linearly independent
+	// So we can choose optimal values for each independently
+	// Let's take the median absolute difference as the error function to minimize
+
+	// Let's calculate the median of the non-masked left half of the data, and the median of the non-masked right half
+	// The difference of these two, divided by half the grid spacing, gives the x scale factor alpha
+	xHalf:=(xStart+xEnd)>>1
+	leftMedian :=maskedMedian(src, mask, width, xStart, xHalf, yStart, yEnd, buffer)
+	rightMedian:=maskedMedian(src, mask, width, xHalf,  xEnd,  yStart, yEnd, buffer)
+	cell.Alpha=2.0*(rightMedian-leftMedian)/float32(xEnd-xStart)
+
+	// Analogously for beta, just using the upper and lower half
+	yHalf:=(yStart+yEnd)>>1
+	upperMedian:=maskedMedian(src, mask, width, xStart, xEnd, yStart, yHalf, buffer)
+	lowerMedian:=maskedMedian(src, mask, width, xStart, xEnd, yHalf,  yEnd,  buffer)
+	cell.Beta=2.0*(lowerMedian-upperMedian)/float32(yEnd-yStart)
+
+	// Using the median of the non-masked data as gamma minimizes constant error across the cell
+	overallMedian:=maskedMedian(src, mask, width, xStart, xEnd, yStart, yEnd, buffer)
+	cell.Gamma=overallMedian
+}
+
+
+// Calculates the median of the non-masked parts of the given grid cell of the image
+func maskedMedian(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
+	numSamples:=0
+	for y:=yStart; y<yEnd; y++ {
+		for x:=xStart; x<xEnd; x++ {
+			offset:=x+y*width
+			if mask!=nil && mask[offset]!=0 { continue }
+			buffer[numSamples]=src[offset]
+			numSamples++
+		}
+	}
+	return QSelectMedianFloat32(buffer[:numSamples])	
 }
 
 
@@ -113,10 +166,10 @@ func (c *BGCell) Delta(src, mask []float32, width int32, xStart, xEnd, yStart, y
 		for x:=xStart; x<xEnd; x++ {
 			if mask!=nil && mask[x+y*width]!=0 { continue }
 			value:=src[x+y*width]
-			bgValue:=c.EvalAt(x, y)
+			bgValue:=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
 			delta:=value-bgValue
-			//if delta<0 { delta=-delta }
-			rowDeltas+=float64(delta)*float64(delta)
+			if delta<0 { delta=-delta }
+			rowDeltas+=float64(delta) // *float64(delta)
 		}
 		totalDeltas+=rowDeltas
 	}
@@ -129,7 +182,17 @@ func (c *BGCell) Delta(src, mask []float32, width int32, xStart, xEnd, yStart, y
 func (c *BGCell) Render(dest []float32, width int32, xStart, xEnd, yStart, yEnd int32) {
 	for y:=yStart; y<yEnd; y++ {
 		for x:=xStart; x<xEnd; x++ {
-			dest[x+y*width]=c.EvalAt(x,y)
+			dest[x+y*width]=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
+		}
+	}
+}
+
+
+// Subtracts background cell from given window of the given destination image, changing it in place
+func (c *BGCell) Subtract(dest []float32, width int32, xStart, xEnd, yStart, yEnd int32) {
+	for y:=yStart; y<yEnd; y++ {
+		for x:=xStart; x<xEnd; x++ {
+			dest[x+y*width]-=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
 		}
 	}
 }
