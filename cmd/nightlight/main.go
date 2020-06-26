@@ -45,18 +45,19 @@ var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 var out  = flag.String("out", "out.fits", "save output to `file`")
 var jpg  = flag.String("jpg", "%auto",  "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
 var log  = flag.String("log", "%auto",    "save log output to `file`. `%auto` replaces suffix of output file with .log")
+var pre  = flag.String("pre",  "",  "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
+var stars= flag.String("stars","","save star detections with given filename pattern, e.g. `stars%04d.fits`")
+var back = flag.String("back","","save extracted background with given filename pattern, e.g. `stars%04d.fits`")
+var post = flag.String("post", "",  "save post-processed frames with given filename pattern, e.g. `post%04d.fits`")
+var batch= flag.String("batch", "", "save stacked batches with given filename pattern, e.g. `batch%04d.fits`")
 
 var dark = flag.String("dark", "", "apply dark frame from `file`")
 var flat = flag.String("flat", "", "apply flat frame from `file`")
 
 var debayer = flag.String("debayer", "", "debayer the given channel, one of R, G, B or blank for no op")
-var cfa     = flag.String("cfa", "RGGB", "color filter array type for debayer, one of RGGB, GRBG, GBRG, BGGR")
+var cfa     = flag.String("cfa", "RGGB", "color filter array type for debayering, one of RGGB, GRBG, GBRG, BGGR")
 
 var binning= flag.Int64("binning", 0, "apply NxN binning, 0 or 1=no binning")
-
-var pre  = flag.String("pre",  "",  "save pre-processed frames with given pattern, e.g. `pre%04d.fits`")
-var post = flag.String("post", "",  "save post-processed frames with given pattern, e.g. `post%04d.fits`")
-var batch= flag.String("batch", "", "save stacked batches with given pattern, e.g. `batch%04d.fits`")
 
 var bpSigLow  = flag.Float64("bpSigLow", 3.0,"low sigma for bad pixel removal as multiple of standard deviations")
 var bpSigHigh = flag.Float64("bpSigHigh",5.0,"high sigma for bad pixel removal as multiple of standard deviations")
@@ -64,7 +65,6 @@ var bpSigHigh = flag.Float64("bpSigHigh",5.0,"high sigma for bad pixel removal a
 var starSig   = flag.Float64("starSig", 10.0,"sigma for star detection as multiple of standard deviations")
 var starBpSig = flag.Float64("starBpSig",-1.0,"sigma for star detection bad pixel removal as multiple of standard deviations, -1: auto")
 var starRadius= flag.Int64("starRadius", 16.0, "radius for star detection in pixels")
-var starsShow = flag.String("starsShow","","save star detections with given pattern, e.g. `stars%04d.fits`")
 
 var backGrid  = flag.Int64("backGrid", 0, "automated background extraction grid size in pixels, 0=off")
 
@@ -252,17 +252,17 @@ func cmdStats(args []string, batchPattern string) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), int32(*starRadius), int32(*backGrid))
+			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), int32(*starRadius), int32(*backGrid), *back)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
 				if (*pre)!="" {
 					lightP.WriteFile(fmt.Sprintf((*pre), id))
 				}
-				if (*starsShow)!="" {
-					stars:=nl.ShowStars(lightP)
-					stars.WriteFile(fmt.Sprintf((*starsShow), id))
-					stars.Data=nil
+				if (*stars)!="" {
+					starsFits:=nl.ShowStars(lightP, 2.0)
+					starsFits.WriteFile(fmt.Sprintf((*stars), id))
+					starsFits.Data=nil
 				}
 				lightP.Data=nil
 			}
@@ -406,7 +406,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, int32(*backGrid), *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
 	avgNoise=float32(0)
@@ -502,7 +502,7 @@ func cmdRGB(args []string) {
 	if imageLevelParallelism>3 { imageLevelParallelism=3 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, int32(*backGrid), *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
 
 	// Pick reference frame
 	refFrame, refFrameScore:=nl.SelectReferenceFrame(lights)
@@ -542,7 +542,7 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	if imageLevelParallelism>4 { imageLevelParallelism=4 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *starsShow, int32(*backGrid), *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
 
 	// Always use luminance as reference frame
 	refFrame:=lights[0]
