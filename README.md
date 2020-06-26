@@ -24,8 +24,8 @@ Here are some sample datasets to play with:
 * Subtract dark frame and divide by flat frame
 * Debayer one-shot color images
 * NxN Binning
-* Auto-detect stars
-* Measure half-flux radius (HFR)
+* Auto-detect stars and measure half-flux radius (HFR)
+* Automatic background extraction, masking out stars
 * Calculate coarse alignment between images with full 2D transformations, using triangles
 * Calculate fine alignment between images using optimizer on all detected stars
 * Compute aligned images with bilinear interpolation
@@ -100,18 +100,21 @@ Available flags are:
 |out            |out.fits    | save output to `file` |
 |jpg            |%auto       | save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg |
 |log            |%auto       | save log output to `file`. `%auto` replaces suffix of output file with .log |
+|pre            |            | save pre-processed frames with given filename pattern, e.g. `pre%04d.fits` |
+|star           |            | save star detections with given pattern, e.g. `stars%04d.fits` |
+|back           |            | save extracted background with given filename pattern, e.g. `stars%04d.fits` |
+|post           |            | save post-processed frames with given filename pattern, e.g. `post%04d.fits` |
+|batch          |            | save stacked batches with given filename pattern, e.g. `batch%04d.fits` |
 |dark           |            | apply dark frame from `file` |
 |flat           |            | apply flat frame from `file` |
+|debayer        |            | debayer the given channel, one of R, G, B or blank for no op |
+|cfa            |RGGB        | color filter array type for debayering, one of RGGB, GRBG, GBRG, BGGR|
 |binning        |0           | apply NxN binning, 0 or 1=no binning |
-|pre            |            | save pre-processed frames with given pattern, e.g. `pre%04d.fits` |
-|post           |            | save post-processed frames with given pattern, e.g. `post%04d.fits` |
-|batch          |            | save stacked batches with given pattern, e.g. `batch%04d.fits` |
 |bpSigLow       |3.0         | low sigma for bad pixel removal as multiple of standard deviations |
 |bpSigHigh      |5.0         | high sigma for bad pixel removal as multiple of standard deviations |
 |starSig        |10.0        | sigma for star detection as multiple of standard deviations |
 |starBpSig      |5.0         | sigma for star detection bad pixel removal as multiple of standard deviations, -1: auto |
 |starRadius     |16.0        | radius for star detection in pixels |
-|starsShow      |            | save star detections with given pattern, e.g. `stars%04d.fits` |
 |align          |1           | 1=align frames, 0=do not align |
 |alignK         |20          | use triangles fromed from K brightest stars for initial alignment |
 |alignT         |1.0         | skip frames if alignment to reference frame has residual greater than this |
