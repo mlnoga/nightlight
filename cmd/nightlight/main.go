@@ -26,7 +26,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
-	nl "noga.de/nightlight/internal"
+	nl "github.com/mlnoga/nightlight/internal"
 	"github.com/pbnjay/memory"
 )
 
