@@ -160,7 +160,7 @@ Linux and Mac already have a proper shell. On Windows, installing [Msys2](https:
 
 If you haven't done so already, install golang via your operating system package manager, or from the [golang repository](https://golang.org/doc/install]).
 
-Then run `go get -u github.com/mlnoga/nightlight`, and Nightlight will be ready for your use in `$GOPATH/bin/nightlight`.
+Then run `GO111MODULE=on go get -u github.com/mlnoga/nightlight/cmd/nightlight`, and Nightlight will be ready for your use in `$GOPATH/bin/nightlight`.
 
 ## License
 
