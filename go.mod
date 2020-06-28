@@ -1,4 +1,4 @@
-module noga.de/nightlight
+module github.com/mlnoga/nightlight
 
 go 1.13
 
