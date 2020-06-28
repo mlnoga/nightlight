@@ -127,7 +127,7 @@ func (fits *FITSImage) readInt16Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
-	bytesPerValueShift:=1
+	bytesPerValueShift:=uint(1)
 	bytesPerValue:=1<<bytesPerValueShift
 	bytesPerValueMask:=bytesPerValue-1
 	dataIndex:=0	
@@ -160,7 +160,7 @@ func (fits *FITSImage) readInt32Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
-	bytesPerValueShift:=2
+	bytesPerValueShift:=uint(2)
 	bytesPerValue:=1<<bytesPerValueShift
 	bytesPerValueMask:=bytesPerValue-1
 	dataIndex:=0	
@@ -193,7 +193,7 @@ func (fits *FITSImage) readInt64Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
-	bytesPerValueShift:=3
+	bytesPerValueShift:=uint(3)
 	bytesPerValue:=1<<bytesPerValueShift
 	bytesPerValueMask:=bytesPerValue-1
 	dataIndex:=0	
@@ -227,7 +227,7 @@ func (fits *FITSImage) readFloat32Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
-	bytesPerValueShift:=2
+	bytesPerValueShift:=uint(2)
 	bytesPerValue:=1<<bytesPerValueShift
 	bytesPerValueMask:=bytesPerValue-1
 	dataIndex:=0	
@@ -265,7 +265,7 @@ func (fits *FITSImage) readFloat64Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
-	bytesPerValueShift:=3
+	bytesPerValueShift:=uint(3)
 	bytesPerValue:=1<<bytesPerValueShift
 	bytesPerValueMask:=bytesPerValue-1
 	dataIndex:=0	
