@@ -71,7 +71,7 @@ func (p Point3D) String() string {
 }
 
 func (t Transform2D) String() string {
-	return fmt.Sprintf("x'=%.5gx %+.5gy %+.2g, y'=%.5gx %+.5gy %+.2g", 
+	return fmt.Sprintf("x'=%.5fx %+.5fy %+.2f, y'=%.5fx %+.5fy %+.2f", 
 		t.A, t.B, t.C, t.D, t.E, t.F)
 }
 
