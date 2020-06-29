@@ -59,6 +59,16 @@ func (fits *FITSImage) Read(f io.Reader) error {
 		fits.Naxisn[i-1]=nai
 		fits.Pixels*=int32(nai)
 	}
+	if val, ok:=fits.Header.Ints["EXPOSURE"] ; ok {
+		fits.Exposure=float32(val)
+	} else if val, ok:=fits.Header.Floats["EXPOSURE"] ; ok {
+		fits.Exposure=val
+	} else 	if val, ok:=fits.Header.Ints["EXPTIME"] ; ok {
+		fits.Exposure=float32(val)
+	} else if val, ok:=fits.Header.Floats["EXPTIME"] ; ok {
+		fits.Exposure=val
+	}
+
 	//LogPrintf("Found %dbpp image in %dD with dimensions %v, total %d pixels.\n", 
 	//		   fits.Bitpix, len(fits.Naxisn), fits.Naxisn, fits.Pixels)
 	return fits.readData(f)

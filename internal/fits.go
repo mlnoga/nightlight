@@ -38,6 +38,8 @@ type FITSImage struct {
 
 	Data   []float32     // The image data
 
+	Exposure float32     // Image exposure in seconds
+
 	Stats  *BasicStats   // Basic image statistics: min, mean, max
 	Stars  []Star        // Star detections
 	HFR    float32       // Half-flux radius of the star detections
@@ -96,6 +98,7 @@ func CombineRGB(chans []*FITSImage, ref *FITSImage) FITSImage {
 		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
 		Pixels:pixelsComb,
 		Data  :make([]float32,int(pixelsComb)),
+		Exposure: chans[0].Exposure+chans[1].Exposure+chans[2].Exposure,
 		Stars :ref.Stars,
 		HFR   :ref.HFR,
 	}
@@ -142,6 +145,7 @@ func CombineLRGB(chans []*FITSImage) FITSImage {
 		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
 		Pixels:pixelsComb,
 		Data  :make([]float32,int(pixelsComb)),
+		Exposure: chans[0].Exposure+chans[1].Exposure+chans[2].Exposure+chans[3].Exposure,
 		Stars :chans[0].Stars,
 		HFR   :chans[0].HFR,
 	}
@@ -312,6 +316,7 @@ func BinNxN(src *FITSImage, n int32) FITSImage {
 		Naxisn:binnedNaxisn,
 		Pixels:binnedPixels,
 		Data  :make([]float32,int(binnedPixels)),
+		Exposure: src.Exposure,
 		ID    :src.ID,
 	}
 

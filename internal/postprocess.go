@@ -61,7 +61,8 @@ func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align
 				numErrors++
 			} else if postProcessedPattern!="" {
 				// Write image to (temporary) file
-				res.WriteFile(fmt.Sprintf(postProcessedPattern, lightP.ID))				
+				err=res.WriteFile(fmt.Sprintf(postProcessedPattern, lightP.ID))				
+				if err!=nil { LogFatalf("Error writing file: %s\n", err) }
 			}
 			if res!=lightP {
 				lightP.Data=nil

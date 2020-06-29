@@ -38,6 +38,7 @@ func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds
 		Naxisn: []int32{destNaxisn[0], destNaxisn[1]},
 		Pixels: destPixels,
 		Data:   make([]float32,int(destPixels)),
+		Exposure: img.Exposure,
 		Trans:  IdentityTransform2D(),
 	}
 

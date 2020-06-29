@@ -147,6 +147,9 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 			numClippedHigh, float32(numClippedHigh)*100.0/(float32(len(data)*len(lights))) )
 	}
 
+	exposureSum:=float32(0)
+	for _,l :=range lights { exposureSum+=l.Exposure }
+
 	// Assemble into in-memory FITS
 	stack:=FITSImage{
 		Header: NewFITSHeader(),
@@ -155,6 +158,7 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 		Naxisn: append([]int32(nil), lights[0].Naxisn...), // clone slice
 		Pixels: lights[0].Pixels,
 		Data  : data,
+		Exposure: exposureSum,
 		Stats : nil, 
 		Trans : IdentityTransform2D(),
 		Residual: 0,
@@ -755,6 +759,7 @@ func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
 			Naxisn: append([]int32(nil), light.Naxisn...), // clone slice
 			Pixels: light.Pixels,
 			Data  : make([]float32,len(light.Data)),
+			Exposure : light.Exposure,
 			Stats : nil, 
 			Trans : IdentityTransform2D(),
 			Residual: 0,
@@ -763,6 +768,7 @@ func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
 			stack.Data[i]=d*weight
 		}
 	}	else {
+		stack.Exposure+=light.Exposure
 		for i,d:=range light.Data {
 			stack.Data[i]+=d*weight
 		}

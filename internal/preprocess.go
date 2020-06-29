@@ -73,11 +73,13 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, de
 			} else {
 				lights[i]=lightP
 				if preprocessedPattern!="" {
-					lightP.WriteFile(fmt.Sprintf(preprocessedPattern, id))
+					err=lightP.WriteFile(fmt.Sprintf(preprocessedPattern, id))
+					if err!=nil { LogFatalf("Error writing file: %s\n", err) }
 				}
 				if starsShow!="" {
 					stars:=ShowStars(lightP, 2.0)
 					stars.WriteFile(fmt.Sprintf(starsShow, id))
+					if err!=nil { LogFatalf("Error writing file: %s\n", err) }
 				}
 			}
 		}(i, id, fileName)
@@ -170,7 +172,8 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 				Pixels:light.Pixels,
 				Data  :bgImage,
 			}
-			bgFits.WriteFile(fmt.Sprintf("back%02d.fits", id))
+			err=bgFits.WriteFile(fmt.Sprintf("back%02d.fits", id))
+			if err!=nil { LogFatalf("Error writing file: %s\n", err) }
 			Subtract(light.Data, light.Data, bgImage)
 			bgFits.Data, bgImage=nil, nil
 		}

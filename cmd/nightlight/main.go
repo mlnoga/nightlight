@@ -81,7 +81,7 @@ var stClipPercLow = flag.Float64("stClipPercLow", 0.5,"set desired low clipping 
 var stClipPercHigh= flag.Float64("stClipPercHigh",0.5,"set desired high clipping percentage for stacking, 0=ignore (overrides sigmas)")
 var stSigLow  = flag.Float64("stSigLow", -1,"low sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
 var stSigHigh = flag.Float64("stSigHigh",-1,"high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
-var stWeight  = flag.Int64("stWeight", 0, "0 unweighted stacking (default), 1 inverse noise weighted stacking")
+var stWeight  = flag.Int64("stWeight", 0, "weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise")
 var stMemory  = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
 
 var scaleR    = flag.Float64("scaleR", 1, "scale red channel by this factor")
@@ -257,11 +257,13 @@ func cmdStats(args []string, batchPattern string) {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
 				if (*pre)!="" {
-					lightP.WriteFile(fmt.Sprintf((*pre), id))
+					err=lightP.WriteFile(fmt.Sprintf((*pre), id))
+					if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 				}
 				if (*stars)!="" {
 					starsFits:=nl.ShowStars(lightP, 2.0)
-					starsFits.WriteFile(fmt.Sprintf((*stars), id))
+					err=starsFits.WriteFile(fmt.Sprintf((*stars), id))
+					if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 					starsFits.Data=nil
 				}
 				lightP.Data=nil
@@ -339,7 +341,7 @@ func cmdStack(args []string, batchPattern string) {
 		// Find stars in the newly stacked batch and report out on them
 		batch.Stars, _, batch.HFR=nl.FindStars(batch.Data, batch.Naxisn[0], batch.Stats.Location, batch.Stats.Scale, 
 			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
-		nl.LogPrintf("Batch %d stack: Stars %d HFR %.2f %v\n", b, len(batch.Stars), batch.HFR, batch.Stats)
+		nl.LogPrintf("Batch %d stack: Stars %d HFR %.2f Exposure %gs %v\n", b, len(batch.Stars), batch.HFR, batch.Exposure, batch.Stats)
 
 		expectedNoise:=avgNoise/float32(math.Sqrt(float64(batchFrames)))
 		nl.LogPrintf("Batch %d expected noise %.4g from stacking %d frames with average noise %.4g\n",
@@ -349,7 +351,8 @@ func cmdStack(args []string, batchPattern string) {
 		if batchPattern!="" {
 			batchFileName:=fmt.Sprintf(batchPattern, b)
 			nl.LogPrintf("Writing batch result to %s\n", batchFileName)
-			batch.WriteFile(batchFileName)
+			err:=batch.WriteFile(batchFileName)
+			if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 		}
 
 		// Update stack of stacks
@@ -380,7 +383,7 @@ func cmdStack(args []string, batchPattern string) {
 		// Find stars in newly stacked image and report out on them
 		stack.Stars, _, stack.HFR=nl.FindStars(stack.Data, stack.Naxisn[0], stack.Stats.Location, stack.Stats.Scale, 
 			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
-		nl.LogPrintf("Overall stack: Stars %d HFR %.2f %v\n", len(stack.Stars), stack.HFR, stack.Stats)
+		nl.LogPrintf("Overall stack: Stars %d HFR %.2f Exposure %gs %v\n", len(stack.Stars), stack.HFR, stack.Exposure, stack.Stats)
 
 		avgNoise:=stackNoise/float32(stackFrames)
 		expectedNoise:=avgNoise/float32(math.Sqrt(float64(numBatches)))
@@ -395,7 +398,8 @@ func cmdStack(args []string, batchPattern string) {
 	}
 
     // write out results, then free memory for the overall stack
-	stack.WriteFile(*out)
+	err:=stack.WriteFile(*out)
+	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	stack=nil
 }
 
@@ -441,7 +445,13 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 
 	// Prepare weights for stacking, using 1/noise. 
 	weights:=[]float32(nil)
-	if (*stWeight)!=0 { 
+	if (*stWeight)==1 { // exposure weighted stacking
+		weights =make([]float32, len(lights))
+		for i:=0; i<len(lights); i+=1 {
+			if lights[i].Exposure==0 { nl.LogFatalf("%d: Missing exposure information for exposure-weighted stacking", lights[i].ID) }
+			weights[i]=lights[i].Exposure
+		}
+	} else if (*stWeight)==2 { // noise weighted stacking
 		minNoise, maxNoise:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
 		for i:=0; i<len(lights); i+=1 {
 			n:=lights[i].Stats.Noise
@@ -748,10 +758,12 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
-	rgb.WriteFile(*out)
+	err=rgb.WriteFile(*out)
+	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	if (*jpg)!="" {
 		nl.LogPrintf("Writing JPG to %s ...\n", *jpg)
 		rgb.WriteJPGToFile(*jpg, 95)
+		if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	}
 }
 

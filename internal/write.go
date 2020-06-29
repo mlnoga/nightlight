@@ -46,6 +46,9 @@ func (fits *FITSImage) Write(f io.Writer) error {
 		writeInt32(&sb, fmt.Sprintf("NAXIS%d",i+1), fits.Naxisn[i], "[1] Axis size")
 	}
 	writeFloat32(&sb, "BZERO", fits.Bzero, "[1] Zero offset")
+	if fits.Exposure!=0 {
+		writeFloat32(&sb, "EXPOSURE", fits.Exposure, "[s] Exposure duration")
+	}
 	// FIXME: currently omitting all other FITS header entries
 	writeEnd(&sb)
 
