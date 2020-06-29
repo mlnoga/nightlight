@@ -126,7 +126,7 @@ Available flags are:
 |stClipPercHigh |0.5         | set desired high clipping percentage for stacking, 0=ignore (overrides sigmas) |
 |stSigLow       |-1          | low sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find |
 |stSigHigh      |-1          | high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find |
-|stWeight       |0           | 0 unweighted stacking (default), 1 inverse noise weighted stacking |
+|stWeight       |0           | weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise |
 |stMemory       |            | total MB of memory to use for stacking, default=80% of physical memory |
 |scaleR         |1           | scale red channel by this factor |
 |scaleG         |1           | scale green channel by this factor |
