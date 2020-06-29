@@ -17,6 +17,7 @@
 package internal
 
 import (
+	"math"
 )
 
 // A piecewise linear background, for automated background extraction (ABE)
@@ -35,7 +36,7 @@ type BGCell struct {
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
-func NewBackground(src, mask []float32, width int32, gridSpacing int32) (b *Background) {
+func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
 	numCellCols:=(width+gridSpacing-1)/gridSpacing
@@ -56,9 +57,7 @@ func NewBackground(src, mask []float32, width int32, gridSpacing int32) (b *Back
 			if xEnd>width { xEnd=width }
 
 			// Fit linear gradient to masked source image within that cell
-			//err=cells[c].Fit(src, mask, width, xStart, xEnd, yStart, yEnd)
-			//if err!= nil { return nil, err }
-			cells[c].Fit(src, mask, width, xStart, xEnd, yStart, yEnd, buffer)
+			cells[c].Fit(src, width, sigma, xStart, xEnd, yStart, yEnd, buffer)
 			c++
 		}	
 	}	
@@ -119,62 +118,64 @@ func (b Background) Subtract(dest []float32) {
 
 // Fit background cell to given source image, except where masked out
 // FIXME: what to do if entire cell masked out?
-func (cell *BGCell) Fit(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) {
+func (cell *BGCell) Fit(src []float32, width int32, sigma float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) {
 	// Key idea: the x scale factor alpha, the Y scale factor beta and the constant offset gamma are linearly independent
 	// So we can choose optimal values for each independently
 	// Let's take the median absolute difference as the error function to minimize
 
+	// First we determine the local background location and the scale of its noise level, to filter out stars and bright nebulae
+	median, mad:=medianAndMAD(src, width, xStart, xEnd, yStart, yEnd, buffer)
+	upperBound:=median+sigma*mad
+
 	// Let's calculate the median of the non-masked left half of the data, and the median of the non-masked right half
 	// The difference of these two, divided by half the grid spacing, gives the x scale factor alpha
 	xHalf:=(xStart+xEnd)>>1
-	leftMedian :=maskedMedian(src, mask, width, xStart, xHalf, yStart, yEnd, buffer)
-	rightMedian:=maskedMedian(src, mask, width, xHalf,  xEnd,  yStart, yEnd, buffer)
+	leftMedian :=trimmedMedian(src, width, upperBound, xStart, xHalf, yStart, yEnd, buffer)
+	rightMedian:=trimmedMedian(src, width, upperBound, xHalf,  xEnd,  yStart, yEnd, buffer)
 	cell.Alpha=2.0*(rightMedian-leftMedian)/float32(xEnd-xStart)
 
 	// Analogously for beta, just using the upper and lower half
 	yHalf:=(yStart+yEnd)>>1
-	upperMedian:=maskedMedian(src, mask, width, xStart, xEnd, yStart, yHalf, buffer)
-	lowerMedian:=maskedMedian(src, mask, width, xStart, xEnd, yHalf,  yEnd,  buffer)
+	upperMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yStart, yHalf, buffer)
+	lowerMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yHalf,  yEnd,  buffer)
 	cell.Beta=2.0*(lowerMedian-upperMedian)/float32(yEnd-yStart)
 
 	// Using the median of the non-masked data as gamma minimizes constant error across the cell
-	overallMedian:=maskedMedian(src, mask, width, xStart, xEnd, yStart, yEnd, buffer)
+	overallMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yStart, yEnd, buffer)
 	cell.Gamma=overallMedian
 }
 
 
-// Calculates the median of the non-masked parts of the given grid cell of the image
-func maskedMedian(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
+// Calculates the median and the MAD of the given grid cell of the image
+func medianAndMAD(src []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) (median, mad float32) {
 	numSamples:=0
 	for y:=yStart; y<yEnd; y++ {
 		for x:=xStart; x<xEnd; x++ {
 			offset:=x+y*width
-			if mask!=nil && mask[offset]!=0 { continue }
 			buffer[numSamples]=src[offset]
 			numSamples++
 		}
 	}
-	return QSelectMedianFloat32(buffer[:numSamples])	
+	buffer=buffer[:numSamples]
+	median=QSelectMedianFloat32(buffer)
+	for i, b:=range buffer { buffer[i]=float32(math.Abs(float64(b - median))) }
+	mad=QSelectMedianFloat32(buffer)*1.4826 // factor normalizes MAD to Gaussian standard deviation
+	return median, mad	
 }
 
 
-// Calculate delta between source image and background, except where masked out
-func (c *BGCell) Delta(src, mask []float32, width int32, xStart, xEnd, yStart, yEnd int32) float64 {
-	totalDeltas:=float64(0)
+// Calculates the median of all values below the upper bound in the given grid cell of the image
+func trimmedMedian(src []float32, width int32, upperBound float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
+	numSamples:=0
 	for y:=yStart; y<yEnd; y++ {
-		rowDeltas:=float64(0)
 		for x:=xStart; x<xEnd; x++ {
-			if mask!=nil && mask[x+y*width]!=0 { continue }
 			value:=src[x+y*width]
-			bgValue:=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
-			delta:=value-bgValue
-			if delta<0 { delta=-delta }
-			rowDeltas+=float64(delta) // *float64(delta)
+			if value>=upperBound { continue }
+			buffer[numSamples]=value
+			numSamples++
 		}
-		totalDeltas+=rowDeltas
 	}
-	// FIXME: what to do when entire cell has been masked out? -> somehow interpolate from neighboring cells
-	return totalDeltas
+	return QSelectMedianFloat32(buffer[:numSamples])	
 }
 
 
