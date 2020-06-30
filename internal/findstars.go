@@ -382,8 +382,9 @@ func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, heigh
 		massOverHFAs[numRes]=s.Mass/(s.HFR*s.HFR*float32(math.Pi))
 		numRes++
 	}
-	stars, hfrs, massOverHFAs=stars[:numRes], hfrs[:numRes], massOverHFAs[:numRes]
+	if numRes==0 { return nil, 0 }
 
+	stars, hfrs, massOverHFAs=stars[:numRes], hfrs[:numRes], massOverHFAs[:numRes]
 	medianHFR=QSelectMedianFloat32(hfrs)
 	medianMassOverHFA:=QSelectMedianFloat32(massOverHFAs)
 
@@ -396,6 +397,9 @@ func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, heigh
 		hfrs[numRes]=s.HFR
 		numRes++
 	}
+	if numRes==0 { return nil, 0 }
+
+
 	stars, hfrs=stars[:numRes], hfrs[:numRes]
 	medianHFR=QSelectMedianFloat32(hfrs)
 
