@@ -105,3 +105,10 @@ func MedianFloat32Slice9(a []float32) float32 {       // 30x min/max
     return a[4]
 }
 
+// Calculates the median of a float32 slice
+// Modifies the elements in place
+// Array must not contain IEEE NaN
+func MedianFloat32(a []float32) float32 {
+	if len(a)==9 { return MedianFloat32Slice9(a) }
+	return QSelectMedianFloat32(a)
+}
