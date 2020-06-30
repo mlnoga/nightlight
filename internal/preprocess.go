@@ -203,6 +203,7 @@ func SelectReferenceFrame(lights []*FITSImage) (refFrame *FITSImage, refScore fl
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
 		score:=float32(len(lightP.Stars))/lightP.HFR
+		if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
 		if score>refScore {
 			refFrame, refScore = lightP, score
 		}

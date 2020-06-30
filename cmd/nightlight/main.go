@@ -465,24 +465,29 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		}
 	}
 
+	refFrameLoc:=float32(0)
+	if refFrame!=nil && refFrame.Stats!=nil {
+		refFrameLoc=refFrame.Stats.Location
+	}
+
 	// Stack the post-processed lights 
 	if sigLow>=0 && sigHigh>=0 {
 		// Use sigma bounds from prior batch for stacking
 		nl.LogPrintf("\nStacking %d frames with mode %d stWeight %d and sigLow %.2f sigHigh %.2f from prior batch\n", len(lights), *stMode, *stWeight, sigLow, sigHigh)
 		var err error
-		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, sigLow, sigHigh)
+		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrameLoc, sigLow, sigHigh)
 		if err!=nil { nl.LogFatal(err.Error()) }
 	} else if *stSigLow>=0 && *stSigHigh>=0 {
 		// Use given sigma bounds for stacking
 		nl.LogPrintf("\nStacking %d frames with mode %d stWeight %d stSigLow %.2f stSigHigh %.2f\n", len(lights), *stMode, *stWeight, *stSigLow, *stSigHigh)
 		var err error
-		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, float32(*stSigLow), float32(*stSigHigh))
+		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrameLoc, float32(*stSigLow), float32(*stSigHigh))
 		if err!=nil { nl.LogFatal(err.Error()) }
 	} else {
 		// Find sigma bounds based on desired clipping percentages
 		nl.LogPrintf("\nFinding sigmas for stacking %d frames into %s with mode %d stWeight %d to achieve stClipLow/high %.2f%%/%.2f%%\n", len(lights), *out, *stMode, *stWeight, *stClipPercLow, *stClipPercHigh )
 		var err error
-		stack, _, _, sigLow, sigHigh, err=nl.FindSigmasAndStack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, float32(*stClipPercLow), float32(*stClipPercHigh))
+		stack, _, _, sigLow, sigHigh, err=nl.FindSigmasAndStack(lights, nl.StackMode(*stMode), weights, refFrameLoc, float32(*stClipPercLow), float32(*stClipPercHigh))
 		if err!=nil { nl.LogFatal(err.Error()) }
 	}
 
