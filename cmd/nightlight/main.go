@@ -102,7 +102,7 @@ var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to]
 var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3")
 var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3")
 
-var autoBW    = flag.Float64("autoBW", 0.1, "histogram peak location in %% for automatic black and white point adjustment, 0=don't")
+var autoBW    = flag.Float64("autoBW", 10, "histogram peak location in %% for automatic black and white point adjustment, 0=don't")
 var autoLoc   = flag.Float64("autoLoc", 10, "histogram peak location in %% to target with automatic curves adjustment, 0=don't")
 var autoScale = flag.Float64("autoScale", 0.4, "histogram peak scale in %% to target with automatic curves adjustment, 0=don't")
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
@@ -771,7 +771,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 			nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
 			rgb.ShiftBlackToMove(loc, targetBlack)
 		} else {
-			nl.LogPrintf("cannot move to location %.2ff%% by scaling black\n", targetBlack*100.0)
+			nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
 		}
     }
 
