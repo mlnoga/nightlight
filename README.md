@@ -8,6 +8,8 @@ Nighlight automatically normalizes, aligns, stacks, composites and tunes your im
 
 As a command line tool, Nightlight is ideal for creating an automated build pipeline for your images with tools like GNU [make](https://www.gnu.org/software/make/). Then apply your finishing touches by fine tuning curves in a tool like [GIMP](https://www.gimp.org/).
 
+Discussion thread in German at [astronomie.de](https://forum.astronomie.de/threads/neuer-stacker-kombinierer.290375/).
+
 ## Releases
 
 Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors and Raspberry Pi 4.
@@ -23,6 +25,7 @@ Here are some sample datasets to play with:
 * Estimate image location (histogram peak) and scale (peak width) via robust statistics
 * Subtract dark frame and divide by flat frame
 * Debayer one-shot color images
+* Cosmetic correction of hot/cold pixels
 * NxN Binning
 * Auto-detect stars and measure half-flux radius (HFR)
 * Automatic background extraction, masking out stars
