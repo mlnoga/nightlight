@@ -145,9 +145,10 @@ Available flags are:
 |rotFrom        |100         | rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3 |
 |rotTo          |190         | rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3 |
 |rotBy          |0           | rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3 |
-|scnr           |0,          | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
+|scnr           |0           | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
+|autoBW         |10          | histogram peak location in % for automatic black and white point adjustment, 0=don't |
 |autoLoc        |10          | histogram peak location in % to target with automatic curves adjustment, 0=don't|
-|autoScale      |0.4,        | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
+|autoScale      |0.4         | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
