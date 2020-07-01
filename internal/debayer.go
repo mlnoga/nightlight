@@ -18,6 +18,7 @@ package internal
 
 import (
 	"errors"
+	"math"
 )
 
 
@@ -59,6 +60,23 @@ func DebayerBilinearRGGBToRed(data []float32, width, xOffset, yOffset int32) (rs
 	adjHeight:=(height-yOffset) & ^1
 	rs        =make([]float32,int(adjWidth)*int(adjHeight))
 
+	/* for row:=int32(0); row<height; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<width; col++ {
+			LogPrintf(" %4.f", data[row*width+col])
+		}
+		LogPrintln("")
+	}
+
+	LogPrintf("\nxOffset %d yOffset %d\n", xOffset, yOffset)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", data[(row+yOffset)*width+col+xOffset])
+		}
+		LogPrintln("")
+	} */
+
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
 		for col:=int32(0); col<adjWidth; col+=2 {
@@ -68,15 +86,16 @@ func DebayerBilinearRGGBToRed(data []float32, width, xOffset, yOffset int32) (rs
 			// read relevant red values
 			r:=data[srcOffset]
 			rRight, rDown, rRD:=r, r, r
-			if col+2<adjWidth {
+			if col+xOffset<width-2 {
 				rRight=data[srcOffset+2]
-	 			if row+2<adjHeight {
+	 			if row+yOffset<height-2 {
 	 				rDown=data[srcOffset+  2*width]
 	 				rRD  =data[srcOffset+2+2*width]
 	 			}			
-			} else if row+2<adjHeight {
+			} else if row+yOffset<height-2 {
 	 				rDown=data[srcOffset+2*width]
 			}
+			LogPrintf("r%d c%d: r %.f right %.f down %.f RD %.f\n", row, col, r, rRight, rDown, rRD)
 
 			// interpolate and write red values
 			rs[destOffset           ]=      r
@@ -86,14 +105,42 @@ func DebayerBilinearRGGBToRed(data []float32, width, xOffset, yOffset int32) (rs
 		}
 	}
 
+	/* LogPrintf("\nResult %dx%d\n", adjWidth, adjHeight)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", rs[row*adjWidth+col])
+		}
+		LogPrintln("")
+	} */
+
 	return rs, adjWidth
 }
+
+const sqrt2 float32 = float32(math.Sqrt2)
 
 func DebayerBilinearRGGBToGreen(data []float32, width, xOffset, yOffset int32) (gs []float32, adjWidth int32) {
 	height   :=int32(len(data))/width
 	adjWidth  =(width-xOffset)  & ^1            // ignore last column and row in odd-sized images
 	adjHeight:=(height-yOffset) & ^1
 	gs        =make([]float32,int(adjWidth)*int(adjHeight))
+
+	/* for row:=int32(0); row<height; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<width; col++ {
+			LogPrintf(" %4.f", data[row*width+col])
+		}
+		LogPrintln("")
+	}
+
+	LogPrintf("\nxOffset %d yOffset %d\n", xOffset, yOffset)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", data[(row+yOffset)*width+col+xOffset])
+		}
+		LogPrintln("")
+	} */
 
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
@@ -105,20 +152,25 @@ func DebayerBilinearRGGBToGreen(data []float32, width, xOffset, yOffset int32) (
 			g1:=data[srcOffset+1      ]
 			g2:=data[srcOffset  +width]
 
-			g1Left, g2Up:=g1, 0.5*(g1+g2)
-			if col>=2 {
-				g1Left=data[srcOffset-1      ]
-	 			if row>=2 {
-	 				g2Up=data[srcOffset-1-width]
-	 			}			
+			g1Left:=(2.0  *g1 + sqrt2*g2)*(1.0/(2.0+sqrt2))
+			g2Up  :=(sqrt2*g1 + 2.0  *g2)*(1.0/(2.0+sqrt2))
+			if col+xOffset>0 {
+				g1Left=data[srcOffset-1]
 			}
-			g2Right, g1Down:=g2, 0.5*(g1+g2)
-			if col<adjWidth-2 {
+ 			if row+yOffset>0 {
+ 				g2Up=data[srcOffset-width]
+ 			}			
+
+			g2Right:=(2.0  *g1 + sqrt2*g2)*(1.0/(2.0+sqrt2))
+			g1Down :=(sqrt2*g1 + 2.0  *g2)*(1.0/(2.0+sqrt2))
+			if col+xOffset<width-2 {
 				g2Right=data[srcOffset+2+width]
-	 			if row<adjHeight-2 {
-	 				g1Down=data[srcOffset+1+2*width]
-	 			}			
 			}
+ 			if row+yOffset<height-2 {
+ 				g1Down=data[srcOffset+1+2*width]
+ 			}			
+
+			// LogPrintf("r%d c%d: g1 %.f g2 %.f g1Left %.f g1Down %.f g2Up %.f g2Right %.f \n", row, col, g1, g2, g1Left, g1Down, g2Up, g2Right)
 
 			// interpolate and write green values
 			gs[destOffset           ]=0.25*(g1+g2+g1Left+g2Up)
@@ -127,6 +179,15 @@ func DebayerBilinearRGGBToGreen(data []float32, width, xOffset, yOffset int32) (
  			gs[destOffset+1+adjWidth]=0.25*(g1+g2+g2Right+g1Down)
 		}
 	}
+
+	/* LogPrintf("\nResult %dx%d\n", adjWidth, adjHeight)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", gs[row*adjWidth+col])
+		}
+		LogPrintln("")
+	} */
 
 	return gs, adjWidth
 }
@@ -137,6 +198,23 @@ func DebayerBilinearRGGBToBlue(data []float32, width, xOffset, yOffset int32) (b
 	adjHeight:=(height-yOffset) & ^1
 	bs        =make([]float32,int(adjWidth)*int(adjHeight))
 
+	/* for row:=int32(0); row<height; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<width; col++ {
+			LogPrintf(" %4.f", data[row*width+col])
+		}
+		LogPrintln("")
+	}
+
+	LogPrintf("\nxOffset %d yOffset %d\n", xOffset, yOffset)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", data[(row+yOffset)*width+col+xOffset])
+		}
+		LogPrintln("")
+	} */
+
 	// for all pixels in adjusted range
 	for row:=int32(0); row<adjHeight; row+=2 {
 		for col:=int32(0); col<adjWidth; col+=2 {
@@ -146,15 +224,16 @@ func DebayerBilinearRGGBToBlue(data []float32, width, xOffset, yOffset int32) (b
 			// read relevant blue values
 			b:=data[srcOffset+1+width]
 			bLeft, bUp, bLU:=b, b, b
-			if col>=2 {
+			if col+xOffset>0 {
 				bLeft=data[srcOffset-1+width]
-	 			if row>=2 {
+	 			if row+yOffset>0 {
 	 				bUp=data[srcOffset+1-width]
 	 				bLU=data[srcOffset-1-width]
 	 			}			
-			} else if row>=2 {
+			} else if row+yOffset>0 {
 	 				bUp=data[srcOffset+1-width]
 			}
+			// LogPrintf("r%d c%d: b %.f left %.f up %.f LU %.f\n", row, col, b, bLeft, bUp, bLU)
 
 			// interpolate and write blue values
 			bs[destOffset           ]=0.25*(b+bLeft+bUp+bLU)
@@ -163,6 +242,15 @@ func DebayerBilinearRGGBToBlue(data []float32, width, xOffset, yOffset int32) (b
  			bs[destOffset+1+adjWidth]=      b
 		}
 	}
+
+	/* LogPrintf("\nResult %dx%d\n", adjWidth, adjHeight)
+	for row:=int32(0); row<adjHeight; row++ {
+		LogPrintf("%2d:", row)
+		for col:=int32(0); col<adjWidth; col++ {
+			LogPrintf(" %4.f", bs[row*adjWidth+col])
+		}
+		LogPrintln("")
+	} */
 
 	return bs, adjWidth
 }
