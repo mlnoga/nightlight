@@ -95,7 +95,7 @@ func DebayerBilinearRGGBToRed(data []float32, width, xOffset, yOffset int32) (rs
 			} else if row+yOffset<height-2 {
 	 				rDown=data[srcOffset+2*width]
 			}
-			LogPrintf("r%d c%d: r %.f right %.f down %.f RD %.f\n", row, col, r, rRight, rDown, rRD)
+			//LogPrintf("r%d c%d: r %.f right %.f down %.f RD %.f\n", row, col, r, rRight, rDown, rRD)
 
 			// interpolate and write red values
 			rs[destOffset           ]=      r
