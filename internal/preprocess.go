@@ -157,8 +157,9 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 
 	// automatic background extraction, if desired
 	if backGrid>0 {
-		LogPrintf("%d: Automatic background extraction with grid size %d\n", id, backGrid)
 		bg:=NewBackground(light.Data, light.Naxisn[0], backGrid, 2.0)
+		LogPrintf("%d: %s\n", id, bg)
+
 		if backPattern=="" {
 			bg.Subtract(light.Data)
 		} else { 

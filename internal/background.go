@@ -17,6 +17,7 @@
 package internal
 
 import (
+	"fmt"
 	"math"
 )
 
@@ -29,6 +30,9 @@ type Background struct {
 	NumCellRows int32
 	NumCells    int32	
  	Cells []BGCell
+ 	OutlierCells int32 // number of outlier cells replaced with interpolation of neighboring cells
+ 	Min BGCell         // minimum alpha, beta, gamma values
+ 	Max BGCell         // maximum alpha, beta, gamma values
 }
 
 // A background cell, which is modeled as a linear gradient
@@ -36,6 +40,12 @@ type BGCell struct {
 	Alpha float32  // x axis multiplier
 	Beta  float32  // y axis multiplier
 	Gamma float32  // constant offset
+}
+
+func (bg *Background) String() string {
+	return fmt.Sprintf("Background grid %d cells %dx%d outliers %d alpha [%f...%f] beta [%f...%f] gamma [%f...%f]",
+		bg.GridSpacing, bg.NumCellCols, bg.NumCellRows, bg.OutlierCells, 
+		bg.Min.Alpha, bg.Max.Alpha,	bg.Min.Beta, bg.Max.Beta, bg.Min.Gamma, bg.Max.Gamma )
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
@@ -47,10 +57,11 @@ func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32)
 	numCells   :=numCellCols*numCellRows
 	cells      :=make([]BGCell, numCells)
 
-	b=&Background{width, height, gridSpacing, numCellCols, numCellRows, numCells, cells}
+	b=&Background{Width:width, Height:height, GridSpacing:gridSpacing, NumCellCols:numCellCols, NumCellRows:numCellRows, NumCells:numCells, Cells:cells}
 
 	b.init(src, sigma)
 	b.smoothe()
+    b.calculateStats()
 
 	return b
 }
@@ -84,23 +95,24 @@ func (bg *Background) smoothe() {
 	for i,_:=range(ignores) { ignores[i]=false }
 
 	// First iteratively update ignores
-	totalIgnores:=int32(0)
+	ignoredCells:=int32(0)
 	ignoresChanged:=int32(1)
 	for ; ignoresChanged>0; {
 		for i,cell:=range bg.Cells { buffer[i]=cell.Alpha }
-		alphaMAD, alphasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
+		_, alphasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
 
 		for i,cell:=range bg.Cells { buffer[i]=cell.Beta }
-		betaMAD, betasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
+		_, betasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
 
 		for i,cell:=range bg.Cells { buffer[i]=cell.Gamma }
-		gammaMAD, gammasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
+		_, gammasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
 
 		ignoresChanged=alphasChanged+betasChanged+gammasChanged
-		totalIgnores+=ignoresChanged
-		LogPrintf("alpha MAD %f changed %d, beta %f %d, gamma %f %d\n", alphaMAD, alphasChanged, betaMAD, betasChanged, gammaMAD, gammasChanged)
+		ignoredCells+=ignoresChanged
+		// LogPrintf("alpha MAD %f changed %d, beta %f %d, gamma %f %d\n", alphaMAD, alphasChanged, betaMAD, betasChanged, gammaMAD, gammasChanged)
 	}
-	LogPrintf("Total %d ignores\n", totalIgnores)
+	// LogPrintf("Total %d ignores\n", ignoredCells)
+	bg.OutlierCells=ignoredCells
 
 	// Then replace cells with interpolations
 	for neighbors:=16; neighbors>=0; neighbors-- {
@@ -122,6 +134,19 @@ func (bg *Background) smoothe() {
 	buffer, ignores=nil, nil
 }
 
+func (bg *Background) calculateStats() {
+	mf32:=float32(math.MaxFloat32)
+	bg.Min.Alpha, bg.Min.Beta, bg.Min.Gamma= mf32,  mf32,  mf32
+	bg.Max.Alpha, bg.Max.Beta, bg.Max.Gamma=-mf32, -mf32, -mf32
+	for _,c:=range bg.Cells {
+		if c.Alpha<bg.Min.Alpha { bg.Min.Alpha=c.Alpha }
+		if c.Alpha>bg.Max.Alpha { bg.Max.Alpha=c.Alpha }
+		if c.Beta <bg.Min.Beta  { bg.Min.Beta =c.Beta  }
+		if c.Beta >bg.Max.Beta  { bg.Max.Beta =c.Beta  }
+		if c.Gamma<bg.Min.Gamma { bg.Min.Gamma=c.Gamma }
+		if c.Gamma>bg.Max.Gamma { bg.Max.Gamma=c.Gamma }
+	}
+}
 
 func expandIgnores(params []float32, ignores []bool, width, height int32) (mad float32, numChanged int32) {
 	temp:=[]float32{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
