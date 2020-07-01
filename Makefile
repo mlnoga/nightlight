@@ -13,6 +13,9 @@ all: $(EXECUTABLE)
 install: $(EXECUTABLE)
 	cp $< /usr/local/bin
 
+install-local: $(EXECUTABLE)
+	cp $< ~/bin/
+
 $(EXECUTABLE): $(SRCS)
 	go build -o $@ $(FLAGS) ./cmd/$(TARGET)
 
