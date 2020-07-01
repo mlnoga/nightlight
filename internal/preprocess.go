@@ -186,10 +186,14 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 
 	// Normalize value range if desired
 	if normRange>0 {
-		LogPrintf("%d: Normalizing from [%.4g,%.4g] to [0,1]\n", id, light.Stats.Min, light.Stats.Max)
-    	light.Normalize()
-		light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
-		if err!=nil { return nil, err }
+		if light.Stats.Min==light.Stats.Max {
+			LogPrintf("%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", id, light.Stats.Min)
+		} else {
+			LogPrintf("%d: Normalizing from [%.4g,%.4g] to [0,1]\n", id, light.Stats.Min, light.Stats.Max)
+	    	light.Normalize()
+			light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
+			if err!=nil { return nil, err }
+		}
 	}
 
 	return &light, nil
@@ -202,6 +206,7 @@ func SelectReferenceFrame(lights []*FITSImage) (refFrame *FITSImage, refScore fl
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
 		score:=float32(len(lightP.Stars))/lightP.HFR
+		if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
 		if score>refScore {
 			refFrame, refScore = lightP, score
 		}

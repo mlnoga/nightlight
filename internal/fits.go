@@ -99,9 +99,10 @@ func CombineRGB(chans []*FITSImage, ref *FITSImage) FITSImage {
 		Pixels:pixelsComb,
 		Data  :make([]float32,int(pixelsComb)),
 		Exposure: chans[0].Exposure+chans[1].Exposure+chans[2].Exposure,
-		Stars :ref.Stars,
-		HFR   :ref.HFR,
+		Stars :[]Star{},
+		HFR   :0,
 	}
+	if ref!=nil { rgb.Stars, rgb.HFR=ref.Stars, ref.HFR }
 
 	copy(rgb.Naxisn, chans[0].Naxisn)
 	rgb.Naxisn[len(chans[0].Naxisn)]=int32(len(chans))
@@ -266,6 +267,8 @@ func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
 
 // Returns median intensity value for the stars in the given monochrome image
 func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
+	if len(stars)==0 { return 0 }
+
 	height:=int32(len(data))/width
 	// Gather together channel values for all stars
 	gathered:=make([]float32,len(data))

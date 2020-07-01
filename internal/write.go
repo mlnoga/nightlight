@@ -168,5 +168,18 @@ func writeFloat32Array(w io.Writer, data []float32, replaceNaNs bool) error {
 		_, err:=w.Write(buf[:(size<<2)])
 		if err!=nil { return err }
 	}
+
+	// complete the last partial block, for strictly FITS compliant software
+	bytesWritten:=len(data)<<2
+	lastPartialBlock:=bytesWritten % 2880
+	if lastPartialBlock!=0 {
+		sb:=strings.Builder{}
+		for i:=lastPartialBlock; i<2880; i++ {
+			sb.WriteRune(' ')
+		}
+		_, err:=w.Write([]byte(sb.String()))
+		if err!=nil { return err }
+	}
+	
 	return nil
 }

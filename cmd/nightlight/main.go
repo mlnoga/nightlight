@@ -102,6 +102,7 @@ var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to]
 var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3")
 var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3")
 
+var autoBW    = flag.Float64("autoBW", 0.1, "histogram peak location in %% for automatic black and white point adjustment, 0=don't")
 var autoLoc   = flag.Float64("autoLoc", 10, "histogram peak location in %% to target with automatic curves adjustment, 0=don't")
 var autoScale = flag.Float64("autoScale", 0.4, "histogram peak scale in %% to target with automatic curves adjustment, 0=don't")
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
@@ -316,7 +317,9 @@ func cmdStack(args []string, batchPattern string) {
 
 	// Glob file name wildcards
 	fileNames:=globFilenameWildcards(args)
-
+	if fileNames==nil || len(fileNames)==0 {
+		nl.LogFatal("Error: no input files")
+	}
 	// Split input into required number of randomized batches, given the permissible amount of memory
 	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
 
@@ -465,24 +468,29 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		}
 	}
 
+	refFrameLoc:=float32(0)
+	if refFrame!=nil && refFrame.Stats!=nil {
+		refFrameLoc=refFrame.Stats.Location
+	}
+
 	// Stack the post-processed lights 
 	if sigLow>=0 && sigHigh>=0 {
 		// Use sigma bounds from prior batch for stacking
 		nl.LogPrintf("\nStacking %d frames with mode %d stWeight %d and sigLow %.2f sigHigh %.2f from prior batch\n", len(lights), *stMode, *stWeight, sigLow, sigHigh)
 		var err error
-		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, sigLow, sigHigh)
+		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrameLoc, sigLow, sigHigh)
 		if err!=nil { nl.LogFatal(err.Error()) }
 	} else if *stSigLow>=0 && *stSigHigh>=0 {
 		// Use given sigma bounds for stacking
 		nl.LogPrintf("\nStacking %d frames with mode %d stWeight %d stSigLow %.2f stSigHigh %.2f\n", len(lights), *stMode, *stWeight, *stSigLow, *stSigHigh)
 		var err error
-		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, float32(*stSigLow), float32(*stSigHigh))
+		stack, _, _, err=nl.Stack(lights, nl.StackMode(*stMode), weights, refFrameLoc, float32(*stSigLow), float32(*stSigHigh))
 		if err!=nil { nl.LogFatal(err.Error()) }
 	} else {
 		// Find sigma bounds based on desired clipping percentages
 		nl.LogPrintf("\nFinding sigmas for stacking %d frames into %s with mode %d stWeight %d to achieve stClipLow/high %.2f%%/%.2f%%\n", len(lights), *out, *stMode, *stWeight, *stClipPercLow, *stClipPercHigh )
 		var err error
-		stack, _, _, sigLow, sigHigh, err=nl.FindSigmasAndStack(lights, nl.StackMode(*stMode), weights, refFrame.Stats.Location, float32(*stClipPercLow), float32(*stClipPercHigh))
+		stack, _, _, sigLow, sigHigh, err=nl.FindSigmasAndStack(lights, nl.StackMode(*stMode), weights, refFrameLoc, float32(*stClipPercLow), float32(*stClipPercHigh))
 		if err!=nil { nl.LogFatal(err.Error()) }
 	}
 
@@ -515,9 +523,14 @@ func cmdRGB(args []string) {
 		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
 
 	// Pick reference frame
-	refFrame, refFrameScore:=nl.SelectReferenceFrame(lights)
-	if refFrame==nil { panic("Reference channel for alignment not found.") }
-	nl.LogPrintf("Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
+	var refFrame *nl.FITSImage
+	var refFrameScore float32
+
+	if (*align)!=0 || (*normHist)!=0 {
+		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
+		if refFrame==nil { panic("Reference channel for alignment not found.") }
+		nl.LogPrintf("Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
+	}
 
 	// Post-process all channels (align, normalize)
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
@@ -554,22 +567,27 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
 		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
 
-	// Always use luminance as reference frame
-	refFrame:=lights[0]
-	nl.LogPrintf("Using luminance channel %d as reference for alignment.\n", refFrame.ID)
+	var refFrame, histoRef *nl.FITSImage
+	if (*align)!=0 {
+		// Always use luminance as reference frame
+		refFrame=lights[0]
+		nl.LogPrintf("Using luminance channel %d as reference for alignment.\n", refFrame.ID)
+	}
 
-	// Normalize to [0,1]
-	histoRef:=lights[1]
-	minLoc:=float32(histoRef.Stats.Location)
-    for id, light:=range(lights) {
-    	if id>0 && light.Stats.Location<minLoc { 
-    		minLoc=light.Stats.Location 
-    		histoRef=light
-    	}
-    }
-	nl.LogPrintf("Using color channel %d as reference for RGB peak normalization to %.4g...\n\n", histoRef.ID, histoRef.Stats.Location)
+	if (*normHist)!=0 {
+		// Normalize to [0,1]
+		histoRef=lights[1]
+		minLoc:=float32(histoRef.Stats.Location)
+	    for id, light:=range(lights) {
+	    	if id>0 && light.Stats.Location<minLoc { 
+	    		minLoc=light.Stats.Location 
+	    		histoRef=light
+	    	}
+	    }
+		nl.LogPrintf("Using color channel %d as reference for RGB peak normalization to %.4g...\n\n", histoRef.ID, histoRef.Stats.Location)
+	}
 
-	// Align images
+	// Align images if selected
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
 	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "", imageLevelParallelism)
@@ -590,17 +608,18 @@ func cmdLRGB(args []string, applyLuminance bool) {
 }
 
 func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors...\n")
-	err:=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
+	if (*autoBW)!=0 {
+		if len(rgb.Stars)==0 {
+			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+		} else {
+			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
+			histoPeakTarget:=float32((*autoBW)/100)
+			for i:=0; i<5; i++ {
+				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
+				if err!=nil { nl.LogFatal(err) }
+			}
+		}
+	}
 
 	// Fix RGB channel balance if necessary
     if (*scaleR)!=1 || (*scaleG)!=1 || (*scaleB)!=1  {
@@ -639,7 +658,12 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
 		nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
 
-		for {
+		for i:=0; ; i++ {
+			if i==20 { 
+				nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
+				break
+			}
+
 			// calculate basic image stats as a fast location and scale estimate
 			l:=len(rgb.Data)/3
 			rStats,err:=nl.CalcExtendedStats(rgb.Data[0*l:1*l], rgb.Naxisn[0])
@@ -672,18 +696,18 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		}
 	}
 
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-
+	if (*autoBW)!=0 {
+		if len(rgb.Stars)==0 {
+			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+		} else {
+			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
+			histoPeakTarget:=float32((*autoBW)/100)
+			for i:=0; i<5; i++ {
+				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
+				if err!=nil { nl.LogFatal(err) }
+			}
+		}
+	}
 
 	// Optionally adjust gamma again
 	if (*gamma)!=1 {
@@ -710,17 +734,18 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		rgb.ApplyPartialGamma(from, to, float32(*ppGamma))
     }
 
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
+	if (*autoBW)!=0 {
+		if len(rgb.Stars)==0 {
+			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+		} else {
+			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
+			histoPeakTarget:=float32((*autoBW)/100)
+			for i:=0; i<5; i++ {
+				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
+				if err!=nil { nl.LogFatal(err) }
+			}
+		}
+	}
 
    	// Fix RGB channel balance if necessary
     if (*postScaleR)!=1 || (*postScaleG)!=1 || (*postScaleB)!=1  {
@@ -758,7 +783,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
-	err=rgb.WriteFile(*out)
+	err:=rgb.WriteFile(*out)
 	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	if (*jpg)!="" {
 		nl.LogPrintf("Writing JPG to %s ...\n", *jpg)
