@@ -316,7 +316,9 @@ func cmdStack(args []string, batchPattern string) {
 
 	// Glob file name wildcards
 	fileNames:=globFilenameWildcards(args)
-
+	if fileNames==nil || len(fileNames)==0 {
+		nl.LogFatal("Error: no input files")
+	}
 	// Split input into required number of randomized batches, given the permissible amount of memory
 	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
 
@@ -595,17 +597,21 @@ func cmdLRGB(args []string, applyLuminance bool) {
 }
 
 func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors...\n")
-	err:=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
+	if len(rgb.Stars)==0 {
+		nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+	} else {
+		nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors...\n")
+		err:=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+	}
 
 	// Fix RGB channel balance if necessary
     if (*scaleR)!=1 || (*scaleG)!=1 || (*scaleB)!=1  {
@@ -677,18 +683,21 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		}
 	}
 
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-
+	if len(rgb.Stars)==0 {
+		nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+	} else {
+		nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
+		err:=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+	}
 
 	// Optionally adjust gamma again
 	if (*gamma)!=1 {
@@ -715,17 +724,21 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		rgb.ApplyPartialGamma(from, to, float32(*ppGamma))
     }
 
-	nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
-	err=rgb.SetBlackWhitePoints(0.1)
-	if err!=nil { nl.LogFatal(err) }
+	if len(rgb.Stars)==0 {
+		nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+	} else {
+		nl.LogPrintf("Setting black and white points based on histogram peak location and median star colors again...\n")
+		err:=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+		err=rgb.SetBlackWhitePoints(0.1)
+		if err!=nil { nl.LogFatal(err) }
+	}
 
    	// Fix RGB channel balance if necessary
     if (*postScaleR)!=1 || (*postScaleG)!=1 || (*postScaleB)!=1  {
@@ -763,7 +776,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
-	err=rgb.WriteFile(*out)
+	err:=rgb.WriteFile(*out)
 	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	if (*jpg)!="" {
 		nl.LogPrintf("Writing JPG to %s ...\n", *jpg)
