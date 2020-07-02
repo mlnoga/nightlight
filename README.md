@@ -96,6 +96,8 @@ The available commands are:
 |lrgb     |Combine color channels and combine with luminance. Inputs are treated as l, r, g and b channels |
 |legal    |Show license and attribution information |
 
+Input and output files are automatically gunzipped and gzipped if .gz or .gzip suffixes are present in the filename. 
+
 Available flags are:
 
 | Flag          | Default    | Description |
