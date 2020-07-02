@@ -17,21 +17,36 @@
 package internal
 
 import (
+	"compress/gzip"
 	"fmt"
 	"io"
 	"math"
 	"os"
+	"path"
 	"strings"
 )
 
 // Writes an in-memory FITS image to a file with given filename.
-// Creates/overwrites the file if necessary 
+// Creates/overwrites the file if necessary.
+// Compresses with gzip if .gz or gzip suffix is present.
 func (fits *FITSImage) WriteFile(fileName string) error {
 	//fmt.Println("Reading from " + fileName + "..." )
 	f, err:=os.OpenFile(fileName, os.O_WRONLY |os.O_CREATE, 0644)
 	if err!=nil { return err }
 	defer f.Close()
-	return fits.Write(f)
+
+	var w io.Writer=f
+
+	// Compress gzip if .gz or .gzip suffix is present
+	ext:=path.Ext(fileName)
+	lExt:=strings.ToLower(ext)
+	if lExt==".gz" || lExt==".gzip" {
+		gw:=gzip.NewWriter(f)
+		defer gw.Close()
+		w=gw
+	} 
+
+	return fits.Write(w)
 }
 
 

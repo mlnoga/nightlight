@@ -17,24 +17,39 @@ package internal
 
 
 import (
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
 	"math" 
 	"os"
+	"path"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 var reParser *regexp.Regexp=compileRE() // Regexp parser for FITS header lines
 
+// Read FITS data from the file with the given name. Decompresses gzip if .gz or gzip suffix is present
 func (fits *FITSImage) ReadFile(fileName string) error {
 	//LogPrintln("Reading from " + fileName + "..." )
 	f, err:=os.Open(fileName)
 	if err!=nil { return err }
 	defer f.Close()
+
+	var r io.Reader=f
+
+	// Decompress gzip if .gz or .gzip suffix is present
+	ext:=path.Ext(fileName)
+	lExt:=strings.ToLower(ext)
+	if lExt==".gz" || lExt==".gzip" {
+		r, err=gzip.NewReader(f)
+		if err!=nil { return err }
+	} 
+
 	fits.FileName=fileName
-	return fits.Read(f)
+	return fits.Read(r)
 }
 
 
