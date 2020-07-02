@@ -8,6 +8,8 @@ Nighlight automatically normalizes, aligns, stacks, composites and tunes your im
 
 As a command line tool, Nightlight is ideal for creating an automated build pipeline for your images with tools like GNU [make](https://www.gnu.org/software/make/). Then apply your finishing touches by fine tuning curves in a tool like [GIMP](https://www.gimp.org/).
 
+Discussion thread in German at [astronomie.de](https://forum.astronomie.de/threads/neuer-stacker-kombinierer.290375/).
+
 ## Releases
 
 Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors and Raspberry Pi 4.
@@ -23,6 +25,7 @@ Here are some sample datasets to play with:
 * Estimate image location (histogram peak) and scale (peak width) via robust statistics
 * Subtract dark frame and divide by flat frame
 * Debayer one-shot color images
+* Cosmetic correction of hot/cold pixels
 * NxN Binning
 * Auto-detect stars and measure half-flux radius (HFR)
 * Automatic background extraction, masking out stars
@@ -142,9 +145,10 @@ Available flags are:
 |rotFrom        |100         | rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3 |
 |rotTo          |190         | rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3 |
 |rotBy          |0           | rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3 |
-|scnr           |0,          | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
+|scnr           |0           | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
+|autoBW         |10          | histogram peak location in % for automatic black and white point adjustment, 0=don't |
 |autoLoc        |10          | histogram peak location in % to target with automatic curves adjustment, 0=don't|
-|autoScale      |0.4,        | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
+|autoScale      |0.4         | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
