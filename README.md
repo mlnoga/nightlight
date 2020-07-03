@@ -18,6 +18,7 @@ Here are some sample datasets to play with:
 
 * [Orion Nebula M42](https://github.com/mlnoga/dataset-M42-LRGB) in LRGB from a mono camera
 * [Bubble Nebula NGC7635](https://github.com/mlnoga/dataset-NGC7635-nb) in narrowband from a mono camera
+* [Arp 316 galaxy cluster](https://github.com/mlnoga/dataset-arp316-RGB-bayer) in RGB from a one-shot color DSLR
 
 ## Capabilities
 
