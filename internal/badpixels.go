@@ -28,7 +28,7 @@ import (
 // from a local Median filter by more than sigma times the standard
 // deviation of the overall differences from the local Median filter.
 // Returns an array of indices into the data.
-func BadPixelMap(data []float32, width int32, mask []int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *BasicStats) {
+func BadPixelMap(data []float32, width int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *BasicStats) {
 	tmp:=make([]float32,len(data))
 	MedianFilter3x3(tmp, data, width)
 	Subtract(tmp, data, tmp)
