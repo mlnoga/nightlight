@@ -120,11 +120,7 @@ func Median(data []float32, index int32, mask []int32, buffer []float32) float32
 		}
 	}
 
-	if num==9 { 
-		return MedianFloat32Slice9(buffer)
-	} else {
-		return QSelectMedianFloat32(buffer[:num])
-	}
+	return MedianFloat32(buffer)
 }
 
 

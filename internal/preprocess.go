@@ -120,6 +120,26 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 		Divide(light.Data, light.Data, flatF.Data, flatF.Stats.Mean)
 	}
 
+	// remove bad pixels if flagged
+	// FIXME: wont work well on debayered data, need to rethink this!
+	var medianDiffStats *BasicStats
+	if bpSigLow!=0 && bpSigHigh!=0 {
+		if debayer=="" {
+			var bpm []int32
+			bpm, medianDiffStats=BadPixelMap(light.Data, light.Naxisn[0], bpSigLow, bpSigHigh)
+			mask:=CreateMask(light.Naxisn[0], 1.5)
+			MedianFilterSparse(light.Data, bpm, mask)
+			LogPrintf("%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
+				id, len(bpm), 100.0*float32(len(bpm))/float32(light.Pixels), bpSigLow, bpSigHigh)
+			bpm=nil
+		} else {
+			numRemoved,err:=CosmeticCorrectionBayer(light.Data, light.Naxisn[0], debayer, cfa, bpSigLow, bpSigHigh)
+			if err!=nil { return nil, err }
+			LogPrintf("%d: Removed %d bad bayer pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
+				id, numRemoved, 100.0*float32(numRemoved)/float32(light.Pixels), bpSigLow, bpSigHigh)
+		}
+	}
+
 	// debayer color filter array data if desired
 	if debayer!="" {
 		light.Data, light.Naxisn[0], err=DebayerBilinear(light.Data, light.Naxisn[0], debayer, cfa)
@@ -127,19 +147,6 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 		light.Pixels=int32(len(light.Data))
 		light.Naxisn[1]=light.Pixels/light.Naxisn[0]
 		LogPrintf("%d: Debayered channel %s from cfa %s, new size %dx%d\n", id, debayer, cfa, light.Naxisn[0], light.Naxisn[1])
-	}
-
-	// remove bad pixels if flagged
-	// FIXME: wont work well on debayered data, need to rethink this!
-	var medianDiffStats *BasicStats
-	if bpSigLow!=0 && bpSigHigh!=0 {
-		var bpm []int32
-		bpm, medianDiffStats=BadPixelMap(light.Data, light.Naxisn[0], bpSigLow, bpSigHigh)
-		mask:=CreateMask(light.Naxisn[0], 1.5)
-		MedianFilterSparse(light.Data, bpm, mask)
-		LogPrintf("%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
-			id, len(bpm), 100.0*float32(len(bpm))/float32(light.Pixels), bpSigLow, bpSigHigh)
-		bpm=nil
 	}
 
 	// apply binning if desired
