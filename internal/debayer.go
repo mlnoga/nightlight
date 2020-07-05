@@ -22,20 +22,26 @@ import (
 )
 
 
-func DebayerBilinear(data []float32, width int32, debayer, cfa string) (res []float32, adjWidth int32, err error) {
-	// Translate color filter array type into offsets
+// Translate color filter array type into offsets
+func getOffsets(cfa string) (xOffset, yOffset int32, err error) {
 	// Pattern: RGRGRGRG
 	//          GBGBGBGB
 	//          RGRGRGRG
 	//          GBGBGBGB
-	var xOffset, yOffset int32
 	switch cfa {
-	case "RGGB","rggb": xOffset, yOffset=0,0
-	case "GRBG","grbg": xOffset, yOffset=1,0
-	case "GBRG","gbrg": xOffset, yOffset=0,1
-	case "BGGR","bggr": xOffset, yOffset=1,1
-	default: return nil, 0, errors.New("Unknown CFA value "+cfa)
+	case "RGGB","rggb": return 0, 0, nil
+	case "GRBG","grbg": return 1, 0, nil
+	case "GBRG","gbrg": return 0, 1, nil
+	case "BGGR","bggr": return 1, 1, nil
+	default: 			return 0, 0, errors.New("Unknown CFA value "+cfa)
 	}
+}
+
+// Perform bilinear debayering, allocating a new resulting picture
+func DebayerBilinear(data []float32, width int32, debayer, cfa string) (res []float32, adjWidth int32, err error) {
+	// translate CFA type to offsets
+	xOffset, yOffset, err:=getOffsets(cfa)
+	if err!=nil { return nil, 0, err }
 
 	// Select color channel and debayer
 	switch(debayer) {
