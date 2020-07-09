@@ -537,7 +537,7 @@ func cmdRGB(args []string) {
 	// Post-process all channels (align, normalize)
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
-	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "", imageLevelParallelism)
+	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, *post, imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
 
 	// Combine RGB channels
