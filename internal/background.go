@@ -29,43 +29,56 @@ type Background struct {
 	NumCellCols int32
 	NumCellRows int32
 	NumCells    int32	
- 	Cells []BGCell
+ 	Cells []float32
  	OutlierCells int32 // number of outlier cells replaced with interpolation of neighboring cells
- 	Min BGCell         // minimum alpha, beta, gamma values
- 	Max BGCell         // maximum alpha, beta, gamma values
-}
-
-// A background cell, which is modeled as a linear gradient
-type BGCell struct {
-	Alpha float32  // x axis multiplier
-	Beta  float32  // y axis multiplier
-	Gamma float32  // constant offset
+ 	Max float32         // maximum alpha, beta, gamma values
+ 	Min float32        // minimum alpha, beta, gamma values
 }
 
 func (bg *Background) String() string {
-	return fmt.Sprintf("Background grid %d cells %dx%d outliers %d alpha [%f...%f] beta [%f...%f] gamma [%f...%f]",
+	return fmt.Sprintf("Background grid %d cells %dx%d outliers %d range [%f...%f]",
 		bg.GridSpacing, bg.NumCellCols, bg.NumCellRows, bg.OutlierCells, 
-		bg.Min.Alpha, bg.Max.Alpha,	bg.Min.Beta, bg.Max.Beta, bg.Min.Gamma, bg.Max.Gamma )
+		bg.Min, bg.Max )
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
-func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32) (b *Background) {
+func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
 	numCellCols:=(width+gridSpacing-1)/gridSpacing
 	numCellRows:=(height+gridSpacing-1)/gridSpacing
 	numCells   :=numCellCols*numCellRows
-	cells      :=make([]BGCell, numCells)
+	cells      :=make([]float32, numCells)
 
 	b=&Background{Width:width, Height:height, GridSpacing:gridSpacing, NumCellCols:numCellCols, NumCellRows:numCellRows, NumCells:numCells, Cells:cells}
 
 	b.init(src, sigma)
+	if backClip>0 {
+		b.clip(backClip)
+	}
 	b.smoothe()
+
+	// For all grid cells
+	/*LogPrintln("Final")
+	c:=0
+	for yStart:=int32(0); yStart<b.Height; yStart+=b.GridSpacing {
+		yEnd:=yStart+b.GridSpacing
+		if yEnd>b.Height { yEnd=b.Height }
+
+		LogPrintf("%d:", yStart/b.GridSpacing)
+		for xStart:=int32(0); xStart<b.Width; xStart+=b.GridSpacing {
+			LogPrintf(" %.0f", b.Cells[c])
+			c++
+		}	
+		LogPrintln()
+	} */
+
     b.calculateStats()
 
 	return b
 }
 
+// Initialize background by approximating each grid cell with a linear gradient
 func (bg *Background) init(src []float32, sigma float32) {
 	buffer:=make([]float32, bg.GridSpacing*bg.GridSpacing) // reuse for all grid cells to ease GC pressure
 
@@ -80,301 +93,220 @@ func (bg *Background) init(src []float32, sigma float32) {
 			if xEnd>bg.Width { xEnd=bg.Width }
 
 			// Fit linear gradient to masked source image within that cell
-			bg.Cells[c].Fit(src, bg.Width, sigma, xStart, xEnd, yStart, yEnd, buffer)
+			bg.Cells[c]=FitCell(src, bg.Width, sigma, xStart, xEnd, yStart, yEnd, buffer)
 			c++
 		}	
 	}	
 
+	/*LogPrintf("Sigma %f\n", sigma)
+	// For all grid cells
+	c=0
+	LogPrintln("Median")
+	for yStart:=int32(0); yStart<bg.Height; yStart+=bg.GridSpacing {
+		LogPrintf("%d:", yStart/bg.GridSpacing)
+		for xStart:=int32(0); xStart<bg.Width; xStart+=bg.GridSpacing {
+			LogPrintf(" %.0f", bg.Cells[c])
+			c++
+		}	
+		LogPrintln()
+	}*/	
+
 	buffer=nil
 }
 
-// Smoothes the background gradient function, by parameter
-func (bg *Background) smoothe() {
+// Clips the top n entries from the background gradient
+func (bg *Background) clip(n int32) {
 	buffer:=make([]float32, bg.NumCells)
-	ignores:=make([]bool, bg.NumCells)
-	for i,_:=range(ignores) { ignores[i]=false }
+	for i,cell:=range bg.Cells { buffer[i]=cell }
+	threshold:=QSelectFloat32(buffer, len(buffer)-int(n)+1)
+	buffer=nil
 
-	// First iteratively update ignores
 	ignoredCells:=int32(0)
-	ignoresChanged:=int32(1)
-	for ; ignoresChanged>0; {
-		for i,cell:=range bg.Cells { buffer[i]=cell.Alpha }
-		_, alphasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
-
-		for i,cell:=range bg.Cells { buffer[i]=cell.Beta }
-		_, betasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
-
-		for i,cell:=range bg.Cells { buffer[i]=cell.Gamma }
-		_, gammasChanged:=expandIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows)
-
-		ignoresChanged=alphasChanged+betasChanged+gammasChanged
-		ignoredCells+=ignoresChanged
-		// LogPrintf("alpha MAD %f changed %d, beta %f %d, gamma %f %d\n", alphaMAD, alphasChanged, betaMAD, betasChanged, gammaMAD, gammasChanged)
+	for i,cell:=range bg.Cells { 
+		if cell>=threshold {
+			bg.Cells[i]=float32(math.NaN())
+			ignoredCells++
+		}
 	}
-	// LogPrintf("Total %d ignores\n", ignoredCells)
+
+	/*LogPrintf("n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
+
+	// For all grid cells
+	c:=0
+	LogPrintln("Clipped")
+	for yStart:=int32(0); yStart<bg.Height; yStart+=bg.GridSpacing {
+		LogPrintf("%d:", yStart/bg.GridSpacing)
+		for xStart:=int32(0); xStart<bg.Width; xStart+=bg.GridSpacing {
+			LogPrintf(" %.0f", bg.Cells[c])
+			c++
+		}	
+		LogPrintln()
+	}*/	
+
+
 	bg.OutlierCells=ignoredCells
 
 	// Then replace cells with interpolations
-	for neighbors:=16; neighbors>=0; neighbors-- {
-		for i,cell:=range bg.Cells { buffer[i]=cell.Alpha }
-		interpolate(buffer, ignores, bg.NumCellCols, bg.NumCellRows, neighbors)
-		for i,buf:=range buffer { bg.Cells[i].Alpha=buf }
-
-		for i,cell:=range bg.Cells { buffer[i]=cell.Beta }
-		interpolate(buffer, ignores, bg.NumCellCols, bg.NumCellRows, neighbors)
-		for i,buf:=range buffer { bg.Cells[i].Beta=buf }
-
-		for i,cell:=range bg.Cells { buffer[i]=cell.Gamma }
-		interpolate(buffer, ignores, bg.NumCellCols, bg.NumCellRows, neighbors)
-		for i,buf:=range buffer { bg.Cells[i].Gamma=buf }
-
-		relaxIgnores(buffer, ignores, bg.NumCellCols, bg.NumCellRows, neighbors)
+	for neighbors:=8; neighbors>=0; neighbors-- {
+		numChanged:=1
+		for numChanged>0 {
+			numChanged=interpolate(bg.Cells, bg.NumCellCols, bg.NumCellRows, neighbors)
+		}
 	}
-
-	buffer, ignores=nil, nil
+	buffer=nil
 }
 
-func (bg *Background) calculateStats() {
-	mf32:=float32(math.MaxFloat32)
-	bg.Min.Alpha, bg.Min.Beta, bg.Min.Gamma= mf32,  mf32,  mf32
-	bg.Max.Alpha, bg.Max.Beta, bg.Max.Gamma=-mf32, -mf32, -mf32
-	for _,c:=range bg.Cells {
-		if c.Alpha<bg.Min.Alpha { bg.Min.Alpha=c.Alpha }
-		if c.Alpha>bg.Max.Alpha { bg.Max.Alpha=c.Alpha }
-		if c.Beta <bg.Min.Beta  { bg.Min.Beta =c.Beta  }
-		if c.Beta >bg.Max.Beta  { bg.Max.Beta =c.Beta  }
-		if c.Gamma<bg.Min.Gamma { bg.Min.Gamma=c.Gamma }
-		if c.Gamma>bg.Max.Gamma { bg.Max.Gamma=c.Gamma }
+func (b *Background) smoothe() {
+	tmp:=make([]float32, len(b.Cells))
+	gauss3x3(tmp, b.Cells, b.NumCellCols)
+	b.Cells=tmp
+}
+
+func gauss3x3(res, data []float32, width int32) {
+	height:=int32(len(data))/width
+	for y:=int32(0); y<height; y++ {
+		for x:=int32(0); x<width; x++ {
+			res[y*width+x]=gauss3x3Point(data, width, height, x,y)
+		}
 	}
 }
 
-func expandIgnores(params []float32, ignores []bool, width, height int32) (mad float32, numChanged int32) {
-	temp:=[]float32{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
+//var gauss3x3Weights=[]float32{0.195346, 0.123317, 0.077847} // sigma 1.0
+var gauss3x3Weights=[]float32{0.468592, 0.107973, 0.024879} // sigma 0.5
 
-	// calculate median prediction for all cells
-	var predicts=make([]float32, len(params))
-	var diffs=make([]float32, len(params))
-    for y:=int32(0); y<height; y++ {
-    	for x:=int32(0); x<width; x++ {
-    		offset:=y*width+x
-    		predict,_:=MedianInterpolation(params, ignores, width, height, x,y, temp)
-    		predicts[offset]=predict
-    		param:=params[offset]
-    		diffs[offset]=float32(math.Abs(float64(param-predict)))
-    	}
-    }
+func gauss3x3Point(data []float32, width, height, x, y int32) float32 {
+	runningSum:=float32(0)
+	weightSum:=float32(0)
 
-    // calculate mean absolute difference from median prediction
-	mad=MedianFloat32(diffs) // reorders diffs, can no longer use below!
-
-	// update list of outliers to ignore
-	numChanged=int32(0)
-    for y:=int32(0); y<height; y++ {
-    	for x:=int32(0); x<width; x++ {
-    		offset:=y*width+x
-    		if !ignores[offset] {
-    			if float32(math.Abs(float64(params[offset]-predicts[offset])))>=6*mad {
-					ignores[offset]=true
-					numChanged++
-				}
+	for offY:=int32(-1); offY<=1; offY++ {
+		for offX:=int32(-1); offX<=1; offX++ {
+			x2, y2:=x+offX, y+offY
+			if x2>=0 && x2<width && y2>=0 && y2<height {
+				index:=x2+y2*width
+				d:=data[index]
+				weight:=gauss3x3Weights[offX*offX+offY*offY]
+				runningSum+=d*weight
+				weightSum+=weight
 			}
 		}
 	}
-	predicts, diffs=nil, nil
-	return mad, numChanged
+
+	return runningSum/weightSum
 }
 
 
+func (bg *Background) calculateStats() {
+	mf32:=float32(math.MaxFloat32)
+	bg.Min= mf32
+	bg.Max=-mf32
+	for _,c:=range bg.Cells {
+		if c<bg.Min { bg.Min=c }
+		if c>bg.Max { bg.Max=c }
+	}
+}
+
+
+
 // Smoothes a parameter
-func interpolate(params []float32, ignores []bool, width, height int32, neighbors int) {
+func interpolate(params []float32, width, height int32, neighbors int) (numChanges int) {
 	temp:=[]float32{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
+	numChanges=0
 
     for y:=int32(0); y<height; y++ {
     	for x:=int32(0); x<width; x++ {
-    		offset:=y*width+x
-    		if ignores[offset] {
-	    		predict, numGathered:=MedianInterpolation(params, ignores, width, height, x,y, temp)
+    		index:=y*width+x
+    		p:=params[index]
+    		if math.IsNaN(float64(p)) {
+	    		predict, numGathered:=MedianInterpolation(params, width, height, x,y, temp)
 	    		if numGathered>=neighbors {
-	    			params[offset]=predict
+	    			//LogPrintf("Replacing prediction for x%d y%d of %f with %f\n", x, y, p, predict)
+	    			params[index]=predict
+	    			numChanges++
 	    		}
     		}
     	}
     }
+    return numChanges
 }
 
-// Smoothes a parameter
-func relaxIgnores(params []float32, ignores []bool, width, height int32, neighbors int) {
-	temp:=[]float32{0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
-
-    for y:=int32(0); y<height; y++ {
-    	for x:=int32(0); x<width; x++ {
-    		offset:=y*width+x
-    		if ignores[offset] {
-	    		_, numGathered:=MedianInterpolation(params, ignores, width, height, x,y, temp)
-	    		if numGathered>=neighbors {
-	    			ignores[offset]=false
-	    		}
-    		}
-    	}
-    }
+var interpolOffsets=[]pairOfint32{
+	pairOfint32{-1,-1}, 
+	pairOfint32{ 0,-1}, 
+	pairOfint32{ 1,-1}, 
+	pairOfint32{-1, 0}, 
+	pairOfint32{ 1, 0}, 
+	pairOfint32{-1, 1}, 
+	pairOfint32{ 0, 1}, 
+	pairOfint32{ 1, 1}, 
 }
 
-
-// Linearly interpolate parameter from all directions in local 2-neighborhood and return the median thereof
-func MedianInterpolation(params []float32, ignores []bool, width, height, x,y int32, temp []float32) (median float32, numGathered int) {
-	offset:=y*width+x
+// Interpolate parameter from valid entries in local 1-neighborhood via median
+func MedianInterpolation(params []float32, width, height, x,y int32, temp []float32) (median float32, numGathered int) {
 	numGathered=0
 
-	// interpolate from left
-	if x>1 {
-		off1, off2:=offset-1, offset-2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from half upper left
-	if x>1 && y>0 {
-		off1, off2, off3:=offset-1, offset-width-1, offset-width-2
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from upper left
-	if x>1 && y>1 {
-		off1, off2:=offset-width-1, offset-2*width-2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from upper half left
-	if x>0 && y>1 {
-		off1, off2, off3:=offset-width, offset-width-1, offset-2*width-1
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from above
-	if y>1 {
-		off1, off2:=offset-width, offset-2*width
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from upper half right
-	if y>1 && x<width-1 {
-		off1, off2, off3:=offset-width, offset-width+1, offset-2*width+1
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from upper right
-	if y>1 && x<width-2 {
-		off1, off2:=offset-width+1, offset-2*width+2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from half upper right
-	if y>0 && x<width-2 {
-		off1, off2, off3:=offset+1, offset-width+1, offset-width+2
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from right
-	if x<width-2 {
-		off1, off2:=offset+1, offset+2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from half lower right
-	if y<height-1 && x<width-2 {
-		off1, off2, off3:=offset+1, offset+width+1, offset+width+2
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from lower right
-	if y<height-2 && x<width-2 {
-		off1, off2:=offset+width+1, offset+2*width+2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from lower half right
-	if y<height-2 && x<width-1 {
-		off1, off2, off3:=offset+width, offset+width+1, offset+2*width+1
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from below
-	if y<height-2 {
-		off1, off2:=offset+width, offset+2*width
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from below half left
-	if x>0 && y<height-2 {
-		off1, off2, off3:=offset+width, offset+width-1, offset+2*width-1
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
-		}
-	}
-	// interpolate from below left
-	if x>1 && y<height-2 {
-		off1, off2:=offset+width-1, offset+2*width-2
-		if !ignores[off1] && !ignores[off2] {
-			temp[numGathered]=2*params[off1]-params[off2]
-			numGathered++    			
-		}
-	}
-	// interpolate from half below left
-	if x>1 && y<height-1 {
-		off1, off2, off3:=offset-1, offset+width-1, offset+width-2
-		if !ignores[off1] && !ignores[off2] && !ignores[off3] {
-			temp[numGathered]=params[off1]+params[off2]-params[off3]
-			numGathered++    			
+	for _,off:=range interpolOffsets {
+		x2, y2:=x+off.X, y+off.Y
+		if x2>=0 && x2<width && y2>=0 && y2<=height {
+			index:=x2+y2*width
+			p:=params[index]
+			if !math.IsNaN(float64(p)) {
+				temp[numGathered]=p
+				numGathered++
+			}			
 		}
 	}
 
-	if numGathered==0 { return 0, 0 }
-	return MedianFloat32(temp[:numGathered]), numGathered
-}
+	median=MedianFloat32(temp[:numGathered])
+	return median, numGathered
+}	
+
 
 // Render full background into a data array, returning the array
 func (b Background) Render() (dest []float32) {
 	dest=make([]float32, b.Width*b.Height)
 
 	// For all grid cells
-	c:=0
-	for yStart:=int32(0); yStart<b.Height; yStart+=b.GridSpacing {
-		yEnd:=yStart+b.GridSpacing
-		if yEnd>b.Height { yEnd=b.Height }
+	subtrahend:=float32(b.GridSpacing)*0.5
+	factor    :=1.0/float32(b.GridSpacing)
+	for y:=int32(0); y<b.Height; y++ {
+		ySrc:=(float32(y)-subtrahend)*factor
+		for x:=int32(0); x<b.Width; x++ {
+			xSrc:=(float32(x)-subtrahend)*factor
 
-		for xStart:=int32(0); xStart<b.Width; xStart+=b.GridSpacing {
-			xEnd:=xStart+b.GridSpacing
-			if xEnd>b.Width { xEnd=b.Width }
+			// perform bilinear interpolation
+			xl, yl:=int32(math.Floor(float64(xSrc))), int32(math.Floor(float64(ySrc)))
+			xh, yh:=xl+1, yl+1
 
-			// Render linear gradient cell into the destination image
-			b.Cells[c].Render(dest, b.Width, xStart, xEnd, yStart, yEnd)
-			c++
+			if xl<0 {
+				xl++
+				xh++
+			}
+			if xh>=b.NumCellCols {
+				xl--
+				xh--
+			}
+			if yl<0 {
+				yl++
+				yh++
+			}
+			if yh>=b.NumCellRows {
+				yl--
+				yh--
+			}
+			xr, yr:=xSrc-float32(xl), ySrc-float32(yl)
+
+			xlyl:=xl+yl*b.NumCellCols
+			xhyl:=xlyl+1         // xh+yl*origWidth
+			xlyh:=xlyl+b.NumCellCols // xl+yh*origWidth
+			xhyh:=xhyl+b.NumCellCols // xh+yh*origWidth
+
+			vyl  :=b.Cells[xlyl]*(1-xr) + b.Cells[xhyl]*xr
+			vyh  :=b.Cells[xlyh]*(1-xr) + b.Cells[xhyh]*xr
+			v    :=vyl    *(1-yr) + vyh    *yr
+
+			//LogPrintf("x%d y%d xSrc%f ySrc%f xl%d yl%d xh%d yh%d v%f\n",
+			//	x,y,xSrc,ySrc,xl,yl,xh,yh,v)
+			dest[x + y*b.Width]=v
 		}	
 	}	
 
@@ -388,51 +320,64 @@ func (b Background) Subtract(dest []float32) {
 		LogFatalf("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
 	}
 
+	dest=make([]float32, b.Width*b.Height)
+
 	// For all grid cells
-	c:=0
-	for yStart:=int32(0); yStart<b.Height; yStart+=b.GridSpacing {
-		yEnd:=yStart+b.GridSpacing
-		if yEnd>b.Height { yEnd=b.Height }
+	subtrahend:=float32(b.GridSpacing)*0.5
+	factor    :=1.0/float32(b.GridSpacing)
+	for y:=int32(0); y<b.Height; y++ {
+		ySrc:=(float32(y)-subtrahend)*factor
+		for x:=int32(0); x<b.Width; x++ {
+			xSrc:=(float32(x)-subtrahend)*factor
 
-		for xStart:=int32(0); xStart<b.Width; xStart+=b.GridSpacing {
-			xEnd:=xStart+b.GridSpacing
-			if xEnd>b.Width { xEnd=b.Width }
+			// perform bilinear interpolation
+			xl, yl:=int32(math.Floor(float64(xSrc))), int32(math.Floor(float64(ySrc)))
+			xh, yh:=xl+1, yl+1
 
-			// Subtract linear gradient cell from destination image
-			b.Cells[c].Subtract(dest, b.Width, xStart, xEnd, yStart, yEnd)
-			c++
+			if xl<0 {
+				xl++
+				xh++
+			}
+			if xh>=b.NumCellCols {
+				xl--
+				xh--
+			}
+			if yl<0 {
+				yl++
+				yh++
+			}
+			if yh>=b.NumCellRows {
+				yl--
+				yh--
+			}
+			xr, yr:=xSrc-float32(xl), ySrc-float32(yl)
+
+			xlyl:=xl+yl*b.NumCellCols
+			xhyl:=xlyl+1         // xh+yl*origWidth
+			xlyh:=xlyl+b.NumCellCols // xl+yh*origWidth
+			xhyh:=xhyl+b.NumCellCols // xh+yh*origWidth
+
+			vyl  :=b.Cells[xlyl]*(1-xr) + b.Cells[xhyl]*xr
+			vyh  :=b.Cells[xlyh]*(1-xr) + b.Cells[xhyh]*xr
+			v    :=vyl    *(1-yr) + vyh    *yr
+
+			//LogPrintf("x%d y%d xSrc%f ySrc%f xl%d yl%d xh%d yh%d v%f\n",
+			//	x,y,xSrc,ySrc,xl,yl,xh,yh,v)
+			dest[x + y*b.Width]-=v
 		}	
 	}	
 }
 
 
 // Fit background cell to given source image, except where masked out
-// FIXME: what to do if entire cell masked out?
-func (cell *BGCell) Fit(src []float32, width int32, sigma float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) {
-	// Key idea: the x scale factor alpha, the Y scale factor beta and the constant offset gamma are linearly independent
-	// So we can choose optimal values for each independently
-	// Let's take the median absolute difference as the error function to minimize
-
+func FitCell(src []float32, width int32, sigma float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
 	// First we determine the local background location and the scale of its noise level, to filter out stars and bright nebulae
 	median, mad:=medianAndMAD(src, width, xStart, xEnd, yStart, yEnd, buffer)
 	upperBound:=median+sigma*mad
 
-	// Let's calculate the median of the non-masked left half of the data, and the median of the non-masked right half
-	// The difference of these two, divided by half the grid spacing, gives the x scale factor alpha
-	xHalf:=(xStart+xEnd)>>1
-	leftMedian :=trimmedMedian(src, width, upperBound, xStart, xHalf, yStart, yEnd, buffer)
-	rightMedian:=trimmedMedian(src, width, upperBound, xHalf,  xEnd,  yStart, yEnd, buffer)
-	cell.Alpha=2.0*(rightMedian-leftMedian)/float32(xEnd-xStart)
-
-	// Analogously for beta, just using the upper and lower half
-	yHalf:=(yStart+yEnd)>>1
-	upperMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yStart, yHalf, buffer)
-	lowerMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yHalf,  yEnd,  buffer)
-	cell.Beta=2.0*(lowerMedian-upperMedian)/float32(yEnd-yStart)
-
-	// Using the median of the non-masked data as gamma minimizes constant error across the cell
+	// Then we determine the trimmed median to approximate the true background
 	overallMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yStart, yEnd, buffer)
-	cell.Gamma=overallMedian
+	return overallMedian
 }
 
 
@@ -466,30 +411,4 @@ func trimmedMedian(src []float32, width int32, upperBound float32, xStart, xEnd,
 		}
 	}
 	return QSelectMedianFloat32(buffer[:numSamples])	
-}
-
-
-// Render background cell into given window of the given destination image
-func (c *BGCell) Render(dest []float32, width int32, xStart, xEnd, yStart, yEnd int32) {
-	for y:=yStart; y<yEnd; y++ {
-		for x:=xStart; x<xEnd; x++ {
-			dest[x+y*width]=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
-		}
-	}
-}
-
-
-// Subtracts background cell from given window of the given destination image, changing it in place
-func (c *BGCell) Subtract(dest []float32, width int32, xStart, xEnd, yStart, yEnd int32) {
-	for y:=yStart; y<yEnd; y++ {
-		for x:=xStart; x<xEnd; x++ {
-			dest[x+y*width]-=c.EvalAt(x-((xStart+xEnd)>>1), y-((yStart+yEnd)>>1))
-		}
-	}
-}
-
-
-// Evaluate background cell at given position
-func (c *BGCell) EvalAt(x, y int32) float32 {
-	return c.Alpha*float32(x) + c.Beta*float32(y) + c.Gamma
 }

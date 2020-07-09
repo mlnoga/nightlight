@@ -8,13 +8,13 @@ else
   EXECUTABLE=$(TARGET)
 endif
 
+install-local: $(EXECUTABLE)
+	cp $< ~/bin/
+
 all: $(EXECUTABLE)
 
 install: $(EXECUTABLE)
 	cp $< /usr/local/bin
-
-install-local: $(EXECUTABLE)
-	cp $< ~/bin/
 
 $(EXECUTABLE): $(SRCS)
 	go build -o $@ $(FLAGS) ./cmd/$(TARGET)

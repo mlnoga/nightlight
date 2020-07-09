@@ -47,7 +47,7 @@ var jpg  = flag.String("jpg", "%auto",  "save 8bit preview of output as JPEG to 
 var log  = flag.String("log", "%auto",    "save log output to `file`. `%auto` replaces suffix of output file with .log")
 var pre  = flag.String("pre",  "",  "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
 var stars= flag.String("stars","","save star detections with given filename pattern, e.g. `stars%04d.fits`")
-var back = flag.String("back","","save extracted background with given filename pattern, e.g. `stars%04d.fits`")
+var back = flag.String("back","","save extracted background with given filename pattern, e.g. `back%04d.fits`")
 var post = flag.String("post", "",  "save post-processed frames with given filename pattern, e.g. `post%04d.fits`")
 var batch= flag.String("batch", "", "save stacked batches with given filename pattern, e.g. `batch%04d.fits`")
 
@@ -66,7 +66,9 @@ var starSig   = flag.Float64("starSig", 10.0,"sigma for star detection as multip
 var starBpSig = flag.Float64("starBpSig",-1.0,"sigma for star detection bad pixel removal as multiple of standard deviations, -1: auto")
 var starRadius= flag.Int64("starRadius", 16.0, "radius for star detection in pixels")
 
-var backGrid  = flag.Int64("backGrid", 0, "automated background extraction grid size in pixels, 0=off")
+var backGrid  = flag.Int64("backGrid", 0, "automated background extraction: grid size in pixels, 0=off")
+var backSigma = flag.Float64("backSigma", 2.0 ,"automated background extraction: sigma for detecting foreground objects")
+var backClip  = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
 var align     = flag.Int64("align",1,"1=align frames, 0=do not align")
 var alignK    = flag.Int64("alignK",20,"use triangles fromed from K brightest stars for initial alignment")
@@ -253,7 +255,7 @@ func cmdStats(args []string, batchPattern string) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), int32(*starRadius), int32(*backGrid), *back)
+			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -413,7 +415,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
 	avgNoise=float32(0)
@@ -520,7 +522,7 @@ func cmdRGB(args []string) {
 	if imageLevelParallelism>3 { imageLevelParallelism=3 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 
 	// Pick reference frame
 	var refFrame *nl.FITSImage
@@ -565,7 +567,7 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	if imageLevelParallelism>4 { imageLevelParallelism=4 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 
 	var refFrame, histoRef *nl.FITSImage
 	if (*align)!=0 {
