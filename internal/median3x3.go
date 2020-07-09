@@ -16,6 +16,9 @@
 
 package internal
 
+import (
+	"math"
+)
 
 // Applies 3x3 median filter to input data, assumed to be a 2D array with given line width, and stores results in output.
 // Copies over the outermost rows and columns unchanged. Pure go implementation
@@ -109,6 +112,7 @@ func MedianFloat32Slice9(a []float32) float32 {       // 30x min/max
 // Modifies the elements in place
 // Array must not contain IEEE NaN
 func MedianFloat32(a []float32) float32 {
+	if len(a)==0 { return float32(math.NaN()) }
 	if len(a)==9 { return MedianFloat32Slice9(a) }
 	return QSelectMedianFloat32(a)
 }

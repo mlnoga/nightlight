@@ -337,7 +337,7 @@ func (h *FITSHeader) read(r io.Reader) error {
 			line:=buf[lineNo*fitsHeaderLineSize:(lineNo+1)*fitsHeaderLineSize]
 			subValues:=myParser.FindSubmatch(line)
 			if subValues==nil {
-				LogPrintf("%d:Warning:Cannot parse '%s', ignoring\n",lineNo, string(line))
+				LogPrintf("Warning:Cannot parse '%s', ignoring\n",string(line))
 			} else {
 				subNames:=myParser.SubexpNames()
 				h.readLine(subNames, subValues, lineNo)
