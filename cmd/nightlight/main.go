@@ -67,7 +67,7 @@ var starBpSig = flag.Float64("starBpSig",-1.0,"sigma for star detection bad pixe
 var starRadius= flag.Int64("starRadius", 16.0, "radius for star detection in pixels")
 
 var backGrid  = flag.Int64("backGrid", 0, "automated background extraction: grid size in pixels, 0=off")
-var backSigma = flag.Float64("backSigma", 2.0 ,"automated background extraction: sigma for detecting foreground objects")
+var backSigma = flag.Float64("backSigma", 1.5 ,"automated background extraction: sigma for detecting foreground objects")
 var backClip  = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
 var align     = flag.Int64("align",1,"1=align frames, 0=do not align")

@@ -19,59 +19,75 @@ package internal
 import (
 	"fmt"
 	"math"
+	"strings"
 )
 
 // A piecewise linear background, for automated background extraction (ABE)
 type Background struct {
-	Width int32
-	Height int32
-	GridSpacing int32
-	NumCellCols int32
-	NumCellRows int32
-	NumCells    int32	
- 	Cells []float32
- 	OutlierCells int32 // number of outlier cells replaced with interpolation of neighboring cells
- 	Max float32         // maximum alpha, beta, gamma values
- 	Min float32        // minimum alpha, beta, gamma values
+	Width int32           // original image width
+	Height int32          // original image height
+	GridSpacing  int32    // approximate grid spacing as given by user
+	GridSpacingX float32  // fine grid spacing for evenly sized cells, X direction
+	GridSpacingY float32  // fine grid spacing for evenly sized cells, Y direction
+	GridCellsX   int32    // number of grid cells, X direction
+	GridCellsY   int32    // number of grid cells, Y direction
+	GridCells    int32	  // number of grid cells, total = X * Y
+ 	Cells []float32       // grid cell values
+ 	OutlierCells int32    // number of outlier cells replaced with interpolation of neighboring cells
+ 	Max float32           // maximum alpha, beta, gamma values
+ 	Min float32           // minimum alpha, beta, gamma values
 }
 
-func (bg *Background) String() string {
+func (b *Background) String() string {
 	return fmt.Sprintf("Background grid %d cells %dx%d outliers %d range [%f...%f]",
-		bg.GridSpacing, bg.NumCellCols, bg.NumCellRows, bg.OutlierCells, 
-		bg.Min, bg.Max )
+		b.GridSpacing, b.GridCellsX, b.GridCellsY, b.OutlierCells, 
+		b.Min, b.Max )
+}
+
+func (b *Background) CellsString() string {
+	sb:=&strings.Builder{}
+
+	for y:=int32(0); y<b.GridCellsY; y++ {
+		fmt.Fprintf(sb, "%2d:", y)
+		for x:=int32(0); x<b.GridCellsX; x++ {
+			c:=y*b.GridCellsX + x
+			fmt.Fprintf(sb, " %4.0f", b.Cells[c])
+		}	
+		sb.WriteString("\n")
+	} 
+	return sb.String()
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
 func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
-	numCellCols:=(width+gridSpacing-1)/gridSpacing
-	numCellRows:=(height+gridSpacing-1)/gridSpacing
-	numCells   :=numCellCols*numCellRows
-	cells      :=make([]float32, numCells)
 
-	b=&Background{Width:width, Height:height, GridSpacing:gridSpacing, NumCellCols:numCellCols, NumCellRows:numCellRows, NumCells:numCells, Cells:cells}
+	gridCellsX  :=(width+  gridSpacing/2) / gridSpacing
+	gridCellsY  :=(height+ gridSpacing/2) / gridSpacing
+	gridCells   :=gridCellsX*gridCellsY
+	gridSpacingX:=float32(width )/float32(gridCellsX)
+	gridSpacingY:=float32(height)/float32(gridCellsY)
+	cells       :=make([]float32, gridCells)
+
+	//LogPrintf("GridCells x %d y %d total %d GridSpacing x %.2f y %.2f\n", gridCellsX, gridCellsY, gridCells, gridSpacingX, gridSpacingY)
+	b=&Background{Width:width, Height:height, GridSpacing:gridSpacing, 
+	              GridSpacingX:gridSpacingX, GridSpacingY:gridSpacingY,
+	              GridCellsX:gridCellsX, GridCellsY:gridCellsY, GridCells:gridCells, Cells:cells}
 
 	b.init(src, sigma)
+	//LogPrintf("Sigma %f\n", sigma)
+	//LogPrintln(b.CellsString())
+
 	if backClip>0 {
 		b.clip(backClip)
+		//LogPrintf("Clip %d\n", backClip)
+		//LogPrintln(b.CellsString())
 	}
+
 	b.smoothe()
-
-	// For all grid cells
-	/*LogPrintln("Final")
-	c:=0
-	for yStart:=int32(0); yStart<b.Height; yStart+=b.GridSpacing {
-		yEnd:=yStart+b.GridSpacing
-		if yEnd>b.Height { yEnd=b.Height }
-
-		LogPrintf("%d:", yStart/b.GridSpacing)
-		for xStart:=int32(0); xStart<b.Width; xStart+=b.GridSpacing {
-			LogPrintf(" %.0f", b.Cells[c])
-			c++
-		}	
-		LogPrintln()
-	} */
+	//LogPrintln("Smooth")
+	//LogPrintln(b.CellsString())
 
     b.calculateStats()
 
@@ -79,78 +95,55 @@ func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32,
 }
 
 // Initialize background by approximating each grid cell with a linear gradient
-func (bg *Background) init(src []float32, sigma float32) {
-	buffer:=make([]float32, bg.GridSpacing*bg.GridSpacing) // reuse for all grid cells to ease GC pressure
+func (b *Background) init(src []float32, sigma float32) {
+	buffer:=make([]float32, int32(b.GridSpacingX+1.5)*int32(b.GridSpacingY+1.5)) // reuse for all grid cells to ease GC pressure
 
 	// For all grid cells
-	c:=0
-	for yStart:=int32(0); yStart<bg.Height; yStart+=bg.GridSpacing {
-		yEnd:=yStart+bg.GridSpacing
-		if yEnd>bg.Height { yEnd=bg.Height }
+	for y:=int32(0); y<b.GridCellsY; y++ {
+		yStart:=int32( float32(y)   *b.GridSpacingY +0.5)
+		yEnd  :=int32((float32(y)+1)*b.GridSpacingY +0.5)
+		if yEnd>b.Height { yEnd=b.Height }
 
-		for xStart:=int32(0); xStart<bg.Width; xStart+=bg.GridSpacing {
-			xEnd:=xStart+bg.GridSpacing
-			if xEnd>bg.Width { xEnd=bg.Width }
+		for x:=int32(0); x<b.GridCellsX; x++ {
+			xStart:=int32( float32(x)   *b.GridSpacingX +0.5)
+			xEnd  :=int32((float32(x)+1)*b.GridSpacingX +0.5)
+			if xEnd>b.Width { xEnd=b.Width }
 
+			//LogPrintf("y %d yS %d yE %d x %d xS %d xE %d \n", y, yStart, yEnd, x, xStart, xEnd)
 			// Fit linear gradient to masked source image within that cell
-			bg.Cells[c]=FitCell(src, bg.Width, sigma, xStart, xEnd, yStart, yEnd, buffer)
-			c++
+			c:=y*b.GridCellsX + x
+			b.Cells[c]=FitCell(src, b.Width, sigma, xStart, xEnd, yStart, yEnd, buffer)
 		}	
 	}	
-
-	/*LogPrintf("Sigma %f\n", sigma)
-	// For all grid cells
-	c=0
-	LogPrintln("Median")
-	for yStart:=int32(0); yStart<bg.Height; yStart+=bg.GridSpacing {
-		LogPrintf("%d:", yStart/bg.GridSpacing)
-		for xStart:=int32(0); xStart<bg.Width; xStart+=bg.GridSpacing {
-			LogPrintf(" %.0f", bg.Cells[c])
-			c++
-		}	
-		LogPrintln()
-	}*/	
 
 	buffer=nil
 }
 
 // Clips the top n entries from the background gradient
-func (bg *Background) clip(n int32) {
-	buffer:=make([]float32, bg.NumCells)
-	for i,cell:=range bg.Cells { buffer[i]=cell }
+func (b *Background) clip(n int32) {
+	buffer:=make([]float32, b.GridCells)
+	for i,cell:=range b.Cells { buffer[i]=cell }
 	threshold:=QSelectFloat32(buffer, len(buffer)-int(n)+1)
 	buffer=nil
 
 	ignoredCells:=int32(0)
-	for i,cell:=range bg.Cells { 
+	for i,cell:=range b.Cells { 
 		if cell>=threshold {
-			bg.Cells[i]=float32(math.NaN())
+			b.Cells[i]=float32(math.NaN())
 			ignoredCells++
 		}
 	}
 
-	/*LogPrintf("n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
+	LogPrintf("n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
+	//LogPrintln(b.CellsString())
 
-	// For all grid cells
-	c:=0
-	LogPrintln("Clipped")
-	for yStart:=int32(0); yStart<bg.Height; yStart+=bg.GridSpacing {
-		LogPrintf("%d:", yStart/bg.GridSpacing)
-		for xStart:=int32(0); xStart<bg.Width; xStart+=bg.GridSpacing {
-			LogPrintf(" %.0f", bg.Cells[c])
-			c++
-		}	
-		LogPrintln()
-	}*/	
-
-
-	bg.OutlierCells=ignoredCells
+	b.OutlierCells=ignoredCells
 
 	// Then replace cells with interpolations
 	for neighbors:=8; neighbors>=0; neighbors-- {
 		numChanged:=1
 		for numChanged>0 {
-			numChanged=interpolate(bg.Cells, bg.NumCellCols, bg.NumCellRows, neighbors)
+			numChanged=interpolate(b.Cells, b.GridCellsX, b.GridCellsY, neighbors)
 		}
 	}
 	buffer=nil
@@ -158,7 +151,7 @@ func (bg *Background) clip(n int32) {
 
 func (b *Background) smoothe() {
 	tmp:=make([]float32, len(b.Cells))
-	gauss3x3(tmp, b.Cells, b.NumCellCols)
+	gauss3x3(tmp, b.Cells, b.GridCellsX)
 	b.Cells=tmp
 }
 
@@ -265,23 +258,48 @@ func MedianInterpolation(params []float32, width, height, x,y int32, temp []floa
 func (b Background) Render() (dest []float32) {
 	dest=make([]float32, b.Width*b.Height)
 
-	// For all grid cells
-	subtrahend:=float32(b.GridSpacing)*0.5
-	factor    :=1.0/float32(b.GridSpacing)
-	for y:=int32(0); y<b.Height; y++ {
-		ySrc:=(float32(y)-subtrahend)*factor
-		for x:=int32(0); x<b.Width; x++ {
-			xSrc:=(float32(x)-subtrahend)*factor
+	srcYl    :=int32(-1)
+	srcYh    :=int32(0)
+	destYl   :=int32(-0.5*b.GridSpacingY-0.5)
+	destYh   :=int32( 0.5*b.GridSpacingY+0.5)
+	destYSpan:=1.0/float32(destYh-destYl)
+
+	for destY:=int32(0); destY<b.Height; destY++ {
+		if destY>=destYh {
+			srcYl    =srcYh
+			srcYh    =srcYh+1
+			destYl   =destYh
+			destYh   =int32((float32(srcYh)+0.5)*b.GridSpacingY+0.5)
+			destYSpan=1.0/float32(destYh-destYl)
+		}
+		srcY:=float32(srcYl)+float32(destY-destYl)*destYSpan
+
+		//LogPrintf("dest yl %d y %d yh %d  src yl %d y %f yh %d\n", destYl, destY, destYh, srcYl, srcY, srcYh)
+
+		srcXl    :=int32(-1)
+		srcXh    :=int32(0)
+		destXl   :=int32(-0.5*b.GridSpacingX-0.5)
+		destXh   :=int32( 0.5*b.GridSpacingX+0.5)
+		destXSpan:=1.0/float32(destXh-destXl)
+
+		for destX:=int32(0); destX<b.Width; destX++ {
+			if destX>=destXh {
+				srcXl    =srcXh
+				srcXh    =srcXh+1
+				destXl   =destXh
+				destXh   =int32((float32(srcXh)+0.5)*b.GridSpacingX+0.5)
+				destXSpan=1.0/float32(destXh-destXl)
+			}
+			srcX:=float32(srcXl)+float32(destX-destXl)*destXSpan
 
 			// perform bilinear interpolation
-			xl, yl:=int32(math.Floor(float64(xSrc))), int32(math.Floor(float64(ySrc)))
-			xh, yh:=xl+1, yl+1
+			xl, yl, xh, yh:=srcXl, srcYl, srcXh, srcYh
 
 			if xl<0 {
 				xl++
 				xh++
 			}
-			if xh>=b.NumCellCols {
+			if xh>=b.GridCellsX {
 				xl--
 				xh--
 			}
@@ -289,16 +307,16 @@ func (b Background) Render() (dest []float32) {
 				yl++
 				yh++
 			}
-			if yh>=b.NumCellRows {
+			if yh>=b.GridCellsY {
 				yl--
 				yh--
 			}
-			xr, yr:=xSrc-float32(xl), ySrc-float32(yl)
+			xr, yr:=srcX-float32(xl), srcY-float32(yl)
 
-			xlyl:=xl+yl*b.NumCellCols
+			xlyl:=xl+yl*b.GridCellsX
 			xhyl:=xlyl+1         // xh+yl*origWidth
-			xlyh:=xlyl+b.NumCellCols // xl+yh*origWidth
-			xhyh:=xhyl+b.NumCellCols // xh+yh*origWidth
+			xlyh:=xlyl+b.GridCellsX // xl+yh*origWidth
+			xhyh:=xhyl+b.GridCellsX // xh+yh*origWidth
 
 			vyl  :=b.Cells[xlyl]*(1-xr) + b.Cells[xhyl]*xr
 			vyh  :=b.Cells[xlyh]*(1-xr) + b.Cells[xhyh]*xr
@@ -306,7 +324,7 @@ func (b Background) Render() (dest []float32) {
 
 			//LogPrintf("x%d y%d xSrc%f ySrc%f xl%d yl%d xh%d yh%d v%f\n",
 			//	x,y,xSrc,ySrc,xl,yl,xh,yh,v)
-			dest[x + y*b.Width]=v
+			dest[destX + destY*b.Width]=v
 		}	
 	}	
 
@@ -320,25 +338,48 @@ func (b Background) Subtract(dest []float32) {
 		LogFatalf("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
 	}
 
-	dest=make([]float32, b.Width*b.Height)
+	srcYl    :=int32(-1)
+	srcYh    :=int32(0)
+	destYl   :=int32(-0.5*b.GridSpacingY-0.5)
+	destYh   :=int32( 0.5*b.GridSpacingY+0.5)
+	destYSpan:=1.0/float32(destYh-destYl)
 
-	// For all grid cells
-	subtrahend:=float32(b.GridSpacing)*0.5
-	factor    :=1.0/float32(b.GridSpacing)
-	for y:=int32(0); y<b.Height; y++ {
-		ySrc:=(float32(y)-subtrahend)*factor
-		for x:=int32(0); x<b.Width; x++ {
-			xSrc:=(float32(x)-subtrahend)*factor
+	for destY:=int32(0); destY<b.Height; destY++ {
+		if destY>=destYh {
+			srcYl    =srcYh
+			srcYh    =srcYh+1
+			destYl   =destYh
+			destYh   =int32((float32(srcYh)+0.5)*b.GridSpacingY+0.5)
+			destYSpan=1.0/float32(destYh-destYl)
+		}
+		srcY:=float32(srcYl)+float32(destY-destYl)*destYSpan
+
+		//LogPrintf("dest yl %d y %d yh %d  src yl %d y %f yh %d\n", destYl, destY, destYh, srcYl, srcY, srcYh)
+
+		srcXl    :=int32(-1)
+		srcXh    :=int32(0)
+		destXl   :=int32(-0.5*b.GridSpacingX-0.5)
+		destXh   :=int32( 0.5*b.GridSpacingX+0.5)
+		destXSpan:=1.0/float32(destXh-destXl)
+
+		for destX:=int32(0); destX<b.Width; destX++ {
+			if destX>=destXh {
+				srcXl    =srcXh
+				srcXh    =srcXh+1
+				destXl   =destXh
+				destXh   =int32((float32(srcXh)+0.5)*b.GridSpacingX+0.5)
+				destXSpan=1.0/float32(destXh-destXl)
+			}
+			srcX:=float32(srcXl)+float32(destX-destXl)*destXSpan
 
 			// perform bilinear interpolation
-			xl, yl:=int32(math.Floor(float64(xSrc))), int32(math.Floor(float64(ySrc)))
-			xh, yh:=xl+1, yl+1
+			xl, yl, xh, yh:=srcXl, srcYl, srcXh, srcYh
 
 			if xl<0 {
 				xl++
 				xh++
 			}
-			if xh>=b.NumCellCols {
+			if xh>=b.GridCellsX {
 				xl--
 				xh--
 			}
@@ -346,16 +387,16 @@ func (b Background) Subtract(dest []float32) {
 				yl++
 				yh++
 			}
-			if yh>=b.NumCellRows {
+			if yh>=b.GridCellsY {
 				yl--
 				yh--
 			}
-			xr, yr:=xSrc-float32(xl), ySrc-float32(yl)
+			xr, yr:=srcX-float32(xl), srcY-float32(yl)
 
-			xlyl:=xl+yl*b.NumCellCols
+			xlyl:=xl+yl*b.GridCellsX
 			xhyl:=xlyl+1         // xh+yl*origWidth
-			xlyh:=xlyl+b.NumCellCols // xl+yh*origWidth
-			xhyh:=xhyl+b.NumCellCols // xh+yh*origWidth
+			xlyh:=xlyl+b.GridCellsX // xl+yh*origWidth
+			xhyh:=xhyl+b.GridCellsX // xh+yh*origWidth
 
 			vyl  :=b.Cells[xlyl]*(1-xr) + b.Cells[xhyl]*xr
 			vyh  :=b.Cells[xlyh]*(1-xr) + b.Cells[xhyh]*xr
@@ -363,7 +404,7 @@ func (b Background) Subtract(dest []float32) {
 
 			//LogPrintf("x%d y%d xSrc%f ySrc%f xl%d yl%d xh%d yh%d v%f\n",
 			//	x,y,xSrc,ySrc,xl,yl,xh,yh,v)
-			dest[x + y*b.Width]-=v
+			dest[destX + destY*b.Width]-=v
 		}	
 	}	
 }
