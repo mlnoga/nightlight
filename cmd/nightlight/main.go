@@ -96,20 +96,23 @@ var postScaleB= flag.Float64("postScaleB", 1, "scale blue channel by this factor
 
 var lumChMax  = flag.Float64("lumChMax", 0, "replace luminance with channel maximum (1.0), or a blend (0..1). Default 0=no op")
 var chromaMul = flag.Float64("chromaMul", 1.0, "scale LCH chroma by given factor, default 1=no op")
-var chromaAdd = flag.Float64("chromaAdd", 0.0, "add given value to LCH chroma, default 0=no op")
-var chromaSigma=flag.Float64("chromaSigma", 2.0, "only scale and add LCH chroma for luminances n sigma above background")
+var chromaAdd = flag.Float64("chromaAdd", 0.0, "add given offset to LCH chroma, default 0=no op")
+var chromaSigma=flag.Float64("chromaSigma", 3.0, "only scale and add to LCH chroma for luminances n sigma above background")
 
 var chromaFrom= flag.Float64("chromaFrom", 295, "scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars")
 var chromaTo  = flag.Float64("chromaTo", 40, "scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars")
 var chromaBy  = flag.Float64("chromaBy", 1, "scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars")
+
 var rotFrom   = flag.Float64("rotFrom", 100, "rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3")
 var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3")
 var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3")
+
 var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3")
 
 var autoBW    = flag.Float64("autoBW", 10, "histogram peak location in %% for automatic black and white point adjustment, 0=don't")
 var autoLoc   = flag.Float64("autoLoc", 10, "histogram peak location in %% to target with automatic curves adjustment, 0=don't")
 var autoScale = flag.Float64("autoScale", 0.4, "histogram peak scale in %% to target with automatic curves adjustment, 0=don't")
+
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")

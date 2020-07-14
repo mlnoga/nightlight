@@ -108,7 +108,7 @@ Available flags are:
 |log            |%auto       | save log output to `file`. `%auto` replaces suffix of output file with .log |
 |pre            |            | save pre-processed frames with given filename pattern, e.g. `pre%04d.fits` |
 |star           |            | save star detections with given pattern, e.g. `stars%04d.fits` |
-|back           |            | save extracted background with given filename pattern, e.g. `stars%04d.fits` |
+|back           |            | save extracted background with given filename pattern, e.g. `back%04d.fits` |
 |post           |            | save post-processed frames with given filename pattern, e.g. `post%04d.fits` |
 |batch          |            | save stacked batches with given filename pattern, e.g. `batch%04d.fits` |
 |dark           |            | apply dark frame from `file` |
@@ -121,6 +121,9 @@ Available flags are:
 |starSig        |10.0        | sigma for star detection as multiple of standard deviations |
 |starBpSig      |5.0         | sigma for star detection bad pixel removal as multiple of standard deviations, -1: auto |
 |starRadius     |16.0        | radius for star detection in pixels |
+|backGrid       |0           | automated background extraction: grid size in pixels, 0=off |
+|backSigma      |1.5         | automated background extraction: sigma for detecting foreground objects |
+|backClip       |0           | automated background extraction: clip the k brightest grid cells and replace with local median |
 |align          |1           | 1=align frames, 0=do not align |
 |alignK         |20          | use triangles fromed from K brightest stars for initial alignment |
 |alignT         |1.0         | skip frames if alignment to reference frame has residual greater than this |
@@ -141,7 +144,9 @@ Available flags are:
 |postScaleG     |1           | scale green channel by this factor in postprocessing |
 |postScaleB     |1           | scale blue channel by this factor in postprocessing |
 |lumChMax       |0           | replace luminance with channel maximum (1.0), or a blend (0..1). Default 0=no op |
-|chroma         |1           | scale LCH chroma by given factor, default 1=no op |
+|chromaMul      |1           | scale LCH chroma by given factor, default 1=no op |
+|chromaAdd      |0           | add given offset to LCH chroma, default 0=no op |
+|chromaSigma    |3.0         | only scale and add to LCH chroma for luminances n sigma above background |
 |chromaFrom     |295         | scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars |
 |chromaTo       |40          | scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars |
 |chromaBy       |1           | scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars |
@@ -155,7 +160,7 @@ Available flags are:
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
-|scaleBlack     |0           | move black point so histogram peak location is given value in %, 0=don't |
+|scaleBlack     |0.0         | move black point so histogram peak location is given value in %, 0=don't |
 |blackPerc      |0.0         | percent of pixels to display as black in final screen transfer function |
 |whitePerc      |0.0         | percent of pixels to display as white in final screen transfer function |
 |cpuprofile     |            | write cpu profile to `file` |
