@@ -83,7 +83,7 @@ Key Makefile targets include:
 The syntax for calling nightlight directly is: 
 
 ```
-nightlight [-flag value] (stats|stack|rgb|argb|lrgb|legal) (light1.fit ... lightn.fit)
+nightlight [-flag value] (stats|stack|rgb|argb|lrgb|legal|version) (light1.fit ... lightn.fit)
 ```
 
 The available commands are:
@@ -96,6 +96,7 @@ The available commands are:
 |argb     |Combine color channels and align with luminance. Inputs are treated as l, r, g and b channels |
 |lrgb     |Combine color channels and combine with luminance. Inputs are treated as l, r, g and b channels |
 |legal    |Show license and attribution information |
+|version  |Show version information |
 
 Input and output files are automatically gunzipped and gzipped if .gz or .gzip suffixes are present in the filename. 
 

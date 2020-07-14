@@ -30,6 +30,8 @@ import (
 	"github.com/pbnjay/memory"
 )
 
+const version = "0.2.1"
+
 type Job struct {
 	Id       int
 	FileName string
@@ -138,12 +140,13 @@ Refer to https://www.gnu.org/licenses/gpl-3.0.en.html for details.
 Usage: %s [-flag value] (stats|stack|rgb|argb|lrgb|legal) (img0.fits ... imgn.fits)
 
 Commands:
-  stats  Show input image statistics
-  stack  Stack input images
-  rgb    Combine color channels. Inputs are treated as r, g and b channel in that order
-  argb   Combine color channels and align with luminance. Inputs are treated as l, r, g and b channels
-  lrgb   Combine color channels and combine with luminance. Inputs are treated as l, r, g and b channels
-  legal  Show license and attribution information
+  stats   Show input image statistics
+  stack   Stack input images
+  rgb     Combine color channels. Inputs are treated as r, g and b channel in that order
+  argb    Combine color channels and align with luminance. Inputs are treated as l, r, g and b channels
+  lrgb    Combine color channels and combine with luminance. Inputs are treated as l, r, g and b channels
+  legal   Show license and attribution information
+  version Show version information
 
 Flags:
 `, os.Args[0])
@@ -209,6 +212,8 @@ Flags:
     	cmdLRGB(args[1:],true)
     case "legal":
     	cmdLegal()
+    case "version":
+    	nl.LogPrintf("Version %s\n", version)
     case "help", "?":
     	flag.Usage()
     default:
