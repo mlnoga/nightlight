@@ -216,6 +216,7 @@ func combineLRGBFragment(ls, rs, gs, bs []float32, lMin, lMult, rgbMin, rgbMult 
 	}
 }
 
+
 // Set image black point so histogram peaks match the given new peak value,
 // and median star colors are of a neutral tone
 func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
@@ -228,39 +229,28 @@ func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
 	statsB,err:=CalcExtendedStats(f.Data[2*l:   ], f.Naxisn[0])
 	if err!=nil {return err}
 	locR, locG, locB:=statsR.Location, statsG.Location, statsB.Location
-	LogPrintf("RGB histogram peaks are located at (%.2f%%, %.2f%%, %.2f%%)\n", locR*100, locG*100, locB*100)
 
 	// Estimate median star color
 	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], f.Stars)
 	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], f.Stars)
 	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], f.Stars)
-	LogPrintf("Median star color is (%.2f%%, %.2f%%, %.2f%%) from %d stars with avg HFR %.2g\n", starR*100, starG*100, starB*100, len(f.Stars), f.HFR)
+	LogPrintf("Background peak (%.2f%%, %.2f%%, %.2f%%) and median star color (%.2f%%, %.2f%%, %.2f%%)\n", 
+	locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
 
-	// Crank up the luminance to calculate assumed current white
-	col:=colorful.LinearRgb(float64(starR), float64(starG), float64(starB))
-	x,y,_:=col.Xyy()                        // ignore the Y channel, which is luminance from RGB
-	newCol:=colorful.Xyy(x,y,1.0).Clamped() // maximal luminance
-	rr, gg, bb:=newCol.LinearRgb()          // convert back into RGB color space
-	whiteR, whiteG, whiteB:=float32(rr), float32(gg), float32(bb)
-	//LogPrintf("AssuWhite r=%g g=%g b=%g\n", whiteR, whiteG, whiteB)
+	// Calculate multiplicative correction factors to balance star colors to common minimum
+	starMin:=starR
+	if starMin>starG { starMin=starG }
+	if starMin>starB { starMin=starB }
+	alphaR:=starMin/starR
+	alphaG:=starMin/starG
+	alphaB:=starMin/starB
 
-	// Calculate transformation factors
-	alphaR:=(1.0-newBlack)/(whiteR-locR)
-	alphaG:=(1.0-newBlack)/(whiteG-locG)
-	alphaB:=(1.0-newBlack)/(whiteB-locB)
+	// Calculate additive correction factors to move old location to new black
 	betaR := newBlack-alphaR*locR
 	betaG := newBlack-alphaG*locG
 	betaB := newBlack-alphaB*locB
-	//LogPrintf("alphaR %g betaR=%g\n", alphaR, betaR)
-	//LogPrintf("alphaG %g betaG=%g\n", alphaG, betaG)
-	//LogPrintf("alphaB %g betaB=%g\n", alphaB, betaB)
 
-	//LogPrintf("newBlack r=%g g=%g b=%g\n", alphaR*locR  +betaR, alphaG*locG  +betaG, alphaB*locB  +betaB)
-	//LogPrintf("newWhite r=%g g=%g b=%g\n", alphaR*whiteR+betaR, alphaG*whiteG+betaG, alphaB*whiteB+betaB)
-
- 	// Apply transformation
-	LogPrintf("Moving peak to (%.2f%%, %.2f%%, %.2f%%) and making (%.2f%%, %.2f%%, %.2f%%) white...\n", 
-	           newBlack*100, newBlack*100, newBlack*100, whiteR*100, whiteG*100, whiteB*100)
+	LogPrintf("r=%.2f*r %+.2f%%, g=%.2f*g %+.2f%%, b=%.2f*b %+.2f%%\n", alphaR, betaR, alphaG, betaG, alphaB, betaB)
 	f.ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB)
 	return nil
 }
