@@ -154,15 +154,23 @@ func (f* FITSImage) ApplyPartialGamma(from, to, g float32) {
 }
 
 
-// RGB pixel function to adjust CIE HCL chroma by multiplying with given factor. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
+type rgbPFChromaArgs struct {
+	Mul float32
+	Add float32
+	Threshold float32
+}
+
+// RGB pixel function to adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
 func rgbPFChroma(rs,gs,bs []float32, params interface{}) {
-	factor:=params.(float32)
+	mul, add, threshold:=params.(rgbPFChromaArgs).Mul, params.(rgbPFChromaArgs).Add, params.(rgbPFChromaArgs).Threshold 
 	for i:=0; i<len(rs); i++ {
 		r, g, b:=rs[i], gs[i], bs[i]
+		if 0.299*r +0.587*g +0.114*b < threshold { continue }
+
 		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
 		h,c,l:=col.Hcl()
 
-		c=math.Max(0.0, math.Min(1.0, c*float64(factor)))
+		c=math.Max(0.0, math.Min(1.0, c*float64(mul)+float64(add)))
 
 		col2:=colorful.Hcl(h, c, l).Clamped()
 		rr,gg,bb:=col2.LinearRgb()
@@ -170,10 +178,10 @@ func rgbPFChroma(rs,gs,bs []float32, params interface{}) {
 	}
 }
 
-// Adjust CIE HCL chroma by multiplying with given factor. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
+// Adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFChromaArgs. Operates in-place. 
 // A perceptually linear way of boosting saturation.
-func (f* FITSImage) AdjustChroma(factor float32) {
-	f.ApplyRGBPixelFunction(rgbPFChroma, factor)
+func (f* FITSImage) AdjustChroma(mul, add, threshold float32) {
+	f.ApplyRGBPixelFunction(rgbPFChroma, rgbPFChromaArgs{mul, add, threshold})
 }
 
 
