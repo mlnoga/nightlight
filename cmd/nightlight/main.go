@@ -95,7 +95,10 @@ var postScaleG= flag.Float64("postScaleG", 1, "scale green channel by this facto
 var postScaleB= flag.Float64("postScaleB", 1, "scale blue channel by this factor in postprocessing")
 
 var lumChMax  = flag.Float64("lumChMax", 0, "replace luminance with channel maximum (1.0), or a blend (0..1). Default 0=no op")
-var chroma    = flag.Float64("chroma", 1, "scale LCH chroma by given factor, default 1=no op")
+var chromaMul = flag.Float64("chromaMul", 1.0, "scale LCH chroma by given factor, default 1=no op")
+var chromaAdd = flag.Float64("chromaAdd", 0.0, "add given value to LCH chroma, default 0=no op")
+var chromaSigma=flag.Float64("chromaSigma", 2.0, "only scale and add LCH chroma for luminances n sigma above background")
+
 var chromaFrom= flag.Float64("chromaFrom", 295, "scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars")
 var chromaTo  = flag.Float64("chromaTo", 40, "scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars")
 var chromaBy  = flag.Float64("chromaBy", 1, "scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars")
@@ -610,48 +613,13 @@ func cmdLRGB(args []string, applyLuminance bool) {
 }
 
 func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
-	if (*autoBW)!=0 {
-		if len(rgb.Stars)==0 {
-			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
-		} else {
-			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
-			histoPeakTarget:=float32((*autoBW)/100)
-			for i:=0; i<5; i++ {
-				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
-				if err!=nil { nl.LogFatal(err) }
-			}
-		}
-	}
+	// Auto-balance colors
+	autoBalanceColors(rgb, float32(*autoBW)/100)
 
-	// Fix RGB channel balance if necessary
+	// Adjust RGB channel balance if necessary
     if (*scaleR)!=1 || (*scaleG)!=1 || (*scaleB)!=1  {
     	nl.LogPrintf("Scaling R by %.4g, G by %.4g, B by %.4g...\n", *scaleR, *scaleG, *scaleB)
 		rgb.ScaleRGB(float32(*scaleR), float32(*scaleG), float32(*scaleB))
-    }
-
-    if (*lumChMax)!=0 {
-    	nl.LogPrintf("Replacing luminance with %.4gx max(R,G,B) + %.4gx old luminance...\n", *lumChMax, 1-*lumChMax)
-		rgb.LumChannelMax(float32(*lumChMax))
-    }
-
-    if (*chroma)!=1 {
-    	nl.LogPrintf("Multiplying LCH chroma (saturation) by %.4g...\n", *chroma)
-		rgb.AdjustChroma(float32(*chroma))
-    }
-
-    if (*chromaBy)!=1 {
-    	nl.LogPrintf("Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", *chromaBy, *chromaFrom, *chromaTo)
-		rgb.AdjustChromaForHues(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy))
-    }
-
-    if (*rotBy)!=0 {
-    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g...\n", *rotFrom, *rotTo, *rotBy)
-		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy))
-    }
-
-    if (*scnr)!=0 {
-    	nl.LogPrintf("Applying SCNR of %.4g ...\n", *scnr)
-		rgb.SCNR(float32(*scnr))
     }
 
 	// Iteratively adjust gamma and shift back histogram peak
@@ -661,21 +629,14 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
 
 		for i:=0; ; i++ {
-			if i==20 { 
+			if i==30 { 
 				nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
 				break
 			}
 
 			// calculate basic image stats as a fast location and scale estimate
-			l:=len(rgb.Data)/3
-			rStats,err:=nl.CalcExtendedStats(rgb.Data[0*l:1*l], rgb.Naxisn[0])
-		   	if err!=nil { nl.LogFatal(err) }
-			gStats,err:=nl.CalcExtendedStats(rgb.Data[1*l:2*l], rgb.Naxisn[0])
-		   	if err!=nil { nl.LogFatal(err) }
-			bStats,err:=nl.CalcExtendedStats(rgb.Data[2*l:3*l], rgb.Naxisn[0])
-		   	if err!=nil { nl.LogFatal(err) }
-			loc  :=0.299*rStats.Location +0.587*gStats.Location +0.114*bStats.Location
-			scale:=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale   
+			loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
 			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
 			if loc<=targetLoc*1.01 && scale<targetScale {
@@ -698,20 +659,10 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		}
 	}
 
-	if (*autoBW)!=0 {
-		if len(rgb.Stars)==0 {
-			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
-		} else {
-			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
-			histoPeakTarget:=float32((*autoBW)/100)
-			for i:=0; i<5; i++ {
-				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
-				if err!=nil { nl.LogFatal(err) }
-			}
-		}
-	}
+	// Auto-balance colors again
+	autoBalanceColors(rgb, float32(*autoBW)/100)
 
-	// Optionally adjust gamma again
+	// Optionally adjust gamma 
 	if (*gamma)!=1 {
 		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
 		rgb.ApplyGamma(float32(*gamma))
@@ -719,16 +670,8 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 
 	// Optionally adjust gamma post peak
     if (*ppGamma)!=1 {
-    	var err error
-		l:=len(rgb.Data)/3
-		rStats,err:=nl.CalcExtendedStats(rgb.Data[0*l:1*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		gStats,err:=nl.CalcExtendedStats(rgb.Data[1*l:2*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		bStats,err:=nl.CalcExtendedStats(rgb.Data[2*l:3*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		loc  :=0.299*rStats.Location +0.587*gStats.Location +0.114*bStats.Location
-		scale:=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale   
+		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
 
     	from:=loc+float32(*ppSigma)*scale
     	to  :=float32(1.0)
@@ -736,18 +679,40 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		rgb.ApplyPartialGamma(from, to, float32(*ppGamma))
     }
 
-	if (*autoBW)!=0 {
-		if len(rgb.Stars)==0 {
-			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
-		} else {
-			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", *autoBW)
-			histoPeakTarget:=float32((*autoBW)/100)
-			for i:=0; i<5; i++ {
-				err:=rgb.SetBlackWhitePoints(histoPeakTarget)
-				if err!=nil { nl.LogFatal(err) }
-			}
-		}
-	}
+    if (*lumChMax)!=0 {
+    	nl.LogPrintf("Replacing luminance with %.4gx max(R,G,B) + %.4gx old luminance...\n", *lumChMax, 1-*lumChMax)
+		rgb.LumChannelMax(float32(*lumChMax))
+    }
+
+    if (*chromaMul)!=1 || (*chromaAdd)!=0 {
+    	nl.LogPrintf("LCH chroma (saturation) = %.4g * chroma + %.4g%% for values %.4g sigma above background...\n", *chromaMul, *chromaAdd, *chromaSigma)
+
+		// calculate basic image stats as a fast location and scale estimate
+		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
+		threshold :=loc + scale*float32(*chromaSigma)
+		nl.LogPrintf("Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
+
+		rgb.AdjustChroma(float32(*chromaMul), float32(*chromaAdd)/100, threshold)
+    }
+
+    if (*chromaBy)!=1 {
+    	nl.LogPrintf("Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", *chromaBy, *chromaFrom, *chromaTo)
+		rgb.AdjustChromaForHues(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy))
+    }
+
+    if (*rotBy)!=0 {
+    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g...\n", *rotFrom, *rotTo, *rotBy)
+		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy))
+    }
+
+    if (*scnr)!=0 {
+    	nl.LogPrintf("Applying SCNR of %.4g ...\n", *scnr)
+		rgb.SCNR(float32(*scnr))
+    }
+
+	// Auto-balance colors again
+	autoBalanceColors(rgb, float32(*autoBW)/100)
 
    	// Fix RGB channel balance if necessary
     if (*postScaleR)!=1 || (*postScaleG)!=1 || (*postScaleB)!=1  {
@@ -758,15 +723,8 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 	// Optionally scale histogram peak
     if (*scaleBlack)!=0 {
     	targetBlack:=float32((*scaleBlack)/100.0)
-		l:=len(rgb.Data)/3
-		rStats,err:=nl.CalcExtendedStats(rgb.Data[0*l:1*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		gStats,err:=nl.CalcExtendedStats(rgb.Data[1*l:2*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		bStats,err:=nl.CalcExtendedStats(rgb.Data[2*l:3*l], rgb.Naxisn[0])
-	   	if err!=nil { nl.LogFatal(err) }
-		loc  :=0.299*rStats.Location +0.587*gStats.Location +0.114*bStats.Location
-		scale:=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale   
+		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
 		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
 		if loc>targetBlack {
@@ -793,6 +751,24 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	}
 }
+
+// Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
+func autoBalanceColors(rgb *nl.FITSImage, newBlack float32) {
+	// Auto-balance colors
+	if (newBlack)!=0 {
+		if len(rgb.Stars)==0 {
+			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
+		} else {
+			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", newBlack*100)
+			for i:=0; i<5; i++ {
+				err:=rgb.SetBlackWhitePoints(newBlack)
+				if err!=nil { nl.LogFatal(err) }
+			}
+		}
+	}
+}
+
+
 
 // Turn filename wildcards into list of light frame files
 func globFilenameWildcards(args []string) []string {
