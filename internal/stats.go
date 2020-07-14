@@ -494,3 +494,17 @@ func HalfSampleModeSorted(data []float32) float32 {
 		}
 	}
 }
+
+// Returns greyscale location and scale for given RGB image
+func RGBGreyLocScale(data []float32, width int32) (loc, scale float32, err error) {
+	l:=len(data)/3
+	rStats,err:=CalcExtendedStats(data[0*l:1*l], width)
+   	if err!=nil { return 0,0, err }
+	gStats,err:=CalcExtendedStats(data[1*l:2*l], width)
+   	if err!=nil { return 0,0, err }
+	bStats,err:=CalcExtendedStats(data[2*l:3*l], width)
+   	if err!=nil { return 0,0, err }
+	loc  =0.299*rStats.Location +0.587*gStats.Location +0.114*bStats.Location
+	scale=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale
+	return loc, scale, nil
+}
