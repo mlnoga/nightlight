@@ -40,7 +40,7 @@ Here are some sample datasets to play with:
 * Stack more files than fit in memory using randomized batching
 * RGB and LRGB combination
 * Auto-set color balance based on histogram peak and average color of detected stars
-* Color composite operators: gamma, black/white point, chroma, selective chroma adjustment by hue, selective hue rotation, SCNR
+* Color composite operators: gamma, black/white point, chroma, selective chroma adjustment by hue, selective hue rotation, SCNR, background neutralization
 * Store FITS files, export to JPG
 
 ## Limitations
@@ -151,6 +151,8 @@ Available flags are:
 |chromaFrom     |295         | scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars |
 |chromaTo       |40          | scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars |
 |chromaBy       |1           | scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars |
+|neutSigmaLow   |-1          | neutralize background color below this threshold, <0 = no op|
+|neutSigmaHigh  |-1          | keep background color above this threshold, interpolate in between, <0 = no op|
 |rotFrom        |100         | rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3 |
 |rotTo          |190         | rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3 |
 |rotBy          |0           | rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3 |

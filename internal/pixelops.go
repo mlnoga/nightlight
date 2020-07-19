@@ -160,7 +160,7 @@ type rgbPFChromaArgs struct {
 	Threshold float32
 }
 
-// RGB pixel function to adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
+// RGB pixel function to adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFChromaArgs. Operates in-place. 
 func rgbPFChroma(rs,gs,bs []float32, params interface{}) {
 	mul, add, threshold:=params.(rgbPFChromaArgs).Mul, params.(rgbPFChromaArgs).Add, params.(rgbPFChromaArgs).Threshold 
 	for i:=0; i<len(rs); i++ {
@@ -178,10 +178,48 @@ func rgbPFChroma(rs,gs,bs []float32, params interface{}) {
 	}
 }
 
-// Adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFChromaArgs. Operates in-place. 
+// Adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. Operates in-place. 
 // A perceptually linear way of boosting saturation.
 func (f* FITSImage) AdjustChroma(mul, add, threshold float32) {
 	f.ApplyRGBPixelFunction(rgbPFChroma, rgbPFChromaArgs{mul, add, threshold})
+}
+
+
+type rgbPFNeutralizeBackgroundArgs struct {
+	Low float32
+	High float32
+}
+
+// RGB pixel function to adjust CIE HCL chroma by multiplying with 0 for values below low, with 1 above high, and interpolating linearly in between. 
+// Data must be normalized to [0,1]. 2nd parameter must be a rgbPFNeutralizeBackgroundArgs. Operates in-place. 
+func rgbPFNeutralizeBackground(rs,gs,bs []float32, params interface{}) {
+	low, high:=params.(rgbPFNeutralizeBackgroundArgs).Low, params.(rgbPFNeutralizeBackgroundArgs).Low
+	scaler:=float32(0)
+	if high>low { scaler=1.0/(high-low) }
+	for i:=0; i<len(rs); i++ {
+		r, g, b:=rs[i], gs[i], bs[i]
+		val:=0.299*r +0.587*g +0.114*b
+		if val >= high { continue }
+		factor:=float32(0)
+		if val>low {
+			factor=(val-low)*scaler
+		}
+
+		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
+		h,c,l:=col.Hcl()
+
+		c*=float64(factor)
+
+		col2:=colorful.Hcl(h, c, l).Clamped()
+		rr,gg,bb:=col2.LinearRgb()
+		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
+	}
+}
+
+// Adjust CIE HCL chroma by multiplying with 0 for values below low, with 1 above high, and interpolating linearly in between. 
+// Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) NeutralizeBackground(low, high float32) {
+	f.ApplyRGBPixelFunction(rgbPFNeutralizeBackground, rgbPFNeutralizeBackgroundArgs{low, high})
 }
 
 

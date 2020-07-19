@@ -105,6 +105,9 @@ var chromaFrom= flag.Float64("chromaFrom", 295, "scale LCH chroma for hues in [f
 var chromaTo  = flag.Float64("chromaTo", 40, "scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars")
 var chromaBy  = flag.Float64("chromaBy", 1, "scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars")
 
+var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
+var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
+
 var rotFrom   = flag.Float64("rotFrom", 100, "rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3")
 var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3")
 var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3")
@@ -717,6 +720,18 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
     if (*scnr)!=0 {
     	nl.LogPrintf("Applying SCNR of %.4g ...\n", *scnr)
 		rgb.SCNR(float32(*scnr))
+    }
+
+    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
+		nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
+
+		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
+		low :=loc + scale*float32(*neutSigmaLow)
+		high:=loc + scale*float32(*neutSigmaHigh)
+		nl.LogPrintf("Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
+
+		rgb.NeutralizeBackground(low, high)		
     }
 
 	// Auto-balance colors again
