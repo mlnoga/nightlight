@@ -138,34 +138,23 @@ Available flags are:
 |stSigHigh      |-1          | high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find |
 |stWeight       |0           | weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise |
 |stMemory       |            | total MB of memory to use for stacking, default=80% of physical memory |
-|scaleR         |1           | scale red channel by this factor |
-|scaleG         |1           | scale green channel by this factor |
-|scaleB         |1           | scale blue channel by this factor |
-|postScaleR     |1           | scale red channel by this factor in postprocessing |
-|postScaleG     |1           | scale green channel by this factor in postprocessing |
-|postScaleB     |1           | scale blue channel by this factor in postprocessing |
-|lumChMax       |0           | replace luminance with channel maximum (1.0), or a blend (0..1). Default 0=no op |
-|chromaMul      |1           | scale LCH chroma by given factor, default 1=no op |
-|chromaAdd      |0           | add given offset to LCH chroma, default 0=no op |
-|chromaSigma    |3.0         | only scale and add to LCH chroma for luminances n sigma above background |
+|neutSigmaLow   |-1          | neutralize background color below this threshold, <0 = no op|
+|neutSigmaHigh  |-1          | keep background color above this threshold, interpolate in between, <0 = no op|
+|chromaGamma    |1.0         | scale LCH chroma curve by given gamma for luminances n sigma above background, 1.0=no op |
+|chromaSigma    |1.0         | only scale and add to LCH chroma for luminances n sigma above background |
 |chromaFrom     |295         | scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars |
 |chromaTo       |40          | scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars |
 |chromaBy       |1           | scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars |
-|neutSigmaLow   |-1          | neutralize background color below this threshold, <0 = no op|
-|neutSigmaHigh  |-1          | keep background color above this threshold, interpolate in between, <0 = no op|
 |rotFrom        |100         | rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3 |
 |rotTo          |190         | rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3 |
 |rotBy          |0           | rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3 |
 |scnr           |0           | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
-|autoBW         |10          | histogram peak location in % for automatic black and white point adjustment, 0=don't |
 |autoLoc        |10          | histogram peak location in % to target with automatic curves adjustment, 0=don't|
 |autoScale      |0.4         | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
 |scaleBlack     |0.0         | move black point so histogram peak location is given value in %, 0=don't |
-|blackPerc      |0.0         | percent of pixels to display as black in final screen transfer function |
-|whitePerc      |0.0         | percent of pixels to display as white in final screen transfer function |
 |cpuprofile     |            | write cpu profile to `file` |
 |memprofile     |            | write memory profile to `file` |
 

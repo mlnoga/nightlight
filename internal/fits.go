@@ -217,9 +217,9 @@ func combineLRGBFragment(ls, rs, gs, bs []float32, lMin, lMult, rgbMin, rgbMult 
 }
 
 
-// Set image black point so histogram peaks match the given new peak value,
-// and median star colors are of a neutral tone
-func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
+// Set image black point so histogram peaks match the rightmost channel peak,
+// and median star colors are of a neutral tone. 
+func (f *FITSImage) SetBlackWhitePoints() error {
 	// Estimate location (=histogram peak, background black point) per color channel
 	l:=len(f.Data)/3
 	statsR,err:=CalcExtendedStats(f.Data[   :  l], f.Naxisn[0])
@@ -229,6 +229,11 @@ func (f *FITSImage) SetBlackWhitePoints(newBlack float32) error {
 	statsB,err:=CalcExtendedStats(f.Data[2*l:   ], f.Naxisn[0])
 	if err!=nil {return err}
 	locR, locG, locB:=statsR.Location, statsG.Location, statsB.Location
+
+	// Pick rightmost peak as new location
+	newBlack:=locR
+	if locG>newBlack { newBlack=locG }
+	if locB>newBlack { newBlack=locB }
 
 	// Estimate median star color
 	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], f.Stars)

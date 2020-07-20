@@ -508,3 +508,12 @@ func RGBGreyLocScale(data []float32, width int32) (loc, scale float32, err error
 	scale=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale
 	return loc, scale, nil
 }
+
+
+// Returns greyscale location and scale for given HCL image
+func HCLLumLocScale(data []float32, width int32) (loc, scale float32, err error) {
+	l:=len(data)/3
+	lumStats,err:=CalcExtendedStats(data[2*l:3*l], width)
+   	if err!=nil { return 0,0, err }
+	return lumStats.Location, lumStats.Scale, nil
+}

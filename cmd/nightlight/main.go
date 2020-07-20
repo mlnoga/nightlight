@@ -88,25 +88,15 @@ var stSigHigh = flag.Float64("stSigHigh",-1,"high sigma for stacking as multiple
 var stWeight  = flag.Int64("stWeight", 0, "weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise")
 var stMemory  = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
 
-var scaleR    = flag.Float64("scaleR", 1, "scale red channel by this factor")
-var scaleG    = flag.Float64("scaleG", 1, "scale green channel by this factor")
-var scaleB    = flag.Float64("scaleB", 1, "scale blue channel by this factor")
+var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
+var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
 
-var postScaleR= flag.Float64("postScaleR", 1, "scale red channel by this factor in postprocessing")
-var postScaleG= flag.Float64("postScaleG", 1, "scale green channel by this factor in postprocessing")
-var postScaleB= flag.Float64("postScaleB", 1, "scale blue channel by this factor in postprocessing")
-
-var lumChMax  = flag.Float64("lumChMax", 0, "replace luminance with channel maximum (1.0), or a blend (0..1). Default 0=no op")
-var chromaMul = flag.Float64("chromaMul", 1.0, "scale LCH chroma by given factor, default 1=no op")
-var chromaAdd = flag.Float64("chromaAdd", 0.0, "add given offset to LCH chroma, default 0=no op")
-var chromaSigma=flag.Float64("chromaSigma", 3.0, "only scale and add to LCH chroma for luminances n sigma above background")
+var chromaGamma=flag.Float64("chromaGamma", 1.0, "scale LCH chroma curve by given gamma for luminances n sigma above background, 1.0=no op")
+var chromaSigma=flag.Float64("chromaSigma", 1.0, "only scale and add to LCH chroma for luminances n sigma above background")
 
 var chromaFrom= flag.Float64("chromaFrom", 295, "scale LCH chroma for hues in [from,to] by given factor, e.g. 295 to desaturate violet stars")
 var chromaTo  = flag.Float64("chromaTo", 40, "scale LCH chroma for hues in [from,to] by given factor, e.g. 40 to desaturate violet stars")
 var chromaBy  = flag.Float64("chromaBy", 1, "scale LCH chroma for hues in [from,to] by given factor, e.g. -1 to desaturate violet stars")
-
-var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
-var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
 
 var rotFrom   = flag.Float64("rotFrom", 100, "rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3")
 var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3")
@@ -114,7 +104,6 @@ var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] b
 
 var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3")
 
-var autoBW    = flag.Float64("autoBW", 10, "histogram peak location in %% for automatic black and white point adjustment, 0=don't")
 var autoLoc   = flag.Float64("autoLoc", 10, "histogram peak location in %% to target with automatic curves adjustment, 0=don't")
 var autoScale = flag.Float64("autoScale", 0.4, "histogram peak scale in %% to target with automatic curves adjustment, 0=don't")
 
@@ -123,8 +112,6 @@ var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve 
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
-var blackPerc = flag.Float64("blackPerc", 0.0, "percent of pixels to display as black in final screen transfer function")
-var whitePerc = flag.Float64("whitePerc", 0.0, "percent of pixels to display as white in final screen transfer function")
 
 var darkF *nl.FITSImage=nil
 var flatF *nl.FITSImage=nil
@@ -625,86 +612,33 @@ func cmdLRGB(args []string, applyLuminance bool) {
 
 func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 	// Auto-balance colors
-	autoBalanceColors(rgb, float32(*autoBW)/100)
+	autoBalanceColors(rgb)
 
-	// Adjust RGB channel balance if necessary
-    if (*scaleR)!=1 || (*scaleG)!=1 || (*scaleB)!=1  {
-    	nl.LogPrintf("Scaling R by %.4g, G by %.4g, B by %.4g...\n", *scaleR, *scaleG, *scaleB)
-		rgb.ScaleRGB(float32(*scaleR), float32(*scaleG), float32(*scaleB))
-    }
+	nl.LogPrintln("Converting image to HCL...")
+	rgb.ToHCL()
 
-	// Iteratively adjust gamma and shift back histogram peak
-	if (*autoLoc)!=0 && (*autoScale)!=0 {
-		targetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
-		targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
-		nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
+    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
+		nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
 
-		for i:=0; ; i++ {
-			if i==30 { 
-				nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
-				break
-			}
-
-			// calculate basic image stats as a fast location and scale estimate
-			loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
-			if err!=nil { nl.LogFatal(err) }
-			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
-
-			if loc<=targetLoc*1.01 && scale<targetScale {
-				idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
-				if idealGamma>1.5 { idealGamma=1.5 }
-				if idealGamma<=1.01 { 
-					nl.LogPrintf("done\n")
-					break
-				}
-
-				nl.LogPrintf("applying gamma %.3g\n", idealGamma)
-				rgb.ApplyGamma(idealGamma)
-			} else if loc>targetLoc*0.99 && scale<targetScale {
-				nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetLoc*100)
-				rgb.ShiftBlackToMove(loc, targetLoc)
-			} else {
-				nl.LogPrintf("done\n")
-				break
-			}
-		}
-	}
-
-	// Auto-balance colors again
-	autoBalanceColors(rgb, float32(*autoBW)/100)
-
-	// Optionally adjust gamma 
-	if (*gamma)!=1 {
-		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
-		rgb.ApplyGamma(float32(*gamma))
-	}
-
-	// Optionally adjust gamma post peak
-    if (*ppGamma)!=1 {
-		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
+		low :=loc + scale*float32(*neutSigmaLow)
+		high:=loc + scale*float32(*neutSigmaHigh)
+		nl.LogPrintf("Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
 
-    	from:=loc+float32(*ppSigma)*scale
-    	to  :=float32(1.0)
-    	nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
-		rgb.ApplyPartialGamma(from, to, float32(*ppGamma))
+		rgb.NeutralizeBackground(low, high)		
     }
 
-    if (*lumChMax)!=0 {
-    	nl.LogPrintf("Replacing luminance with %.4gx max(R,G,B) + %.4gx old luminance...\n", *lumChMax, 1-*lumChMax)
-		rgb.LumChannelMax(float32(*lumChMax))
-    }
-
-    if (*chromaMul)!=1 || (*chromaAdd)!=0 {
-    	nl.LogPrintf("LCH chroma (saturation) = %.4g * chroma + %.4g%% for values %.4g sigma above background...\n", *chromaMul, *chromaAdd, *chromaSigma)
+    if (*chromaGamma)!=1 {
+    	nl.LogPrintf("Applying gamma %.2f to LCH chroma (saturation)for values %.4g sigma above background...\n", *chromaGamma, *chromaSigma)
 
 		// calculate basic image stats as a fast location and scale estimate
-		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		threshold :=loc + scale*float32(*chromaSigma)
 		nl.LogPrintf("Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
 
-		rgb.AdjustChroma(float32(*chromaMul), float32(*chromaAdd)/100, threshold)
+		rgb.AdjustChroma(float32(*chromaGamma), threshold)
     }
 
     if (*chromaBy)!=1 {
@@ -722,47 +656,77 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 		rgb.SCNR(float32(*scnr))
     }
 
-    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
-		nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
+	// Iteratively adjust gamma and shift back histogram peak
+	if (*autoLoc)!=0 && (*autoScale)!=0 {
+		targetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
+		targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
+		nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
 
-		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		for i:=0; ; i++ {
+			if i==30 { 
+				nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
+				break
+			}
+
+			// calculate basic image stats as a fast location and scale estimate
+			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
+			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+
+			if loc<=targetLoc*1.01 && scale<targetScale {
+				idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
+				if idealGamma>1.5 { idealGamma=1.5 }
+				if idealGamma<=1.01 { 
+					nl.LogPrintf("done\n")
+					break
+				}
+
+				nl.LogPrintf("applying gamma %.3g\n", idealGamma)
+				rgb.ApplyGammaToChannel(2, idealGamma)
+			} else if loc>targetLoc*0.99 && scale<targetScale {
+				nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetLoc*100)
+				rgb.ShiftBlackToMoveChannel(2, loc, targetLoc)
+			} else {
+				nl.LogPrintf("done\n")
+				break
+			}
+		}
+	}
+
+	// Optionally adjust gamma 
+	if (*gamma)!=1 {
+		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
+		rgb.ApplyGammaToChannel(2, float32(*gamma))
+	}
+
+	// Optionally adjust gamma post peak
+    if (*ppGamma)!=1 {
+		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
-		low :=loc + scale*float32(*neutSigmaLow)
-		high:=loc + scale*float32(*neutSigmaHigh)
-		nl.LogPrintf("Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
 
-		rgb.NeutralizeBackground(low, high)		
-    }
-
-	// Auto-balance colors again
-	autoBalanceColors(rgb, float32(*autoBW)/100)
-
-   	// Fix RGB channel balance if necessary
-    if (*postScaleR)!=1 || (*postScaleG)!=1 || (*postScaleB)!=1  {
-    	nl.LogPrintf("Scaling R by %.4g, G by %.4g, B by %.4g...\n", *postScaleR, *postScaleG, *postScaleB)
-		rgb.ScaleRGB(float32(*postScaleR), float32(*postScaleG), float32(*postScaleB))
+    	from:=loc+float32(*ppSigma)*scale
+    	to  :=float32(1.0)
+    	nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
+		rgb.ApplyPartialGammaToChannel(2, from, to, float32(*ppGamma))
     }
 
 	// Optionally scale histogram peak
     if (*scaleBlack)!=0 {
     	targetBlack:=float32((*scaleBlack)/100.0)
-		loc, scale, err:=nl.RGBGreyLocScale(rgb.Data, rgb.Naxisn[0])
+		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
 		if loc>targetBlack {
 			nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
-			rgb.ShiftBlackToMove(loc, targetBlack)
+			rgb.ShiftBlackToMoveChannel(2,loc, targetBlack)
 		} else {
 			nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
 		}
     }
 
-    // Optionally apply final black and white point
-    if (*blackPerc)!=0 || (*whitePerc)!=0  {
-    	nl.LogPrintf("Setting %4.g%% of pixels to black and %.4g%% to white ...\n", (*blackPerc), (*whitePerc))
-    	rgb.SetBlackWhite(float32(*blackPerc), float32(*whitePerc))
-    }
+	nl.LogPrintln("Converting back to RGB")
+	rgb.ToRGB()
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
@@ -775,22 +739,19 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
 	}
 }
 
+
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func autoBalanceColors(rgb *nl.FITSImage, newBlack float32) {
-	// Auto-balance colors
-	if (newBlack)!=0 {
-		if len(rgb.Stars)==0 {
-			nl.LogPrintf("Skipping black and white point adjustment as zero stars have been detected\n")
-		} else {
-			nl.LogPrintf("Setting black point so histogram peak becomes %.2f%% and white point so median star color is white...\n", newBlack*100)
-			for i:=0; i<5; i++ {
-				err:=rgb.SetBlackWhitePoints(newBlack)
-				if err!=nil { nl.LogFatal(err) }
-			}
+func autoBalanceColors(rgb *nl.FITSImage) {
+	if len(rgb.Stars)==0 {
+		nl.LogPrintln("Skipping black and white point adjustment as zero stars have been detected")
+	} else {
+		nl.LogPrintln("Setting black point so histogram peaks align and white point so median star color becomes neutral...")
+		for i:=0; i<8; i++ {
+			err:=rgb.SetBlackWhitePoints()
+			if err!=nil { nl.LogFatal(err) }
 		}
 	}
 }
-
 
 
 // Turn filename wildcards into list of light frame files

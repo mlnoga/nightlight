@@ -30,8 +30,8 @@ import (
 // A pixel function. Operates in-place. For parallelization across CPUs.
 type PixelFunction func(data []float32, params interface{}) 
 
-// An RGB pixel function. Data must be normalized to [0,1]. Operates in-place. For parallelization across CPUs.
-type RGBPixelFunction func(rs,gs,bs []float32, params interface{}) 
+// A three-channel pixel function. Data must be normalized to [0,1]. Operates in-place. For parallelization across CPUs.
+type PixelFunction3Chan func(c0,c1,c2 []float32, params interface{}) 
 
 
 // Apply given pixel function to the image. Uses thead parallelism across all available CPUs. Operates in-place. 
@@ -59,8 +59,34 @@ func (f* FITSImage) ApplyPixelFunction(pf PixelFunction, args interface{}) {
 }
 
 
-// Apply given pixel function to the image. Uses thead parallelism across all available CPUs. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) ApplyRGBPixelFunction(pf RGBPixelFunction, args interface{}) {
+// Apply given pixel function to given channel of the image. Uses thead parallelism across all available CPUs. Operates in-place. 
+func (f* FITSImage) ApplyPixelFunction1Chan(chanID int, pf PixelFunction, args interface{}) {
+	l   :=len(f.Data)/3
+	data:=f.Data[chanID*l:(chanID+1)*l]
+
+	// split into 8*NumCPU() work packages, limit parallelism to NumCPUS()
+	numBatches:=8*runtime.NumCPU()
+	batchSize :=(len(data)+numBatches-1)/(numBatches)
+	sem       :=make(chan bool, runtime.NumCPU())
+	for lower:=0; lower<len(data); lower+=batchSize {
+		upper:=lower+batchSize
+		if upper>len(data) { upper=len(data) }
+
+		sem <- true 
+		go func(data []float32) {
+			pf(data, args)
+			<-sem
+		}(data[lower:upper])
+	}
+
+	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
+		sem <- true
+	}
+}
+
+
+// Apply given pixel function to all channels of the image. Uses thead parallelism across all available CPUs. Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) ApplyPixelFunction3Chan(pf PixelFunction3Chan, args interface{}) {
 	data:=f.Data
 	l   :=len(data)/3
 
@@ -73,8 +99,8 @@ func (f* FITSImage) ApplyRGBPixelFunction(pf RGBPixelFunction, args interface{})
 		if upper>l { upper=l }
 
 		sem <- true 
-		go func(r,g,b []float32) {
-			pf(r,g,b, args)
+		go func(c0,c1,c2 []float32) {
+			pf(c0,c1,c2, args)
 			<-sem
 		}(data[lower:upper], data[lower+l:upper+l], data[lower+2*l:upper+2*l])
 	}
@@ -85,13 +111,12 @@ func (f* FITSImage) ApplyRGBPixelFunction(pf RGBPixelFunction, args interface{})
 }
 
 
-// Arguments for the RGB pixel function to adjust chroma for a range of hues
 type pfScaleOffsetArgs struct {
 	Scale   float32
 	Offset  float32
 }
 
-// Pixel function to apply gamma correction. 2nd parameter must be a pfScaleOffsetArgs. Operates in-place. 
+// Pixel function to apply a scale and an offset. 2nd parameter must be a pfScaleOffsetArgs. Operates in-place. 
 func pfScaleOffset(data []float32, params interface{}) {
 	scale, offset :=params.(pfScaleOffsetArgs).Scale, params.(pfScaleOffsetArgs).Offset
 	for i, d:=range data {
@@ -126,6 +151,11 @@ func (f* FITSImage) ApplyGamma(g float32) {
 	f.ApplyPixelFunction(pfGamma, g)
 }
 
+// Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
+func (f* FITSImage) ApplyGammaToChannel(chanID int, g float32) {
+	f.ApplyPixelFunction1Chan(chanID, pfGamma, g)
+}
+
 // Arguments for the RGB pixel function to adjust chroma for a range of hues
 type pfPartialGammaArgs struct {
 	From   float32
@@ -133,7 +163,7 @@ type pfPartialGammaArgs struct {
 	Factor float32
 }
 
-// Pixel function to apply gamma correction. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
+// Pixel function to apply partial gamma correction to values in given range. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
 func pfPartialGamma(data []float32, params interface{}) {
 	from, to, g:=params.(pfPartialGammaArgs).From, params.(pfPartialGammaArgs).To, params.(pfPartialGammaArgs).Factor 
     gg:=float64(1.0/g)
@@ -148,148 +178,178 @@ func pfPartialGamma(data []float32, params interface{}) {
 	}
 }
 
-// Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
+// Apply gamma correction to image in given range. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* FITSImage) ApplyPartialGamma(from, to, g float32) {
 	f.ApplyPixelFunction(pfPartialGamma, pfPartialGammaArgs{from, to, g})
 }
 
-
-type rgbPFChromaArgs struct {
-	Mul float32
-	Add float32
-	Threshold float32
+// Apply gamma correction to given channel of the image. Image must be normalized to [0,1] before. Operates in-place. 
+func (f* FITSImage) ApplyPartialGammaToChannel(chanID int, from, to, g float32) {
+	f.ApplyPixelFunction1Chan(chanID, pfPartialGamma, pfPartialGammaArgs{from, to, g})
 }
 
-// RGB pixel function to adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFChromaArgs. Operates in-place. 
-func rgbPFChroma(rs,gs,bs []float32, params interface{}) {
-	mul, add, threshold:=params.(rgbPFChromaArgs).Mul, params.(rgbPFChromaArgs).Add, params.(rgbPFChromaArgs).Threshold 
+
+// Pixel function to convert RGB to HCL pixels. Operates in-place.
+func pf3ChanToHCL(rs,gs,bs []float32, params interface{}) {
 	for i:=0; i<len(rs); i++ {
 		r, g, b:=rs[i], gs[i], bs[i]
-		if 0.299*r +0.587*g +0.114*b < threshold { continue }
 
 		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
 		h,c,l:=col.Hcl()
 
-		c=math.Max(0.0, math.Min(1.0, c*float64(mul)+float64(add)))
-
-		col2:=colorful.Hcl(h, c, l).Clamped()
-		rr,gg,bb:=col2.LinearRgb()
-		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
+		rs[i], gs[i], bs[i]=float32(h), float32(c), float32(l) 
 	}
 }
 
-// Adjust CIE HCL chroma by multiplying with given factor and adding given offset. Data must be normalized to [0,1]. Operates in-place. 
-// A perceptually linear way of boosting saturation.
-func (f* FITSImage) AdjustChroma(mul, add, threshold float32) {
-	f.ApplyRGBPixelFunction(rgbPFChroma, rgbPFChromaArgs{mul, add, threshold})
+// Convert RGB to HCL pixels. Operates in-place.
+func (f* FITSImage) ToHCL() {
+	f.ApplyPixelFunction3Chan(pf3ChanToHCL, nil)
 }
 
 
-type rgbPFNeutralizeBackgroundArgs struct {
+// Pixel function to convert HCL to RGB pixels. Operates in-place.
+func pf3ChanToRGB(hs,cs,ls []float32, params interface{}) {
+	for i:=0; i<len(hs); i++ {
+		h, c, l:=hs[i], cs[i], ls[i]
+
+		col:=colorful.Hcl(float64(h), float64(c), float64(l)).Clamped()
+		r,g,b:=col.LinearRgb()
+
+		hs[i], cs[i], ls[i]=float32(r), float32(g), float32(b) 
+	}
+}
+
+// Convert HCL to RGB pixels. Operates in-place.
+func (f* FITSImage) ToRGB() {
+	f.ApplyPixelFunction3Chan(pf3ChanToRGB, nil)
+}
+
+
+type pf3ChanChromaArgs struct {
+	Gamma float32
+	Threshold float32
+}
+
+// Pixel function to apply given gamma correction to color saturation (CIE HCL chroma), for luminances above the given threshold. 
+// Data must be normalized to [0,1]. 2nd parameter must be a pf3ChanChromaArgs. Operates in-place. 
+func pf3ChanChroma(hs,cs,ls []float32, params interface{}) {
+	gamma, threshold:=params.(pf3ChanChromaArgs).Gamma, params.(pf3ChanChromaArgs).Threshold 
+	gg:=float64(1.0/gamma)
+	for i,l:=range ls {
+		if l < threshold { continue }
+		cs[i]=float32(math.Pow(float64(cs[i]), gg))
+	}
+}
+
+//  Apply given gamma correction to color saturation (CIE HCL chroma), for luminances above the given threshold. 
+//  Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) AdjustChroma(gamma, threshold float32) {
+	f.ApplyPixelFunction3Chan(pf3ChanChroma, pf3ChanChromaArgs{gamma, threshold})
+}
+
+
+type pf3ChanNeutralizeBackgroundArgs struct {
 	Low float32
 	High float32
 }
 
 // RGB pixel function to adjust CIE HCL chroma by multiplying with 0 for values below low, with 1 above high, and interpolating linearly in between. 
-// Data must be normalized to [0,1]. 2nd parameter must be a rgbPFNeutralizeBackgroundArgs. Operates in-place. 
-func rgbPFNeutralizeBackground(rs,gs,bs []float32, params interface{}) {
-	low, high:=params.(rgbPFNeutralizeBackgroundArgs).Low, params.(rgbPFNeutralizeBackgroundArgs).Low
+// Data must be HCL. 2nd parameter must be a pf3ChanNeutralizeBackgroundArgs. Operates in-place. 
+func pf3ChanNeutralizeBackground(hs,cs,ls []float32, params interface{}) {
+	low, high:=params.(pf3ChanNeutralizeBackgroundArgs).Low, params.(pf3ChanNeutralizeBackgroundArgs).Low
 	scaler:=float32(0)
 	if high>low { scaler=1.0/(high-low) }
-	for i:=0; i<len(rs); i++ {
-		r, g, b:=rs[i], gs[i], bs[i]
-		val:=0.299*r +0.587*g +0.114*b
-		if val >= high { continue }
-		factor:=float32(0)
-		if val>low {
-			factor=(val-low)*scaler
+	for i, l:=range ls {
+		if l < low  {
+			cs[i]=0
+		} else if l<high {
+			factor:=(l-low)*scaler
+			cs[i]*=factor
 		}
-
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		h,c,l:=col.Hcl()
-
-		c*=float64(factor)
-
-		col2:=colorful.Hcl(h, c, l).Clamped()
-		rr,gg,bb:=col2.LinearRgb()
-		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
 	}
 }
 
 // Adjust CIE HCL chroma by multiplying with 0 for values below low, with 1 above high, and interpolating linearly in between. 
-// Data must be normalized to [0,1]. Operates in-place. 
+// Data must be HCL. Operates in-place. 
 func (f* FITSImage) NeutralizeBackground(low, high float32) {
-	f.ApplyRGBPixelFunction(rgbPFNeutralizeBackground, rgbPFNeutralizeBackgroundArgs{low, high})
+	f.ApplyPixelFunction3Chan(pf3ChanNeutralizeBackground, pf3ChanNeutralizeBackgroundArgs{low, high})
 }
 
 
-// Arguments for the RGB pixel function to adjust chroma for a range of hues
-type rgbPFChromaForHuesArgs struct {
+type pf3ChanChromaForHuesArgs struct {
 	From   float32
 	To     float32
 	Factor float32
 }
 
-// RGB pixel function to adjust chroma for a given range of hues. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFChromaForHuesArgs
-func rgbPFChromaForHues(rs,gs,bs []float32, params interface{}) {
-	from, to, factor:=params.(rgbPFChromaForHuesArgs).From, params.(rgbPFChromaForHuesArgs).To, params.(rgbPFChromaForHuesArgs).Factor 
-	for i:=0; i<len(rs); i++ {
-		r, g, b:=rs[i], gs[i], bs[i]
-
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		h,c,l:=col.Hcl()                                       // remember original luminance
-		if ((from<=to) && (h>float64(from) && h<float64(to))) ||
-		   ((from> to) && (h>float64(from) || h<float64(to))) {  // if hue in given range (e.g. purples 295..30)
-			c=math.Max(0.0, math.Min(1.0, c*float64(factor)))  // scale chroma (e.g. zero out)
-			col=colorful.Hcl(h, c, l).Clamped()
-			rr,gg,bb:=col.LinearRgb()
-			rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb)
+// RGB pixel function to adjust chroma for a given range of hues. Data must be HCL. 2nd parameter must be a pf3ChanChromaForHuesArgs
+func pf3ChanChromaForHues(hs,cs,ls []float32, params interface{}) {
+	from, to, factor:=params.(pf3ChanChromaForHuesArgs).From, params.(pf3ChanChromaForHuesArgs).To, params.(pf3ChanChromaForHuesArgs).Factor 
+	for i, h:=range hs {
+		if ((from<=to) && (h>from && h<to)) ||
+		   ((from> to) && (h>from || h<to)) {  // if hue in given range (e.g. purples 295..30)
+		   	c:=cs[i]
+			c=float32(math.Max(0.0, math.Min(1.0, float64(c*factor))))  // scale chroma (e.g. zero out)
+			cs[i]=c
 		}
 	}
 }
 
-// Selectively adjusts CIE HCL chroma for hues in given range by multiplying with given factor. Data must be normalized to [0,1] before.
+// Selectively adjusts CIE HCL chroma for hues in given range by multiplying with given factor. Data must be HCL.
 // Useful for desaturating purple stars
 func (f* FITSImage) AdjustChromaForHues(from, to, factor float32) {
-	f.ApplyRGBPixelFunction(rgbPFChromaForHues, rgbPFChromaForHuesArgs{from, to, factor})
+	f.ApplyPixelFunction3Chan(pf3ChanChromaForHues, pf3ChanChromaForHuesArgs{from, to, factor})
 }
 
 
 // Arguments for the RGB pixel function to selectively rotate hues in a given range
-type rgbPFRotateColorsArgs struct {
+type pf3ChanRotateColorsArgs struct {
 	From   float32
 	To     float32
 	Offset float32
 }
 
-// RGB pixel function to selectively rotate hues in a given range. Data must be normalized to [0,1]. 2nd parameter must be a rgbPFRotateColorsArgs
-func rgbPFRotateColors(rs,gs,bs []float32, params interface{}) {
-	from, to, offset:=params.(rgbPFRotateColorsArgs).From, params.(rgbPFRotateColorsArgs).To, params.(rgbPFRotateColorsArgs).Offset
-	for i:=0; i<len(rs); i++ {
-		r, g, b:=rs[i], gs[i], bs[i]
-
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		h,c,l:=col.Hcl()                                       // remember original luminance
-		if ( from<=to  && (h>float64(from) && h<float64(to))) ||
-		   ((from> to) && (h>float64(from) || h<float64(to))) {  // if hue in given range (e.g. greens 100..190)
-			h+=float64(offset)                                 // rotate by given amount (e.g yellow with -30)
-			col=colorful.Hcl(h, c, l).Clamped()
-			rr,gg,bb:=col.LinearRgb()
-			rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb)
+// RGB pixel function to selectively rotate hues in a given range. Data must be HCL. 2nd parameter must be a pf3ChanRotateColorsArgs
+func pf3ChanRotateColors(hs,cs,ls []float32, params interface{}) {
+	from, to, offset:=params.(pf3ChanRotateColorsArgs).From, params.(pf3ChanRotateColorsArgs).To, params.(pf3ChanRotateColorsArgs).Offset
+	for i,h:=range hs {
+		if ( from<=to  && (h>from && h<to)) ||
+		   ((from> to) && (h>from || h<to)) {  // if hue in given range (e.g. greens 100..190)
+			h+=offset                          // rotate by given amount (e.g yellow with -30)
+			hs[i]=h
 		}
 	}
 }
 
-// Selectively rotate hues in a given range. Data must be normalized to [0,1]. 
+// Selectively rotate hues in a given range. Data must be HCL. 
 // Useful to create Hubble palette images from narrowband data, by turning greens to yellows, before applying SCNR
 func (f* FITSImage) RotateColors(from, to, offset float32) {
-	f.ApplyRGBPixelFunction(rgbPFRotateColors, rgbPFRotateColorsArgs{from, to, offset})
+	f.ApplyPixelFunction3Chan(pf3ChanRotateColors, pf3ChanRotateColorsArgs{from, to, offset})
 }
 
 
-// RGB pixel function for subtractive chroma noise reduction on the green color channel. Data must be normalized to [0,1]. 2nd parameter must be a float32
+// RGB pixel function for subtractive chroma noise reduction on the green color channel. Data must be HCL. 2nd parameter must be a float32
 // Uses average neutral masking method with luminance protection
-func rgbPFSCNR(rs,gs,bs []float32, params interface{}) {
+func pf3ChanSCNR(hs,cs,ls []float32, params interface{}) {
+	factor:=params.(float32)
+	for i:=0; i<len(hs); i++ {
+		h,c,l:=hs[i], cs[i], ls[i]
+		col  :=colorful.Hcl(float64(h), float64(c), float64(l)).Clamped()
+		r,g,b:=col.LinearRgb()
+
+		correctedG:=0.5*(r+b)
+		g2:=float32(math.Min(g, correctedG)) // average neutral SCNR
+		weightedG:=factor*g2+(1-factor)*float32(g)
+
+		// reassemble with luminance protection
+		col     =colorful.LinearRgb(float64(r),float64(weightedG),float64(b))
+		hh,cc,_:=col.Hcl()
+		hs[i], cs[i]=float32(hh), float32(cc)        
+	}
+}
+
+/*
+func pf3ChanSCNR(rs,gs,bs []float32, params interface{}) {
 	factor:=params.(float32)
 	for i:=0; i<len(rs); i++ {
 		r, g, b:=rs[i], gs[i], bs[i]
@@ -309,36 +369,12 @@ func rgbPFSCNR(rs,gs,bs []float32, params interface{}) {
 		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
 	}
 }
+*/
 
 // Apply subtractive chroma noise reduction to the green channel. Data must be normalized to [0,1]. 
 // Uses average neutral masking method with luminance protection. Typically used to reduce green cast in narrowband immages when creating Hubble palette images
 func (f* FITSImage) SCNR(factor float32) {
-	f.ApplyRGBPixelFunction(rgbPFSCNR, factor)
-}
-
-
-// RGB pixel function to replace the current luminance with factor * max(R,G,B) + (1-factor) * luminance
-func rgbPFLumChannelMax(rs,gs,bs []float32, params interface{}) {
-	factor:=params.(float32)
-	for i:=0; i<len(rs); i++ {
-		r, g, b:=rs[i], gs[i], bs[i]
-
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		h,c,l:=col.Hcl()         // remember original luminance
-
-		channelMax:=math.Max(math.Max(float64(r), float64(g)), float64(b))
-		correctedL:=channelMax*float64(factor) + l*(1-float64(factor))
-
-		// reassemble with luminance protection
-		col   =colorful.Hcl(h, c, correctedL).Clamped()
-		rr,gg,bb:=col.LinearRgb()
-		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
-	}
-}
-
-// replace the current luminance with factor * max(R,G,B) + (1-factor) * luminance. Data must be normalized to [0,1]. 
-func (f* FITSImage) LumChannelMax(factor float32) {
-	f.ApplyRGBPixelFunction(rgbPFLumChannelMax, factor)
+	f.ApplyPixelFunction3Chan(pf3ChanSCNR, factor)
 }
 
 
@@ -411,6 +447,21 @@ func (f* FITSImage) ShiftBlackToMove(before, after float32) {
 		data[i]=float32(math.Max(0, float64((d-black)*scale)))
 	}
 }
+
+// Shift black point so a defined before value becomes the given after value. Operates in-place on image data normalized to [0,1]. 
+func (f* FITSImage) ShiftBlackToMoveChannel(chanID int, before, after float32) {
+    // Plug after and before into the transformation formula:
+    //   after = (before - black) / (1 - black)
+    // Then solving for black yields the following
+    black:=(after-before)/(after-1)
+    scale:=1/(1-black)
+    l:=len(f.Data)/3
+	data:=f.Data[chanID*l:(chanID+1)*l]
+	for i, d:=range data {
+		data[i]=float32(math.Max(0, float64((d-black)*scale)))
+	}
+}
+
 
 // Linearly transforms each color channel with multiplier alpha and offset beta, then clamps result to [0,1]
 func (f* FITSImage) ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB float32) {
