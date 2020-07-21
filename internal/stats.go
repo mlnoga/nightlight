@@ -353,11 +353,12 @@ func FastApproxSigmaClippedMedianAndQn(data []float32, sigmaLow, sigmaHigh float
 		newScale   *=1.134                                    // adjust for subsequent clipping
 
 		// once converged, return results
-		if float32(math.Abs(float64(newLocation-location))+math.Abs(float64(newScale-scale)))<=epsilon {
+		if float32(math.Abs(float64(newLocation-location))+math.Abs(float64(newScale-scale)))<=epsilon || i>=10 {
 			scale=FastApproxQn(data, samples) // sampling
 			samples=nil
 			return location, scale
 		}
+
 		location, scale = newLocation, newScale
 	}
 }

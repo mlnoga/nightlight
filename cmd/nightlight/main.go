@@ -746,7 +746,7 @@ func autoBalanceColors(rgb *nl.FITSImage) {
 		nl.LogPrintln("Skipping black and white point adjustment as zero stars have been detected")
 	} else {
 		nl.LogPrintln("Setting black point so histogram peaks align and white point so median star color becomes neutral...")
-		for i:=0; i<8; i++ {
+		for i:=0; i<4; i++ {
 			err:=rgb.SetBlackWhitePoints()
 			if err!=nil { nl.LogFatal(err) }
 		}
