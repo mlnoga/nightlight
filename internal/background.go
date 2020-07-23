@@ -239,7 +239,7 @@ func MedianInterpolation(params []float32, width, height, x,y int32, temp []floa
 
 	for _,off:=range interpolOffsets {
 		x2, y2:=x+off.X, y+off.Y
-		if x2>=0 && x2<width && y2>=0 && y2<=height {
+		if x2>=0 && x2<width && y2>=0 && y2<height {
 			index:=x2+y2*width
 			p:=params[index]
 			if !math.IsNaN(float64(p)) {
