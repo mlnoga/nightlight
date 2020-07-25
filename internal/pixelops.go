@@ -411,29 +411,6 @@ func pf3ChanSCNR(hs,cs,ls []float32, params interface{}) {
 	}
 }
 
-/*
-func pf3ChanSCNR(rs,gs,bs []float32, params interface{}) {
-	factor:=params.(float32)
-	for i:=0; i<len(rs); i++ {
-		r, g, b:=rs[i], gs[i], bs[i]
-
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		_,_,l:=col.Hcl()         // remember original luminance
-
-		correctedG:=0.5*(r+b)
-		g2:=float32(math.Min(float64(g), float64(correctedG))) // average neutral SCNR
-		weightedG:=factor*g2+(1-factor)*g
-
-		// reassemble with luminance protection
-		col   =colorful.LinearRgb(float64(r),float64(weightedG),float64(b))
-		h,c,_:=col.Hcl()         
-		col   =colorful.Hcl(h, c, l).Clamped()
-		rr,gg,bb:=col.LinearRgb()
-		rs[i], gs[i], bs[i]=float32(rr), float32(gg), float32(bb) 
-	}
-}
-*/
-
 // Apply subtractive chroma noise reduction to the green channel. Data must be normalized to [0,1]. 
 // Uses average neutral masking method with luminance protection. Typically used to reduce green cast in narrowband immages when creating Hubble palette images
 func (f* FITSImage) SCNR(factor float32) {
