@@ -30,7 +30,7 @@ import (
 	"github.com/pbnjay/memory"
 )
 
-const version = "0.2.3"
+const version = "0.2.4"
 
 type Job struct {
 	Id       int
