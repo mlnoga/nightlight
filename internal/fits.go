@@ -17,9 +17,7 @@
 package internal
 
 import (
-	colorful "github.com/lucasb-eyer/go-colorful"
 	"math"
-	"runtime"
 )
 
 // A FITS image. 
@@ -134,86 +132,13 @@ func getCommonNormalizationFactors(chans []*FITSImage) (min, mult float32) {
 	return min, mult
 }
 
-// Combine L, R, G, B images into one multi-channel image.
+
+// Applies luminance to existing 3-channel image with luminance in 3rd channel, all channels in [0,1]. 
 // All images must have the same dimensions, or undefined results occur. 
-func CombineLRGB(chans []*FITSImage) FITSImage {
-	pixelsOrig:=chans[0].Pixels
-	pixelsComb:=pixelsOrig*int32(len(chans)-1)          // combining 4 channels into 3
-	rgb:=FITSImage{
-		Header:NewFITSHeader(),
-		Bitpix:-32,
-		Bzero :0,
-		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
-		Pixels:pixelsComb,
-		Data  :make([]float32,int(pixelsComb)),
-		Exposure: chans[0].Exposure+chans[1].Exposure+chans[2].Exposure+chans[3].Exposure,
-		Stars :chans[0].Stars,
-		HFR   :chans[0].HFR,
-	}
-
-	copy(rgb.Naxisn, chans[0].Naxisn)
-	rgb.Naxisn[len(chans[0].Naxisn)]=int32(len(chans)-1) // combining 4 channels into 3
-
-      lMin,   lMult:=float32(0), float32(1) //getCommonNormalizationFactors(chans[0:1])
-	rgbMin, rgbMult:=float32(0), float32(1) //getCommonNormalizationFactors(chans[1: ])
-
-	// parallelize work across CPU cores
-	sem         :=make(chan bool, runtime.NumCPU())
-	workPackages:=8*runtime.NumCPU()
-	for i:=0; i<workPackages; i++ {
-		sem <- true 
-
-		go func(i int) {
-			defer func() { <-sem }()
-			// each work package is one block of the original picture
-			start:=len(chans[0].Data)* i   /workPackages
-			end  :=len(chans[0].Data)*(i+1)/workPackages
-			if end>len(chans[0].Data) {
-				end=len(chans[0].Data)
-			}
-
-			ls:=chans[0].Data[start:end]
-			rs:=chans[1].Data[start:end]
-			gs:=chans[2].Data[start:end]
-			bs:=chans[3].Data[start:end]
-
-			rOut:=rgb.Data[start+0*int(pixelsOrig):end+0*int(pixelsOrig)]
-			gOut:=rgb.Data[start+1*int(pixelsOrig):end+1*int(pixelsOrig)]
-			bOut:=rgb.Data[start+2*int(pixelsOrig):end+2*int(pixelsOrig)]
-
-			combineLRGBFragment(ls, rs, gs, bs, lMin, lMult, rgbMin, rgbMult, rOut, gOut, bOut)
-		}(i)
-	}
-	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
-		sem <- true
-	}
-
-	return rgb
-} 
-
-// Single worker thread for LRGB color combination
-func combineLRGBFragment(ls, rs, gs, bs []float32, lMin, lMult, rgbMin, rgbMult float32, rOut, gOut, bOut []float32) {
-	// for each pixel, combine channels
-	for id, _ :=range ls {
-		// calculate l, r, g, b in [0,1]
-		l:=(ls[id]-  lMin) *   lMult 
-		r:=(rs[id]-rgbMin) * rgbMult
-		g:=(gs[id]-rgbMin) * rgbMult
-		b:=(bs[id]-rgbMin) * rgbMult
-
-		// convert RGB to LAB xyY color space
-		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
-		x,y,_:=col.Xyy() // ignore the Y channel, which is luminance from RGB
-
-		// substitute given L from channel 0 for calculated luminance from RGB
-		newCol:=colorful.Xyy(x,y,float64(l)).Clamped()
-
-		// convert back into RGB color space and store
-		rr, gg, bb:=newCol.LinearRgb()
-		rOut[id]= float32(rr)
-		gOut[id]= float32(gg)
-		bOut[id]= float32(bb)
-	}
+func (hsl *FITSImage) ApplyLuminanceToCIExyY(lum *FITSImage) {
+	l:=len(hsl.Data)/3
+	dest:=hsl.Data[2*l:]
+	copy(dest, lum.Data)
 }
 
 
@@ -230,6 +155,8 @@ func (f *FITSImage) SetBlackWhitePoints() error {
 	if err!=nil {return err}
 	locR, locG, locB:=statsR.Location, statsG.Location, statsB.Location
 
+	LogPrintf("r %s\ng %s\nb %s\n", statsR, statsG, statsB)
+
 	// Pick rightmost peak as new location
 	newBlack:=locR
 	if locG>newBlack { newBlack=locG }
@@ -240,7 +167,7 @@ func (f *FITSImage) SetBlackWhitePoints() error {
 	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], f.Stars)
 	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], f.Stars)
 	LogPrintf("Background peak (%.2f%%, %.2f%%, %.2f%%) and median star color (%.2f%%, %.2f%%, %.2f%%)\n", 
-	locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
+	  	      locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
 
 	// Calculate multiplicative correction factors to balance star colors to common minimum
 	starMin:=starR
