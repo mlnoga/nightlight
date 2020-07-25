@@ -40,7 +40,8 @@ Here are some sample datasets to play with:
 * Stack more files than fit in memory using randomized batching
 * RGB and LRGB combination
 * Auto-set color balance based on histogram peak and average color of detected stars
-* Color composite operators: gamma, black/white point, chroma, selective chroma adjustment by hue, selective hue rotation, SCNR, background neutralization
+* Color composite operators: gamma, black/white point, saturation, selective saturation adjustment by hue, selective hue rotation, SCNR, background neutralization
+* Unsharp masking
 * Store FITS files, export to JPG
 
 ## Limitations
@@ -131,6 +132,9 @@ Available flags are:
 |lsEst          |3           | location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard) |
 |normRange      |0           | normalize range: 1=normalize to [0,1], 0=do not normalize |
 |normHist       |3           | normalize histogram: 0=do not normalize, 1=location and scale, 2=black point shift for RGB align, 3=auto |
+|usmSigma       |1           | unsharp masking sigma, ~1/3 radius|
+|usmGain        |0           | unsharp masking gain, 0=no op|
+|usmThresh      |1           | unsharp masking threshold, in standard deviations above background|
 |stMode         |5           | stacking mode. 0=median, 1=mean, 2=sigma clip, 3=winsorized sigma clip, 4=linear fit, 5=auto |
 |stClipPercLow  |0.5         | set desired low clipping percentage for stacking, 0=ignore (overrides sigmas) |
 |stClipPercHigh |0.5         | set desired high clipping percentage for stacking, 0=ignore (overrides sigmas) |
