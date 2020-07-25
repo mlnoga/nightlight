@@ -72,6 +72,10 @@ var backGrid  = flag.Int64("backGrid", 0, "automated background extraction: grid
 var backSigma = flag.Float64("backSigma", 1.5 ,"automated background extraction: sigma for detecting foreground objects")
 var backClip  = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
+var usmSigma  = flag.Float64("usmSigma", 1, "unsharp masking sigma, ~1/3 radius")
+var usmGain   = flag.Float64("usmGain", 0, "unsharp masking gain, 0=no op")
+var usmThresh = flag.Float64("usmThresh", 1, "unsharp masking threshold, in standard deviations above background")
+
 var align     = flag.Int64("align",1,"1=align frames, 0=do not align")
 var alignK    = flag.Int64("alignK",20,"use triangles fromed from K brightest stars for initial alignment")
 var alignT    = flag.Float64("alignT",1.0,"skip frames if alignment to reference frame has residual greater than this")
@@ -435,8 +439,10 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	}
 
 	// Post-process all light frames (align, normalize)
-	nl.LogPrintf("\nPostprocessing %d frames with align=%d alignK=%d alignT=%.3f normHist=%d:\n", len(lights), *align, *alignK, *alignT, *normHist)
-	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, *post, imageLevelParallelism)
+	nl.LogPrintf("\nPostprocessing %d frames with align=%d alignK=%d alignT=%.3f normHist=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
+		         len(lights), *align, *alignK, *alignT, *normHist, float32(*usmSigma), float32(*usmGain), float32(*usmThresh))
+	nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), nl.OOBModeNaN, 
+	                     float32(*usmSigma), float32(*usmGain), float32(*usmThresh), *post, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
 	// Remove nils from lights
@@ -537,15 +543,17 @@ func cmdRGB(args []string) {
 
 	// Post-process all channels (align, normalize)
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
-	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
-	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, *post, imageLevelParallelism)
+	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
+				 len(lights), *align, *alignK, *alignT, *normHist, oobMode, float32(*usmSigma), float32(*usmGain), float32(*usmThresh))
+	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
+									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), *post, imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
 
 	// Combine RGB channels
 	nl.LogPrintf("\nCombining color channels...\n")
 	rgb:=nl.CombineRGB(lights, refFrame)
 
-	postProcessAndSaveRGBComposite(&rgb)
+	postProcessAndSaveRGBComposite(&rgb, nil)
 	rgb.Data=nil
 }
 
@@ -553,7 +561,7 @@ func cmdRGB(args []string) {
 // Perform LRGB combination command
 func cmdLRGB(args []string, applyLuminance bool) {
 	// Set default parameters for this command
-	if *normHist==nl.HNMAuto { *normHist=nl.HNMLocScale }
+	if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
 	if *starBpSig<0 { *starBpSig=0 }    // inputs are typically stacked and have undergone noise removal
 
 	// Glob file name wildcards
@@ -592,141 +600,165 @@ func cmdLRGB(args []string, applyLuminance bool) {
 
 	// Align images if selected
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
-	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d:\n", len(lights), *align, *alignK, *alignT, *normHist, oobMode)
-	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, "", imageLevelParallelism)
+	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
+		         len(lights), *align, *alignK, *alignT, *normHist, oobMode, *usmSigma, *usmGain, *usmThresh)
+	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
+									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), "", imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
 
 	// Combine RGB channels
-	var rgb nl.FITSImage
-	if applyLuminance {
-		nl.LogPrintf("\nCombining luminance and color channels...\n")
-		rgb=nl.CombineLRGB(lights)
-	} else {
-		nl.LogPrintf("\nCombining color channels...\n")
-		rgb=nl.CombineRGB(lights[1:], lights[0])
-	}
+	nl.LogPrintf("\nCombining color channels...\n")
+	rgb:=nl.CombineRGB(lights[1:], lights[0])
 
-	postProcessAndSaveRGBComposite(&rgb)
+	if applyLuminance {
+		postProcessAndSaveRGBComposite(&rgb, lights[0])
+	} else {
+		postProcessAndSaveRGBComposite(&rgb, nil)
+	}
 	rgb.Data=nil
 }
 
-func postProcessAndSaveRGBComposite(rgb *nl.FITSImage) {
-	// Auto-balance colors
+func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
+	// Auto-balance colors in linear RGB color space
 	autoBalanceColors(rgb)
 
-	nl.LogPrintln("Converting image to HCL...")
-	rgb.ToHCL()
+	// Apply LRGB combination in linear CIE xyY color space
+	if lum!=nil {
+		nl.LogPrintln("Converting linear RGB to linear CIE xyY for LRGB combination")
+	    rgb.ToXyy()
 
-    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
-		nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
+		nl.LogPrintln("Applying luminance to Y channel...")
+		rgb.ApplyLuminanceToCIExyY(lum)
 
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		low :=loc + scale*float32(*neutSigmaLow)
-		high:=loc + scale*float32(*neutSigmaHigh)
-		nl.LogPrintf("Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
+		nl.LogPrintln("Converting linear CIE xyY to linear RGB")
+		rgb.XyyToRGB()
+	}
 
-		rgb.NeutralizeBackground(low, high)		
-    }
+	// Apply color corrections in non-linear modified CIE L*C*H space, i.e. HSL
+	if ((*neutSigmaLow>=0) && (*neutSigmaHigh>=0)) || ((*chromaGamma)!=1) || ((*chromaBy)!=0) || ((*rotBy)!=0) || ((*scnr)!=0) {
+		nl.LogPrintln("Converting image to nonlinear modified CIE L*C*H space, i.e. HSL...")
+		rgb.RGBToCIEHSL()
 
-    if (*chromaGamma)!=1 {
-    	nl.LogPrintf("Applying gamma %.2f to LCH chroma (saturation)for values %.4g sigma above background...\n", *chromaGamma, *chromaSigma)
+	    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
+			nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
 
-		// calculate basic image stats as a fast location and scale estimate
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		threshold :=loc + scale*float32(*chromaSigma)
-		nl.LogPrintf("Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
+			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
+			low :=loc + scale*float32(*neutSigmaLow)
+			high:=loc + scale*float32(*neutSigmaHigh)
+			nl.LogPrintf("Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
 
-		rgb.AdjustChroma(float32(*chromaGamma), threshold)
-    }
+			rgb.NeutralizeBackground(low, high)		
+	    }
 
-    if (*chromaBy)!=1 {
-    	nl.LogPrintf("Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", *chromaBy, *chromaFrom, *chromaTo)
-		rgb.AdjustChromaForHues(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy))
-    }
-
-    if (*rotBy)!=0 {
-    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g...\n", *rotFrom, *rotTo, *rotBy)
-		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy))
-    }
-
-    if (*scnr)!=0 {
-    	nl.LogPrintf("Applying SCNR of %.4g ...\n", *scnr)
-		rgb.SCNR(float32(*scnr))
-    }
-
-	// Iteratively adjust gamma and shift back histogram peak
-	if (*autoLoc)!=0 && (*autoScale)!=0 {
-		targetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
-		targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
-		nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
-
-		for i:=0; ; i++ {
-			if i==30 { 
-				nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
-				break
-			}
+	    if (*chromaGamma)!=1 {
+	    	nl.LogPrintf("Applying gamma %.2f to saturation for values %.4g sigma above background...\n", *chromaGamma, *chromaSigma)
 
 			// calculate basic image stats as a fast location and scale estimate
 			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 			if err!=nil { nl.LogFatal(err) }
-			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+			threshold :=loc + scale*float32(*chromaSigma)
+			nl.LogPrintf("Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
 
-			if loc<=targetLoc*1.01 && scale<targetScale {
-				idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
-				if idealGamma>1.5 { idealGamma=1.5 }
-				if idealGamma<=1.01 { 
-					nl.LogPrintf("done\n")
+			rgb.AdjustChroma(float32(*chromaGamma), threshold)
+	    }
+
+	    if (*chromaBy)!=1 {
+	    	nl.LogPrintf("Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", *chromaBy, *chromaFrom, *chromaTo)
+			rgb.AdjustChromaForHues(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy))
+	    }
+
+	    if (*rotBy)!=0 {
+	    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g...\n", *rotFrom, *rotTo, *rotBy)
+			rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy))
+	    }
+
+	    if (*scnr)!=0 {
+	    	nl.LogPrintf("Applying SCNR of %.4g ...\n", *scnr)
+			rgb.SCNR(float32(*scnr))
+	    }
+
+		nl.LogPrintln("Converting nonlinear CIE HSL to linear RGB")
+	    rgb.CIEHSLToRGB()
+	}
+
+	// Apply luminance curves in linear CIE xyY color space
+	if ((*autoLoc)!=0 && (*autoScale)!=0) || ((*gamma)!=1) || ((*ppGamma)!=1) || ((*scaleBlack)!=0) {
+		nl.LogPrintln("Converting linear RGB to linear CIE xyY")
+	    rgb.ToXyy()
+
+		// Iteratively adjust gamma and shift back histogram peak
+		if (*autoLoc)!=0 && (*autoScale)!=0 {
+			targetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
+			targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
+			nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
+
+			for i:=0; ; i++ {
+				if i==30 { 
+					nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
 					break
 				}
 
-				nl.LogPrintf("applying gamma %.3g\n", idealGamma)
-				rgb.ApplyGammaToChannel(2, idealGamma)
-			} else if loc>targetLoc*0.99 && scale<targetScale {
-				nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetLoc*100)
-				rgb.ShiftBlackToMoveChannel(2, loc, targetLoc)
-			} else {
-				nl.LogPrintf("done\n")
-				break
+				// calculate basic image stats as a fast location and scale estimate
+				loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+				if err!=nil { nl.LogFatal(err) }
+				nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+
+				if loc<=targetLoc*1.01 && scale<targetScale {
+					idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
+					if idealGamma>1.5 { idealGamma=1.5 }
+					if idealGamma<=1.01 { 
+						nl.LogPrintf("done\n")
+						break
+					}
+
+					nl.LogPrintf("applying gamma %.3g\n", idealGamma)
+					rgb.ApplyGammaToChannel(2, idealGamma)
+				} else if loc>targetLoc*0.99 && scale<targetScale {
+					nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetLoc*100)
+					rgb.ShiftBlackToMoveChannel(2, loc, targetLoc)
+				} else {
+					nl.LogPrintf("done\n")
+					break
+				}
 			}
 		}
-	}
 
-	// Optionally adjust gamma 
-	if (*gamma)!=1 {
-		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
-		rgb.ApplyGammaToChannel(2, float32(*gamma))
-	}
-
-	// Optionally adjust gamma post peak
-    if (*ppGamma)!=1 {
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-
-    	from:=loc+float32(*ppSigma)*scale
-    	to  :=float32(1.0)
-    	nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
-		rgb.ApplyPartialGammaToChannel(2, from, to, float32(*ppGamma))
-    }
-
-	// Optionally scale histogram peak
-    if (*scaleBlack)!=0 {
-    	targetBlack:=float32((*scaleBlack)/100.0)
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
-
-		if loc>targetBlack {
-			nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
-			rgb.ShiftBlackToMoveChannel(2,loc, targetBlack)
-		} else {
-			nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
+		// Optionally adjust gamma 
+		if (*gamma)!=1 {
+			nl.LogPrintf("Applying gamma %.3g\n", *gamma)
+			rgb.ApplyGammaToChannel(2, float32(*gamma))
 		}
-    }
 
-	nl.LogPrintln("Converting back to RGB")
-	rgb.ToRGB()
+		// Optionally adjust gamma post peak
+	    if (*ppGamma)!=1 {
+			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
+
+	    	from:=loc+float32(*ppSigma)*scale
+	    	to  :=float32(1.0)
+	    	nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
+			rgb.ApplyPartialGammaToChannel(2, from, to, float32(*ppGamma))
+	    }
+
+		// Optionally scale histogram peak
+	    if (*scaleBlack)!=0 {
+	    	targetBlack:=float32((*scaleBlack)/100.0)
+			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
+			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+
+			if loc>targetBlack {
+				nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
+				rgb.ShiftBlackToMoveChannel(2,loc, targetBlack)
+			} else {
+				nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
+			}
+	    }
+
+		nl.LogPrintln("Converting linear CIE xyY to linear RGB")
+		rgb.XyyToRGB()
+	}
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
