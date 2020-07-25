@@ -17,6 +17,10 @@
 package internal
 
 
+import (
+    "math"
+)
+
 // Sort an array of float32 in ascending order.
 // Array must not contain IEEE NaN
 func QSortFloat32(a []float32) {
@@ -66,6 +70,13 @@ func QSelectMedianFloat32(a []float32) float32 {
 }
 
 
+// Check if NaNs are present
+func CheckNaNs(as []float32) {
+    for i, a:=range as {
+        if math.IsNaN(float64(a)) { LogPrintf("NaN at %d\n", i)}
+    }
+}
+
 // Select kth lowest element from an array of float32. Partially reorders the array.
 // Array must not contain IEEE NaN
 func QSelectFloat32(a []float32, k int) float32 {
@@ -78,10 +89,12 @@ func QSelectFloat32(a []float32, k int) float32 {
         for {
             for {
                 l++
+                // if l>=len(a) { CheckNaNs(a) }
                 if a[l]>=pivot { break }
             }
             for {
                 r--
+                // if r<0 { CheckNaNs(a) }
                 if a[r]<=pivot { break }
             }
             if l >= r { break } // index in r
