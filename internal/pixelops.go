@@ -189,8 +189,8 @@ func (f* FITSImage) ApplyPartialGammaToChannel(chanID int, from, to, g float32) 
 }
 
 
-// Pixel function to convert RGB to HCL pixels. Operates in-place.
-func pf3ChanToHCL(rs,gs,bs []float32, params interface{}) {
+// Pixel function to convert RGB to CIE HCL pixels. Operates in-place.
+func pf3ChanRGBToHCL(rs,gs,bs []float32, params interface{}) {
 	for i:=0; i<len(rs); i++ {
 		r, g, b:=rs[i], gs[i], bs[i]
 
@@ -201,28 +201,91 @@ func pf3ChanToHCL(rs,gs,bs []float32, params interface{}) {
 	}
 }
 
-// Convert RGB to HCL pixels. Operates in-place.
-func (f* FITSImage) ToHCL() {
-	f.ApplyPixelFunction3Chan(pf3ChanToHCL, nil)
+// Convert RGB to CIE HCL pixels. Operates in-place.
+func (f* FITSImage) ToRGBHCL() {
+	f.ApplyPixelFunction3Chan(pf3ChanRGBToHCL, nil)
 }
 
 
-// Pixel function to convert HCL to RGB pixels. Operates in-place.
-func pf3ChanToRGB(hs,cs,ls []float32, params interface{}) {
+// Pixel function to convert RGB to CIE HSL pixels. Operates in-place.
+// https://en.wikipedia.org/wiki/Colorfulness#Saturation
+func pf3ChanRGBToCIEHSL(rs,gs,bs []float32, params interface{}) {
+	for i:=0; i<len(rs); i++ {
+		r, g, b:=rs[i], gs[i], bs[i]
+
+		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
+		h,c,l:=col.Hcl()
+		s:=c/l
+
+		rs[i], gs[i], bs[i]=float32(h), float32(s), float32(l) 
+	}
+}
+
+// Convert RGB to CIE HSL pixels. Operates in-place.
+// https://en.wikipedia.org/wiki/Colorfulness#Saturation
+func (f* FITSImage) RGBToCIEHSL() {
+	f.ApplyPixelFunction3Chan(pf3ChanRGBToCIEHSL, nil)
+}
+
+
+
+// Pixel function to convert CIE HSL to RGB pixels. Operates in-place.
+// https://en.wikipedia.org/wiki/Colorfulness#Saturation
+func pf3ChanCIEHSLToRGB(hs,ss,ls []float32, params interface{}) {
 	for i:=0; i<len(hs); i++ {
-		h, c, l:=hs[i], cs[i], ls[i]
+		h, s, l:=hs[i], ss[i], ls[i]
+		c:=s*l
 
 		col:=colorful.Hcl(float64(h), float64(c), float64(l)).Clamped()
 		r,g,b:=col.LinearRgb()
 
-		hs[i], cs[i], ls[i]=float32(r), float32(g), float32(b) 
+		hs[i], ss[i], ls[i]=float32(r), float32(g), float32(b) 
 	}
 }
 
-// Convert HCL to RGB pixels. Operates in-place.
-func (f* FITSImage) ToRGB() {
-	f.ApplyPixelFunction3Chan(pf3ChanToRGB, nil)
+// Convert CIE HSL to RGB pixels. Operates in-place.
+// https://en.wikipedia.org/wiki/Colorfulness#Saturation
+func (f* FITSImage) CIEHSLToRGB() {
+	f.ApplyPixelFunction3Chan(pf3ChanCIEHSLToRGB, nil)
 }
+
+
+// Pixel function to convert RGB to xyY pixels. Operates in-place.
+func pf3ChanToXyy(rs,gs,bs []float32, params interface{}) {
+	for i:=0; i<len(rs); i++ {
+		r, g, b:=rs[i], gs[i], bs[i]
+
+		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
+		x,y,Y:=col.Xyy()
+
+		rs[i], gs[i], bs[i]=float32(x), float32(y), float32(Y) 
+	}
+}
+
+// Convert RGB to xyY pixels. Operates in-place.
+func (f* FITSImage) ToXyy() {
+	f.ApplyPixelFunction3Chan(pf3ChanToXyy, nil)
+}
+
+
+// Pixel function to convert Xyy to RGB pixels. Operates in-place.
+func pf3ChanXyyToRGB(xs,ys,Ys []float32, params interface{}) {
+	for i:=0; i<len(xs); i++ {
+		x, y, Y:=xs[i], ys[i], Ys[i]
+
+		col:=colorful.Xyy(float64(x), float64(y), float64(Y)).Clamped()
+		r,g,b:=col.LinearRgb()
+
+		xs[i], ys[i], Ys[i]=float32(r), float32(g), float32(b) 
+	}
+}
+
+// Convert Xyy to RGB pixels. Operates in-place.
+func (f* FITSImage) XyyToRGB() {
+	f.ApplyPixelFunction3Chan(pf3ChanXyyToRGB, nil)
+}
+
+
 
 
 type pf3ChanChromaArgs struct {
