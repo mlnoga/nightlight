@@ -30,7 +30,7 @@ import (
 	"github.com/pbnjay/memory"
 )
 
-const version = "0.2.4"
+const version = "0.2.5"
 
 type Job struct {
 	Id       int
@@ -111,12 +111,12 @@ var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g
 var autoLoc   = flag.Float64("autoLoc", 10, "histogram peak location in %% to target with automatic curves adjustment, 0=don't")
 var autoScale = flag.Float64("autoScale", 0.4, "histogram peak scale in %% to target with automatic curves adjustment, 0=don't")
 
+var midtone   = flag.Float64("midtone", 0, "midtone value in multiples of standard deviation; 0=no op")
+var midBlack  = flag.Float64("midBlack", 2, "midtone black in multiples of standard deviation below background location")
+
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
-
-var midtone   = flag.Float64("midtone", 0, "midtone value in multiples of standard deviation; 0=no op")
-var midBlack  = flag.Float64("midBlack", 2, "midtone black in multiples of standard deviation below background location")
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
