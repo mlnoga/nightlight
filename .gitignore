@@ -8,6 +8,6 @@
 *.tiff
 *.jpg
 *.log
-nightlight
-nightlight_*_amd64
-nightlight_*_arm7
+./nightlight
+./nightlight_*_amd64
+./nightlight_*_arm7
