@@ -4,3 +4,4 @@
 * Peter Müller
   - contributions to automatic background extraction and background color neutralization
   - unsharp masking
+  - midtone mapping
