@@ -156,14 +156,14 @@ func (f* FITSImage) ApplyGammaToChannel(chanID int, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfGamma, g)
 }
 
-// Arguments for the RGB pixel function to adjust chroma for a range of hues
+// Arguments for the RGB pixel function to adjust gamma for a range of intensities
 type pfPartialGammaArgs struct {
 	From   float32
 	To     float32
 	Factor float32
 }
 
-// Pixel function to apply partial gamma correction to values in given range. Data must be normalized to [0,1]. 2nd parameter must be a float32. Operates in-place. 
+// Pixel function to apply partial gamma correction to values in given range. Data must be normalized to [0,1]. 2nd parameter must be a pfPartialGammaArgs. Operates in-place. 
 func pfPartialGamma(data []float32, params interface{}) {
 	from, to, g:=params.(pfPartialGammaArgs).From, params.(pfPartialGammaArgs).To, params.(pfPartialGammaArgs).Factor 
     gg:=float64(1.0/g)
@@ -186,6 +186,42 @@ func (f* FITSImage) ApplyPartialGamma(from, to, g float32) {
 // Apply gamma correction to given channel of the image. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* FITSImage) ApplyPartialGammaToChannel(chanID int, from, to, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfPartialGamma, pfPartialGammaArgs{from, to, g})
+}
+
+
+// Arguments for the RGB pixel function to adjust midtones
+type pfMidtonesArgs struct {
+	Mid    float32
+	Black  float32
+}
+
+// Pixel function to apply midtones correction to given image slice. Data must be normalized to [0,1]. 
+// 2nd parameter must be a pfMidtonesArgs. Operates in-place. 
+func pfMidtones(data []float32, params interface{}) {
+	mid, black:=params.(pfMidtonesArgs).Mid, params.(pfMidtonesArgs).Black
+	clipLow   :=black*(mid-1.0) / ((2.0*mid -1.0)*black - mid)
+	clipHigh  :=float32(1.0)
+	scaler    :=1.0/(clipHigh-clipLow)
+	for i, d:=range data {
+		value:=d*(mid-1.0) / ((2.0*mid -1.0)*d - mid)
+		if value<clipLow { 
+			value=0 
+	    } else if value>clipHigh {
+	    	value=1
+	    }
+		data[i]=(value-clipLow)*scaler
+	}
+
+}
+
+// Apply midtones correction to given image. Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) ApplyMidtones(mid, black float32) {
+	f.ApplyPixelFunction(pfMidtones, pfMidtonesArgs{mid, black})
+}
+
+// Apply midtones correction to given channel of given image. Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) ApplyMidtonesToChannel(chanID int, mid, black float32) {
+	f.ApplyPixelFunction1Chan(chanID, pfMidtones, pfMidtonesArgs{mid, black})
 }
 
 
