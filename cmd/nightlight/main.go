@@ -115,6 +115,9 @@ var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear lig
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
 
+var midtone   = flag.Float64("midtone", 0, "midtone value in multiples of standard deviation; 0=no op")
+var midBlack  = flag.Float64("midBlack", 2, "midtone black in multiples of standard deviation below background location")
+
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
 var darkF *nl.FITSImage=nil
@@ -683,7 +686,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 	}
 
 	// Apply luminance curves in linear CIE xyY color space
-	if ((*autoLoc)!=0 && (*autoScale)!=0) || ((*gamma)!=1) || ((*ppGamma)!=1) || ((*scaleBlack)!=0) {
+	if ((*autoLoc)!=0 && (*autoScale)!=0) || ((*midtone)!=0) || ((*gamma)!=1) || ((*ppGamma)!=1) || ((*scaleBlack)!=0) {
 		nl.LogPrintln("Converting linear RGB to linear CIE xyY")
 	    rgb.ToXyy()
 
@@ -723,6 +726,19 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 				}
 			}
 		}
+
+	    // Optionally adjust midtones
+	    if (*midtone)!=0 {
+	    	nl.LogPrintf("Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", *midtone, *midBlack)
+
+			// calculate basic image stats as a fast location and scale estimate
+			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+			if err!=nil { nl.LogFatal(err) }
+			absMid:=float32(*midtone)*scale
+			absBlack:=loc - float32(*midBlack)*scale
+	    	nl.LogPrintf("loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*loc, 100*scale, 100*absMid, 100*absBlack)
+	    	rgb.ApplyMidtonesToChannel(2, absMid, absBlack)
+	    }
 
 		// Optionally adjust gamma 
 		if (*gamma)!=1 {
@@ -778,7 +794,7 @@ func autoBalanceColors(rgb *nl.FITSImage) {
 		nl.LogPrintln("Skipping black and white point adjustment as zero stars have been detected")
 	} else {
 		nl.LogPrintln("Setting black point so histogram peaks align and white point so median star color becomes neutral...")
-		for i:=0; i<4; i++ {
+		for i:=0; i<3; i++ {
 			err:=rgb.SetBlackWhitePoints()
 			if err!=nil { nl.LogFatal(err) }
 		}
