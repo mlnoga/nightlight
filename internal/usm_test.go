@@ -52,60 +52,69 @@ func TestGaussianKernel1D(t *testing.T) {
 func TestGaussFilter2D(t *testing.T) {
 	dims:=[]int{15,31,63}
 	sigmas:=[]float32{1.0, 2.0, 3.0}
+	epsilon:=1e-5
 
 	for _,dim:=range(dims) {
 		for _, sigma:=range(sigmas) {
 
-		width, height:=dim, dim
-		sharp:=make([]float32, width*height)
-		sharp[width*(height/2)+width/2]=9.99
+			width, height:=dim, dim
+			sharp:=make([]float32, width*height)
+			peak:=float32(9.99)
+			sharp[width*(height/2)+width/2]=peak
 
-		//fmt.Println("Sharp");
-		//for y:=0; y<height; y++ {
-		//	for x:=0; x<width; x++ {
-		//		fmt.Printf(" %.2f", sharp[y*width+x])
-		//	}
-		//	fmt.Println();
-		//}
+			//fmt.Println("Sharp");
+			//for y:=0; y<height; y++ {
+			//	for x:=0; x<width; x++ {
+			//		fmt.Printf(" %.2f", sharp[y*width+x])
+			//	}
+			//	fmt.Println();
+			//}
 
-		tmp  :=make([]float32, width*height)
-		blur :=make([]float32, width*height)
-		kernel:=GaussianKernel1D(sigma)
-		kHalfSize:=len(kernel)/2
-		// fmt.Printf("kernel size %d half size %d data %v\n", len(kernel), kHalfSize, kernel)
+			tmp  :=make([]float32, width*height)
+			blur :=make([]float32, width*height)
+			kernel:=GaussianKernel1D(sigma)
+			kHalfSize:=len(kernel)/2
+			// fmt.Printf("kernel size %d half size %d data %v\n", len(kernel), kHalfSize, kernel)
 
-		GaussFilter2D(blur, tmp, sharp, width, sigma)
+			GaussFilter2D(blur, tmp, sharp, width, sigma)
 
-		//fmt.Println("Blurred");
-		//for y:=0; y<height; y++ {
-		//	for x:=0; x<width; x++ {
-		//		fmt.Printf(" %.2f", blur[y*width+x])
-		//	}
-		//	fmt.Println();
-		//}
+			//fmt.Println("Blurred");
+			//for y:=0; y<height; y++ {
+			//	for x:=0; x<width; x++ {
+			//		fmt.Printf(" %.2f", blur[y*width+x])
+			//	}
+			//	fmt.Println();
+			//}
 
-		for y:=0; y<height/2-kHalfSize; y++ {
-			for x:=0; x<width; x++ {
-				if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
-			} 
-		}
-		for y:=height/2-kHalfSize; y<height/2+kHalfSize+1; y++ {
-			for x:=0; x<width/2-kHalfSize-1; x++ {
-				if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
-			} 
-			for x:=width/2-kHalfSize; x<width/2+kHalfSize+1; x++ {
-				if blur[y*width+x]<=0 || blur[y*width+x]>=9.99 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want >0 <1", sigma, y, x, blur[y*width+x]) }
-			} 
-			for x:=width/2+kHalfSize+1; x<width; x++ {
-				if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
-			} 
-		}
-		for y:=height/2+kHalfSize+1; y<height; y++ {
-			for x:=0; x<width; x++ {
-				if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
-			} 
-		}
+			sum:=float32(0)
+			for y:=0; y<height/2-kHalfSize; y++ {
+				for x:=0; x<width; x++ {
+					if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
+					sum+=blur[y*width+x]
+				} 
+			}
+			for y:=height/2-kHalfSize; y<height/2+kHalfSize+1; y++ {
+				for x:=0; x<width/2-kHalfSize-1; x++ {
+					if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
+					sum+=blur[y*width+x]
+				} 
+				for x:=width/2-kHalfSize; x<width/2+kHalfSize+1; x++ {
+					if blur[y*width+x]<=0 || blur[y*width+x]>=9.99 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want >0 <1", sigma, y, x, blur[y*width+x]) }
+					sum+=blur[y*width+x]
+				} 
+				for x:=width/2+kHalfSize+1; x<width; x++ {
+					if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
+					sum+=blur[y*width+x]
+				} 
+			}
+			for y:=height/2+kHalfSize+1; y<height; y++ {
+				for x:=0; x<width; x++ {
+					if blur[y*width+x]!=0 { t.Errorf("sigma=%f b[%d*w+%d]=%f; want 0", sigma, y, x, blur[y*width+x]) }
+					sum+=blur[y*width+x]
+				} 
+			}
 
+			if math.Abs(float64(sum-peak))>epsilon { t.Errorf("sigma=%f sum=%f; want %f", sigma, sum, peak) }
 
 		}
 	}
