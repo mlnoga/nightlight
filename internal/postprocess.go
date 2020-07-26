@@ -51,6 +51,10 @@ func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align
 		}
 		aligner=NewAligner(alignRef.Naxisn, alignRef.Stars, alignK)
 	}
+	if usmGain>0 { 
+		kernel:=GaussianKernel1D(usmSigma)
+		LogPrintf("Unsharp masking kernel sigma %.2f size %d: %v\n", usmSigma, len(kernel), kernel)
+	}
 	numErrors=0
 	sem   :=make(chan bool, imageLevelParallelism)
 	for i, lightP := range(lights) {
