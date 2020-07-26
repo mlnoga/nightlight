@@ -155,6 +155,8 @@ Available flags are:
 |scnr           |0           | apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3 |
 |autoLoc        |10          | histogram peak location in % to target with automatic curves adjustment, 0=don't|
 |autoScale      |0.4         | histogram peak scale in % to target with automatic curves adjustment, 0=don't|
+|midtone        |0           | midtone value in multiples of standard deviation; 0=no op|
+|midBlack       |2           | midtone black in multiples of standard deviation below background location|
 |gamma          |1           | apply output gamma, 1: keep linear light data |
 |ppGamma        |1           | apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data |
 |ppSigma        |1           | apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise) |
