@@ -28,6 +28,7 @@ import (
 	"time"
 	nl "github.com/mlnoga/nightlight/internal"
 	"github.com/pbnjay/memory"
+	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
 const version = "0.2.5"
@@ -625,22 +626,28 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 	// Auto-balance colors in linear RGB color space
 	autoBalanceColors(rgb)
 
+	nl.LogPrintln("Converting color image to nonlinear modified CIE L*C*H space, i.e. HSL...")
+	rgb.RGBToCIEHSL()
+
 	// Apply LRGB combination in linear CIE xyY color space
 	if lum!=nil {
-		nl.LogPrintln("Converting linear RGB to linear CIE xyY for LRGB combination")
-	    rgb.ToXyy()
+		// nl.LogPrintln("Converting linear RGB to linear CIE xyY for LRGB combination")
+	    // rgb.ToXyy()
 
-		nl.LogPrintln("Applying luminance to Y channel...")
+	    nl.LogPrintln("Converting luminance image to L*C*H as well...")
+	    lum.MonoToLum()
+
+		nl.LogPrintln("Applying luminance image to luminance channel...")
 		rgb.ApplyLuminanceToCIExyY(lum)
 
-		nl.LogPrintln("Converting linear CIE xyY to linear RGB")
-		rgb.XyyToRGB()
+		// nl.LogPrintln("Converting linear CIE xyY to linear RGB")
+		// rgb.XyyToRGB()
 	}
 
 	// Apply color corrections in non-linear modified CIE L*C*H space, i.e. HSL
 	if ((*neutSigmaLow>=0) && (*neutSigmaHigh>=0)) || ((*chromaGamma)!=1) || ((*chromaBy)!=0) || ((*rotBy)!=0) || ((*scnr)!=0) {
-		nl.LogPrintln("Converting image to nonlinear modified CIE L*C*H space, i.e. HSL...")
-		rgb.RGBToCIEHSL()
+		// nl.LogPrintln("Converting image to nonlinear modified CIE L*C*H space, i.e. HSL...")
+		// rgb.RGBToCIEHSL()
 
 	    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
 			nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
@@ -681,23 +688,31 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 			rgb.SCNR(float32(*scnr))
 	    }
 
-		nl.LogPrintln("Converting nonlinear CIE HSL to linear RGB")
-	    rgb.CIEHSLToRGB()
+		// nl.LogPrintln("Converting nonlinear CIE HSL to linear RGB")
+	    // rgb.CIEHSLToRGB()
 	}
 
 	// Apply luminance curves in linear CIE xyY color space
 	if ((*autoLoc)!=0 && (*autoScale)!=0) || ((*midtone)!=0) || ((*gamma)!=1) || ((*ppGamma)!=1) || ((*scaleBlack)!=0) {
-		nl.LogPrintln("Converting linear RGB to linear CIE xyY")
-	    rgb.ToXyy()
+		// nl.LogPrintln("Converting linear RGB to linear CIE xyY")
+	    // rgb.ToXyy()
 
 		// Iteratively adjust gamma and shift back histogram peak
 		if (*autoLoc)!=0 && (*autoScale)!=0 {
-			targetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
-			targetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
-			nl.LogPrintf("Automatic curves adjustment targeting location %.2f%% and scale %.2f%% ...\n", targetLoc*100, targetScale*100)
+			xyyTargetLoc  :=float32((*autoLoc)/100.0)    // range [0..1], while autoLoc is [0..100]
+			xyyTargetScale:=float32((*autoScale)/100.0)  // range [0..1], while autoScale is [0..100]
+			nl.LogPrintf("Automatic curves adjustment targeting linear location %.2f%% and scale %.2f%% ...\n", xyyTargetLoc*100, xyyTargetScale*100)
+
+			_,_,hclLoc          :=colorful.Xyy(0,0,float64(xyyTargetLoc)).Hcl()
+			_,_,hclLocMinusScale:=colorful.Xyy(0,0,float64(xyyTargetLoc-xyyTargetScale)).Hcl()
+			_,_,hclLocPlusScale :=colorful.Xyy(0,0,float64(xyyTargetLoc+xyyTargetScale)).Hcl()
+			hclScale:=0.5*((hclLoc - hclLocMinusScale) + (hclLocPlusScale - hclLoc)) // crude but hopefully workable
+			nl.LogPrintf("Corresponding non-linear HCL loc %.2f%% scale %.2f%%\n", hclLoc*100, hclScale*100)
+
+			targetLoc, targetScale:=float32(hclLoc), float32(hclScale)
 
 			for i:=0; ; i++ {
-				if i==30 { 
+				if i==50 { 
 					nl.LogPrintf("Warning: did not converge after %d iterations\n",i)
 					break
 				}
@@ -705,7 +720,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 				// calculate basic image stats as a fast location and scale estimate
 				loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 				if err!=nil { nl.LogFatal(err) }
-				nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+				nl.LogPrintf("HCL location %.2f%% and scale %.2f%%, ", loc*100, scale*100)
 
 				if loc<=targetLoc*1.01 && scale<targetScale {
 					idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
@@ -759,22 +774,28 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 
 		// Optionally scale histogram peak
 	    if (*scaleBlack)!=0 {
-	    	targetBlack:=float32((*scaleBlack)/100.0)
+	    	xyyTargetBlack:=float32((*scaleBlack)/100.0)
+			_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(xyyTargetBlack)).Hcl()
+			targetBlack:=float32(hclTargetBlack)
+
 			loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
 			if err!=nil { nl.LogFatal(err) }
 			nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
 			if loc>targetBlack {
-				nl.LogPrintf("scaling black to move location to %.2f%%...\n", targetBlack*100.0)
+				nl.LogPrintf("scaling black to move location to HCL %.2f%% for linear %.2f%%...\n", targetBlack*100.0, xyyTargetBlack*100.0)
 				rgb.ShiftBlackToMoveChannel(2,loc, targetBlack)
 			} else {
 				nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
 			}
 	    }
 
-		nl.LogPrintln("Converting linear CIE xyY to linear RGB")
-		rgb.XyyToRGB()
+		// nl.LogPrintln("Converting linear CIE xyY to linear RGB")
+		// rgb.XyyToRGB()
 	}
+
+	nl.LogPrintln("Converting nonlinear CIE HSL to linear RGB")
+    rgb.CIEHSLToRGB()
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)

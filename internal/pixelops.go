@@ -225,6 +225,20 @@ func (f* FITSImage) ApplyMidtonesToChannel(chanID int, mid, black float32) {
 }
 
 
+// Pixel function to convert a monochromic image to CIE HCL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+func pfMonoToLum(data []float32, params interface{}) {
+	for i, d:=range data {
+		_,_,lum:=colorful.LinearRgb(float64(d), float64(d), float64(d)).Hcl()
+		data[i]=float32(lum)
+	}
+}
+
+// Converts a monochromic image to CIE HCL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) MonoToLum() {
+	f.ApplyPixelFunction(pfMonoToLum, nil)
+}
+
+
 // Pixel function to convert RGB to CIE HCL pixels. Operates in-place.
 func pf3ChanRGBToHCL(rs,gs,bs []float32, params interface{}) {
 	for i:=0; i<len(rs); i++ {
@@ -251,7 +265,8 @@ func pf3ChanRGBToCIEHSL(rs,gs,bs []float32, params interface{}) {
 
 		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
 		h,c,l:=col.Hcl()
-		s:=c/l
+		//s:=c/l
+		s:=c/math.Sqrt(c*c+l*l)
 
 		rs[i], gs[i], bs[i]=float32(h), float32(s), float32(l) 
 	}
@@ -270,7 +285,8 @@ func (f* FITSImage) RGBToCIEHSL() {
 func pf3ChanCIEHSLToRGB(hs,ss,ls []float32, params interface{}) {
 	for i:=0; i<len(hs); i++ {
 		h, s, l:=hs[i], ss[i], ls[i]
-		c:=s*l
+		//c:=l*s
+		c:=l*s/float32(math.Sqrt(float64(1-s*s)))
 
 		col:=colorful.Hcl(float64(h), float64(c), float64(l)).Clamped()
 		r,g,b:=col.LinearRgb()
