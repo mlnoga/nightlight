@@ -4,7 +4,7 @@
 
 Nightlight is a fast, high-quality and repeatable pipeline for astronomic image processing. Starting with faint monochrome FITS subexposures from your camera, Nightlight creates beautiful and striking stacked [images](https://photo.noga.de/#collection/4a66a793-07cd-4a69-bdc5-8dec2e82c4a2): LRGB composites in natural colors, narrowband images in the [Hubble palette](http://bf-astro.com/hubblep.htm), or in many other color schemes thanks to 32 bit floating point image processing. 
 
-Nighlight automatically normalizes, aligns, stacks, composites and tunes your images. The in-memory architecture with randomized batching touches each file exactly once and requires no temporary files. Written in pure GoLang with selected AVX2 optimizations, Nightlight is fast and scales to use all available CPU cores efficiently. It currently supports Linux, Mac and Windows on reasonably modern AMD and Intel processors, and Linux on ARM7 like the Raspberry Pi 4. 
+Nighlight automatically normalizes, aligns, stacks, composites and tunes your images. The in-memory architecture with randomized batching touches each file exactly once and requires no temporary files. Written in pure GoLang with selected AVX2 optimizations, Nightlight is fast and scales to use all available CPU cores efficiently. It currently supports Linux, Mac and Windows on reasonably modern AMD and Intel processors, and Linux on ARM7 and ARM64 like the Raspberry Pi 4. 
 
 As a command line tool, Nightlight is ideal for creating an automated build pipeline for your images with tools like GNU [make](https://www.gnu.org/software/make/). Then apply your finishing touches by fine tuning curves in a tool like [GIMP](https://www.gimp.org/).
 
@@ -14,11 +14,27 @@ Discussion thread in German at [astronomie.de](https://forum.astronomie.de/threa
 
 Download latest [binary releases](https://github.com/mlnoga/nightlight/releases) for Linux, Mac/Darwin and Windows on x86_64 bit processors and Raspberry Pi 4.
 
-Here are some sample datasets to play with: 
+Here are some sample datasets to play with:
 
 * [Orion Nebula M42](https://github.com/mlnoga/dataset-M42-LRGB) in LRGB from a mono camera
 * [Bubble Nebula NGC7635](https://github.com/mlnoga/dataset-NGC7635-nb) in narrowband from a mono camera
 * [Arp 316 galaxy cluster](https://github.com/mlnoga/dataset-arp316-RGB-bayer) in RGB from a one-shot color DSLR
+
+
+## Raspberry Pi 4 installation notes
+
+At the time of this writing in March 2021, Raspberry Pi OS still ships as 32 bit. This limits each app to using 2.5 GB of memory, even if more is installed. To unlock the full 8 GB on a Pi4 for stacking, you can upgrade your kernel to 64 bit by following these steps (at your own risk):
+
+* `sudo rpi-update` to install the latest kernel branch
+* `sudo shutdown -r now` to boot into that kernel
+* `uname -a` to test successful install (should display `armv7l`)
+* `sudo vi /boot/config.txt`, navigate to the `[pi4]` section and add a line `arm_64bit=1`.
+* `sudo shutdown -r now` to boot into the 64 bit kernel
+* `uname -a` to test successful activation (should display `aarch64`)
+* In case things go wrong, try and revert to 32 bit with:
+  - `sudo apt-get update`
+  - `sudo apt install --reinstall libraspberrypi0 libraspberrypi-{bin,dev,doc} raspberrypi-bootloader raspberrypi-kernel`
+
 
 ## Capabilities
 

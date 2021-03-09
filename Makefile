@@ -19,7 +19,7 @@ install-local: $(EXECUTABLE)
 $(EXECUTABLE): $(SRCS)
 	go build -o $@ $(FLAGS) ./cmd/$(TARGET)
 
-cross-platform: $(TARGET)_linux_amd64 $(TARGET)_darwin_amd64 $(TARGET)_windows_amd64.exe $(TARGET)_linux_arm7
+cross-platform: $(TARGET)_linux_amd64 $(TARGET)_darwin_amd64 $(TARGET)_windows_amd64.exe $(TARGET)_linux_arm7 $(TARGET)_linux_arm64
 
 $(TARGET)_%_amd64: $(SRCS)
 	GOOS=$* GOARCH=amd64 go build -o $@ $(FLAGS) ./cmd/$(TARGET)
@@ -31,6 +31,10 @@ $(TARGET)_%_amd64.exe: $(SRCS)
 
 $(TARGET)_%_arm7: $(SRCS)
 	GOOS=$* GOARCH=arm GOARM=7 go build -o $@ $(FLAGS)  ./cmd/$(TARGET)
+	chmod a+x $@
+
+$(TARGET)_%_arm64: $(SRCS)
+	GOOS=$* GOARCH=arm64 go build -o $@ $(FLAGS)  ./cmd/$(TARGET)
 	chmod a+x $@
 
 test:
