@@ -427,6 +427,16 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
+	// Remove nils from lights, in case of read errors
+	o:=0
+	for i:=0; i<len(lights); i+=1 {
+		if lights[i]!=nil {
+			lights[o]=lights[i]
+			o+=1
+		}
+	}
+	lights=lights[:o]
+
 	avgNoise=float32(0)
 	for _,l:=range lights {
 		avgNoise+=l.Stats.Noise
@@ -449,8 +459,8 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	                     float32(*usmSigma), float32(*usmGain), float32(*usmThresh), *post, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
-	// Remove nils from lights
-	o:=0
+	// Remove nils from lights again, in case of alignment errors
+	o=0
 	for i:=0; i<len(lights); i+=1 {
 		if lights[i]!=nil {
 			lights[o]=lights[i]
