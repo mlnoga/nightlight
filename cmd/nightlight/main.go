@@ -302,24 +302,22 @@ func cmdStack(args []string, batchPattern string) {
     // Load dark and flat in parallel if flagged
     sem   :=make(chan bool, 2) // limit parallelism to 2
     if *dark!="" { 
-		sem <- true 
 		go func() { 
-    		defer func() { <-sem }()
 			darkF=nl.LoadDark(*dark) 
+			sem <- true
 		}() 
 	}
     if *flat!="" { 
-		sem <- true 
     	go func() { 
-	    	defer func() { <-sem }()
     		flatF=nl.LoadFlat(*flat) 
+			sem <- true
 		}() 
 	}
     if *dark!="" {   // wait for goroutine to finish
-		sem <- true
+		<- sem
 	}
     if *flat!="" {   // wait for goroutine to finish
-		sem <- true
+		<- sem
 	}
 
 	if darkF!=nil && flatF!=nil && !nl.EqualInt32Slice(darkF.Naxisn, flatF.Naxisn) {
