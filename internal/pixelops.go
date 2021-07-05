@@ -225,15 +225,15 @@ func (f* FITSImage) ApplyMidtonesToChannel(chanID int, mid, black float32) {
 }
 
 
-// Pixel function to convert a monochromic image to CIE HCL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+// Pixel function to convert a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
 func pfMonoToLum(data []float32, params interface{}) {
 	for i, d:=range data {
-		_,_,lum:=colorful.LinearRgb(float64(d), float64(d), float64(d)).Hcl()
+		_,_,lum:=colorful.LinearRgb(float64(d), float64(d), float64(d)).HSLuv()
 		data[i]=float32(lum)
 	}
 }
 
-// Converts a monochromic image to CIE HCL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+// Converts a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
 func (f* FITSImage) MonoToLum() {
 	f.ApplyPixelFunction(pfMonoToLum, nil)
 }
@@ -252,7 +252,7 @@ func pf3ChanRGBToHCL(rs,gs,bs []float32, params interface{}) {
 }
 
 // Convert RGB to CIE HCL pixels. Operates in-place.
-func (f* FITSImage) ToRGBHCL() {
+func (f* FITSImage) RGBToHCL() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToHCL, nil)
 }
 
@@ -336,6 +336,52 @@ func pf3ChanXyyToRGB(xs,ys,Ys []float32, params interface{}) {
 func (f* FITSImage) XyyToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanXyyToRGB, nil)
 }
+
+
+// Pixel function to convert RGB to HSLuv pixels. Operates in-place.
+// https://www.hsluv.org/
+func pf3ChanRGBToHSLuv(rs,gs,bs []float32, params interface{}) {
+	for i:=0; i<len(rs); i++ {
+		r, g, b:=rs[i], gs[i], bs[i]
+
+		col:=colorful.LinearRgb(float64(r),float64(g),float64(b))
+		h,s,l:=col.HSLuv()
+
+		rs[i], gs[i], bs[i]=float32(h), float32(s), float32(l) 
+	}
+}
+
+// Convert RGB to HSLuv pixels. Operates in-place.
+// https://www.hsluv.org/
+func (f* FITSImage) RGBToHSLuv() {
+	f.ApplyPixelFunction3Chan(pf3ChanRGBToHSLuv, nil)
+}
+
+
+// Pixel function to convert HSLuv to RGB pixels. Operates in-place.
+// https://www.hsluv.org/
+func pf3ChanHSLuvToRGB(rs,gs,bs []float32, params interface{}) {
+	for i:=0; i<len(rs); i++ {
+		h, s, l:=rs[i], gs[i], bs[i]
+
+		if s<0 { s=0 }
+		if s>1 { s=1 }
+		if l<0 { l=0 }
+		if l>1 { l=1 }
+
+		col:=colorful.HSLuv(float64(h),float64(s),float64(l)).Clamped()
+		r,g,b:=col.LinearRgb()
+
+		rs[i], gs[i], bs[i]=float32(r), float32(g), float32(b) 
+	}
+}
+
+// Convert HSLuv to RGB pixels. Operates in-place.
+// https://www.hsluv.org/
+func (f* FITSImage) HSLuvToRGB() {
+	f.ApplyPixelFunction3Chan(pf3ChanHSLuvToRGB, nil)
+}
+
 
 
 

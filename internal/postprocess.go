@@ -22,7 +22,7 @@ import (
 	"math"
 )
 
-// Replaceemnt mode for out of bounds values when projecting images
+// Replacement mode for out of bounds values when projecting images
 type HistoNormMode int
 const (
 	HNMNone = iota   // Do not normalize histogram
@@ -32,7 +32,7 @@ const (
 )
 
 
-// Replaceemnt mode for out of bounds values when projecting images
+// Replacement mode for out of bounds values when projecting images
 type OutOfBoundsMode int
 const (
 	OOBModeNaN = iota   // Replace with NaN. Stackers ignore NaNs, so they just take frames into account which have data for the given pixel

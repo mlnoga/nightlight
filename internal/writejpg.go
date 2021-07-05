@@ -60,3 +60,36 @@ func (f *FITSImage) WriteJPG(writer io.Writer, quality int) error {
 
 	return jpeg.Encode(writer, img, &jpeg.Options{Quality:quality})
 }
+
+
+// Write a grayscale FITS image to JPG. Image must be normalized to [0,1]
+func (f *FITSImage) WriteMonoJPGToFile(fileName string, quality int) error {
+	file, err:=os.Create(fileName)
+	if err!=nil { return err }
+	defer file.Close()
+
+	writer:=bufio.NewWriter(file)
+	defer writer.Flush()
+
+	return f.WriteMonoJPG(writer, quality)
+}
+
+// Write a grayscale FITS image to JPG. Image must be normalized to [0,1]
+func (f *FITSImage) WriteMonoJPG(writer io.Writer, quality int) error {
+	// convert pixels into Golang Image
+	width, height:=int(f.Naxisn[0]), int(f.Naxisn[1])
+	img:=image.NewRGBA(image.Rectangle{image.Point{0,0}, image.Point{width, height}})
+	for y:=0; y<height; y++ {
+		yoffset:=y*width
+		for x:=0; x<width; x++ {
+			r:=f.Data[yoffset+x]
+			if math.IsNaN(float64(r)) { r=0 }  // replace NaNs with zeros for export, else JPG output breaks
+			g:=r
+			b:=r
+			c:=color.RGBA{uint8(r*255.0+0.5), uint8(g*255.0+0.5), uint8(b*255.0+0.5), 255}
+			img.SetRGBA(x, y, c)
+		}
+	}
+
+	return jpeg.Encode(writer, img, &jpeg.Options{Quality:quality})
+}

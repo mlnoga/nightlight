@@ -367,7 +367,7 @@ func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, heigh
 
 	// Pass 1: filter out based on expected signal and noise
 	// expected noise adds with square root of circle size considered for HFR calculation
-	noiseThreshold:=float32(math.Sqrt(float64(radius*radius*float32(math.Pi))))*sigma*3
+	noiseThreshold:=float32(math.Sqrt(float64(radius*radius*float32(math.Pi))))*sigma*scale
 	numRes:=0
 	//LogPrintf("x,y,mass,hfr,massOverHFA\n")
 	for _, s:=range stars {
