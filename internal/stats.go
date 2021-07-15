@@ -44,6 +44,7 @@ const (
 	LSEMedianMAD 
 	LSEIKSS
 	LSESCMedianQn
+	LSEHistogram
 )
 
 // Global mode selection for location and scale estimation
@@ -98,6 +99,8 @@ func CalcExtendedStats(data []float32, width int32) (s *BasicStats, err error) {
 		s.Location, s.Scale=IKSS(data, 1e-6, float32(math.Pow(2,-23)))
 	case LSESCMedianQn:
 		s.Location,   s.Scale=FastApproxSigmaClippedMedianAndQn(data, 2, 2, (s.Max-s.Min)/(65535.0), numSamples)
+	case LSEHistogram:
+		s.Location, s.Scale=HistogramScaleLoc(data, s.Min, s.Max, 4096)
 	}
 
 	s.Noise=EstimateNoise(data, width)
@@ -512,9 +515,59 @@ func RGBGreyLocScale(data []float32, width int32) (loc, scale float32, err error
 
 
 // Returns greyscale location and scale for given HCL image
-func HCLLumLocScale(data []float32, width int32) (loc, scale float32, err error) {
+func HCLLumMinMaxLocScale(data []float32, width int32) (min, max, loc, scale float32, err error) {
 	l:=len(data)/3
 	lumStats,err:=CalcExtendedStats(data[2*l:3*l], width)
-   	if err!=nil { return 0,0, err }
-	return lumStats.Location, lumStats.Scale, nil
+   	if err!=nil { return 0,0,0,0, err }
+	return lumStats.Min, lumStats.Max, lumStats.Location, lumStats.Scale,  nil
 }
+
+// Calculate scale and location based on histogram
+func HistogramScaleLoc(data []float32, min, max float32, numBins uint32) (loc, scale float32) {
+	// deal with edge case
+	if min==max { return min, 0 }
+
+	// calculate histogram
+	LogPrintf("calculating %d bin histogram for %d data points in [%.2f%% .. %.2f%%]\n", numBins, len(data), min*100, max*100)
+
+	bins:=make([]uint32, numBins)
+	valueToBin:=float32(numBins-1)/(max-min)
+	for _, d:=range(data) {
+		bin:=uint32( ((d-min)*valueToBin) + 0.5 )
+        bins[bin]++
+	} 
+
+	// find inner peak (avoid edges which may be distorted by clipping)
+	peakBin, peakCount:=uint32(0), uint32(0)
+    for bin, count:=range(bins[1:numBins-1]) {
+    	if count>peakCount {
+    		peakBin, peakCount=uint32(bin+1), count
+    	}
+    }
+	loc=min+float32(peakBin)/valueToBin
+	LogPrintf("histogram peak: bin[%d] = %d (%.2f%%) -> value %.2f%%\n", peakBin, peakCount, 100*float32(peakCount)/float32(len(data)), loc*100)
+
+	// Find standard deviation around the histogram peak by cumulating adjacent bins until one sigma threshold of 68.27% is reached
+	// See https://en.wikipedia.org/wiki/68%E2%80%9395%E2%80%9399.7_rule
+	sigmaThreshold:=uint32(float32(len(data))*0.6827)
+	intervalLimit:=peakBin
+	if numBins-1-peakBin<intervalLimit { 
+		intervalLimit=numBins-1-peakBin 
+	}
+	cum:=peakCount
+	scale=0.5*float32(1.0)/valueToBin
+	i:=uint32(0)
+
+	if cum<sigmaThreshold {
+		for i=1; i<=intervalLimit; i++ {
+			cum=cum+bins[peakBin-i]+bins[peakBin+i]
+			scale=0.5*float32(2*i+1)/valueToBin
+			if cum>=sigmaThreshold { 
+				break 
+			}
+		}
+	}
+	LogPrintf("bins[%d +/-%d]=%d vs threshold %d; scale %.2f%%\n", peakBin,i, cum, sigmaThreshold, scale*100)
+	return loc, scale
+}
+
