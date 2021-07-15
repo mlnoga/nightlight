@@ -129,6 +129,7 @@ func getCommonNormalizationFactors(chans []*FITSImage) (min, mult float32) {
 		}
 	}
 	mult=1 / (max - min)
+	LogPrintf("common normalization factors min=%f mult=%f\n", min, mult)
 	return min, mult
 }
 
@@ -193,8 +194,7 @@ func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
 
 	height:=int32(len(data))/width
 	// Gather together channel values for all stars
-	gathered:=make([]float32,len(data))
-	numGathered:=0
+	gathered:=make([]float32,0,len(data))
 	for _, s:=range stars {
 		starX,starY:=s.Index%width, s.Index/width
 		hfrR:=int32(s.HFR+0.5)
@@ -208,8 +208,7 @@ func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
 						distSq:=float32(offX*offX+offY*offY)
 						if distSq<=hfrSq { 
 							d:=data[y*width+x]
-							gathered[numGathered]=d
-							numGathered++
+							gathered=append(gathered, d)
 						}
 					}
 				}
@@ -217,7 +216,7 @@ func medianStarIntensity(data []float32, width int32, stars []Star) float32 {
 		}
 	}
 
-	median:=QSelectMedianFloat32(gathered[:numGathered])
+	median:=QSelectMedianFloat32(gathered)
 	gathered=nil
 	return median
 }
