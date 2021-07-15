@@ -54,11 +54,10 @@ func PrintStars(w io.Writer, stars []Star) {
 }
 
 // Find stars in the given image with data type int16
-func FindStars(data []float32, width int32, location, scale, starSig, bpSigma float32, radius int32, medianDiffStats *BasicStats) (stars []Star, sumOfShifts, avgHFR float32) {
+func FindStars(data []float32, width int32, location, scale, starSig, bpSigma, starInOut float32, radius int32, medianDiffStats *BasicStats) (stars []Star, sumOfShifts, avgHFR float32) {
 	// Begin star identification based on pixels significantly above the background
-	threshold :=location+scale*starSig
-	stars=findBrightPixels(data, width, threshold, radius)
-	// LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
+	stars=findBrightPixels(data, width, location+scale*starSig, radius)
+	LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
 
 	// reject bad pixels which differ significantly from the local median
 	if bpSigma>0 {
@@ -69,22 +68,20 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma fl
 	// filter out faint stars overlapped by brighter ones
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	// LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// move stars to centroid position
-	sumOfShifts=shiftToCenterOfMass(stars, data, width, location, radius)
-	// LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
+	sumOfShifts=shiftToCenterOfMass(stars, data, width, location+scale*starSig*0.5, radius)
+	LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
 
 	// filter out faint stars again
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	// LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// remove implausible stars based on HFR and mass
-	avgHFR=calcHalfFluxRadius(stars, data, width, location, float32(radius))
-	// LogPrintf("%d (%.2g%%) stars left after HFR calc, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
-	stars,avgHFR=filterByMassAndHFR(stars, starSig, scale, float32(radius), width, int32(len(data)/int(width)))
-	// LogPrintf("%d (%.2g%%) stars left after FilterByMassAndHFR, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
+	stars, avgHFR=calcAndFilterHalfFluxRadius(stars, data, width, float32(radius), location, starInOut)
+	LogPrintf("%d (%.2g%%) stars left after HFR calc, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
 
 	// maxIndex:=10
 	// if maxIndex>len(stars) { maxIndex=len(stars)}
@@ -272,7 +269,7 @@ func filterOutOverlaps(stars []Star, width, height, radius int32) []Star {
 }
 
 // Shifts each star to its floating point-valued center of mass. Modifies stars in place
-func shiftToCenterOfMass(stars []Star, data []float32, width int32, location float32, radius int32) (sumOfShifts float32) {
+func shiftToCenterOfMass(stars []Star, data []float32, width int32, threshold float32, radius int32) (sumOfShifts float32) {
 	// for all stars
 	sumOfShifts=float32(0)
 	for i,s:=range stars {
@@ -288,7 +285,7 @@ func shiftToCenterOfMass(stars []Star, data []float32, width int32, location flo
 					index:=s.Index+y*int32(width)+x
 					value:=float32(0)
 					if index>=0 && int(index)<len(data) {
-						value=data[index]-location
+						value=data[index]-threshold
 						if value<0 { value=0 }
 					}
 					xMoment+=float32(x)*value
@@ -322,86 +319,72 @@ func shiftToCenterOfMass(stars []Star, data []float32, width int32, location flo
 	return sumOfShifts
 }
 
-// Calculate the Half-Flux Radius of each star. Returns a new list of stars, each enriched with the HFR field
+// Calculate the Half-Flux Radius of each star, and filters out implausible candidates
+// Returns a new list of stars, each enriched with the HFR field and updated mass
 // Based on the algorithm in https://en.wikipedia.org/wiki/Half_flux_diameter
-func calcHalfFluxRadius(stars []Star, data []float32, width int32, location float32, radius float32) (avgHFR float32) {
+func calcAndFilterHalfFluxRadius(stars []Star, data []float32, width int32, radius, location, starInOut float32) (res []Star, avgHFR float32) {
+	numRemainingStars:=0
 	avgHFR=float32(0)
-	//LogPrintf("bzero=%d location=%g\n", bzero, location)
-	for i,c:=range stars {
-		moment, mass:=float32(0), float32(0)
-		rad:=int32(radius)
+
+	for _,s:=range stars {
+		// calculate mass, moment and HFR
+		moment, mass, pixels:=float32(0), float32(0), int32(0)
+		rad:=int32(math.Ceil(float64(radius)))
+		distSqLimit:=int32(math.Ceil(float64(radius+1+1e-8)*float64(radius+1+1e-8)))
 		for y:=-rad; y<=rad; y++ {
 			for x:=-rad; x<=rad; x++ {
-				index:=c.Index+y*width+x
+				// the classic HFR formula weights the center pixel with zero, which makes no sense. adding one here
+				distSq:=(x+1)*(x+1)+(y+1)*(y+1)
+				if distSq>distSqLimit { continue }
+				distance:=float32(math.Sqrt(float64(distSq)))
+
+				index:=s.Index+y*width+x
 				value:=float32(0.0)
 				if index>=0 && index<int32(len(data)) {
-					//LogPrintf("V%d ", data[index])
 					value=data[index]-location
-					//if value<0 { value=0 }
 				}
-				distance:=float32(math.Sqrt(float64(x*x+y*y)))
-				if distance>float32(radius)+1e-8 { continue }
-				//LogPrintf("v%6.6f d%.1f  ", value, distance)
 				moment  +=distance*value
 				mass    +=value
+				pixels++
 			}
 		}
 		if mass==0.0 { mass=1e-8 }
-		hfr:=float32(moment/mass)
-		// LogPrintf("-> mass %6.6g hfr %6.6g\n", c.Mass, hfr)
+		hfr:=float32(moment/mass)-1  // and subtracting one here to arrive at values compatible with the classic formula
+
+		// calculate mass inside HFR and number of inner pixels
+		innerMass, innerPixels:=float32(0), int32(0)
+		innerRad:=int32(math.Ceil(float64(hfr)))
+		distSqLimit=int32(math.Ceil(float64(hfr*hfr)))
+		for y:=-innerRad; y<=innerRad; y++ {
+			for x:=-innerRad; x<=innerRad; x++ {
+				distSq:=x*x+y*y
+				if distSq>distSqLimit { continue }
+
+				index:=s.Index+y*width+x
+				value:=float32(0.0)
+				if index>=0 && index<int32(len(data)) {
+					value=data[index]-location
+				}
+				innerMass  +=value
+				innerPixels++
+			}
+		}
+
+		// plausibility check: is average inner brightness significantly higher than outside? 
+		outerMass  :=mass  -innerMass
+		outerPixels:=pixels-innerPixels
+		if innerMass*float32(outerPixels) <= starInOut*outerMass*float32(innerPixels) { continue }
+		// this is equivalent to innerMass/innerPixels <= outerMass/outerPixels + threshold, but avoids divide by zero issues
+		// if innerMass*float32(outerPixels) <= outerMass*float32(innerPixels)+ threshold*float32(innerPixels)*float32(outerPixels) { continue }
+
+		// keep star, enrich with HFR and mass information, and update average
+		s.HFR=hfr
+		s.Mass=mass
+		stars[numRemainingStars]=s
+		numRemainingStars++
+
 		avgHFR+=float32(hfr)
-		stars[i].HFR=hfr
 	}
-	avgHFR/=float32(len(stars))
-	return avgHFR
-}
-
-
-func massOverHFA(mass, hfr float32) float32 {
-	return mass / (hfr*hfr*float32(math.Pi))
-}
-
-func filterByMassAndHFR(stars []Star, sigma, scale, radius float32, width, height int32) (res []Star, medianHFR float32) {
-	hfrs:=make([]float32, len(stars))
-	massOverHFAs:=make([]float32, len(stars))
-
-	// Pass 1: filter out based on expected signal and noise
-	// expected noise adds with square root of circle size considered for HFR calculation
-	noiseThreshold:=float32(math.Sqrt(float64(radius*radius*float32(math.Pi))))*sigma*scale
-	numRes:=0
-	//LogPrintf("x,y,mass,hfr,massOverHFA\n")
-	for _, s:=range stars {
-		// use x% of peak value for the signal estimation, or sigma*scale, whichever is higher
-		signalThreshold:=s.HFR*s.HFR*float32(math.Pi)*float32(math.Max(float64(0.5*s.Value), float64(sigma*scale)))
-		lowBound:=noiseThreshold+signalThreshold
-		if s.Mass<lowBound || s.HFR<1 { continue } 
-		if s.HFR>=radius*0.5 { continue } // also ignore overly large star candiates, these are usually parts of nebulae
-		//LogPrintf("%.2f,%.2f,%.2f,%.2f,%.2f\n", s.X, s.Y, s.Mass, s.HFR, massOverHFA(s.Mass,s.HFR))
-		stars[numRes]=s
-		hfrs[numRes]=s.HFR
-		massOverHFAs[numRes]=s.Mass/(s.HFR*s.HFR*float32(math.Pi))
-		numRes++
-	}
-	if numRes==0 { return nil, 0 }
-
-	stars, hfrs, massOverHFAs=stars[:numRes], hfrs[:numRes], massOverHFAs[:numRes]
-	medianHFR=QSelectMedianFloat32(hfrs)
-	medianMassOverHFA:=QSelectMedianFloat32(massOverHFAs)
-
-	// Pass 2: filter out based on expected median HFR and median brightness
-	numRes=0
-	for _, s:=range stars {
-		massOverHFA:=s.Mass/(s.HFR*s.HFR*float32(math.Pi))
-		if s.HFR>medianHFR && massOverHFA<medianMassOverHFA { continue } 
-		stars[numRes]=s
-		hfrs[numRes]=s.HFR
-		numRes++
-	}
-	if numRes==0 { return nil, 0 }
-
-
-	stars, hfrs=stars[:numRes], hfrs[:numRes]
-	medianHFR=QSelectMedianFloat32(hfrs)
-
-	return stars, medianHFR
+	avgHFR/=float32(numRemainingStars)
+	return stars[:numRemainingStars], avgHFR
 }
