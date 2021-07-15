@@ -90,6 +90,7 @@ func Stretch(f *FITSImage, autoLoc, autoScale, midtone, midBlack, gamma, ppGamma
 
 // Stretch image by iteratively adjusting gamma and shifting back the histogram peak
 func StretchIterative(f *FITSImage, targetLoc, targetScale float32) {
+	//gammaLimit:=float32(5.0)
 	for i:=0; ; i++ {
 		if i==50 { 
 			LogPrintf("Warning: did not converge after %d iterations\n",i)
@@ -97,15 +98,52 @@ func StretchIterative(f *FITSImage, targetLoc, targetScale float32) {
 		}
 
 		// calculate basic image stats as a fast location and scale estimate
-		stats,err:=CalcExtendedStats(f.Data, f.Naxisn[0])
+		var err error
+		f.Stats,err=CalcExtendedStats(f.Data, f.Naxisn[0])
 		if err!=nil { LogFatal(err) }
-		loc, scale:=stats.Location, stats.Scale
+		loc, scale:=f.Stats.Location, f.Stats.Scale
 
 		LogPrintf("Linear location %.2f%% and scale %.2f%%, ", loc*100, scale*100)
 
 		if loc<=targetLoc*1.01 && scale<targetScale {
-			idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
-			if idealGamma>1.5 { idealGamma=1.5 }
+			idealGamma:=float32(1)
+			idealGammaDelta:=float32(math.Abs(float64(targetScale)-float64(scale)))
+
+			//gammaMin:=float32(1)
+			//gammaMax:=float32(25)
+			for gamma:=float32(1.0); gamma<=50; gamma+=0.01 {
+				//gammaMid:=0.5*(gammaMin+gammaMax)
+				exponent:=1.0/float64(gamma)
+				newLocLower:=float32(math.Pow(float64(loc-scale), exponent))
+				newLoc     :=float32(math.Pow(float64(loc        ), exponent))
+				newLocUpper:=float32(math.Pow(float64(loc+scale), exponent))
+
+				black:=(targetLoc-newLoc)/(targetLoc-1)
+    			scale:=1/(1-black)
+
+				scaledNewLocLower:=float32(math.Max(0, float64((newLocLower - black) * scale)))
+				//scaledNewLoc     :=float32(math.Max(0, float64((newLoc      - black) * scale)))
+				scaledNewLocUpper:=float32(math.Max(0, float64((newLocUpper - black) * scale)))
+
+				newScale:=float32(scaledNewLocUpper-scaledNewLocLower)/2
+				delta:=float32(math.Abs(float64(targetScale)-float64(newScale)))
+				if delta<idealGammaDelta {
+				   // LogPrintf("gamma %.2f lower %.2f%% upper %.2f%% newScale %.2f%% targetScale %.2f%% delta %.2f%% \n", gamma, scaledNewLocLower*100, scaledNewLocUpper*100, newScale*100, targetScale*100, delta*100)
+					idealGamma=gamma
+					idealGammaDelta=delta
+				}
+/*				if newScale>targetScale*1.01 {
+					gammaMax=gammaMid
+				} else if newScale<targetScale*1.01 {
+					gammaMin=gammaMid
+				} else {
+					idealGamma=gammaMid
+					break
+				} */
+			}
+
+			//idealGamma:=float32(math.Log((float64(targetLoc)/float64(targetScale))*float64(scale))/math.Log(float64(targetLoc)))
+			//if idealGamma>gammaLimit { idealGamma=gammaLimit }
 			if idealGamma<=1.01 { 
 				LogPrintf("done\n")
 				break
