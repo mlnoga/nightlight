@@ -22,42 +22,50 @@ import (
 )
 
 
-// Load dark frame from FITS file
-func LoadDark(dark string) *FITSImage {
-	darkF:=NewFITSImage()
-	darkF.ID=-1
-	err:=darkF.ReadFile(dark)
+// Load frame from FITS file and calculate basic stats and noise
+func LoadAndCalcStats(fileName, label string, id int) *FITSImage {
+	f:=NewFITSImage()
+	f.ID=id
+	err:=f.ReadFile(fileName)
 	if err!=nil { panic(err) }
-	darkF.Stats=CalcBasicStats(darkF.Data)
-	darkF.Stats.Noise=EstimateNoise(darkF.Data, darkF.Naxisn[0])
-	LogPrintf("Dark %s stats: %v\n", dark, darkF.Stats)
+	f.Stats=CalcBasicStats(f.Data)
+	f.Stats.Noise=EstimateNoise(f.Data, f.Naxisn[0])
+	LogPrintf("%s %s stats: %v\n", label, fileName, f.Stats)
+	return &f
+}
 
-	if darkF.Stats.StdDev<1e-8 {
+// Load dark frame from FITS file
+func LoadDark(fileName string) *FITSImage {
+	f:=LoadAndCalcStats(fileName, "Dark", -1)
+	if f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: dark file may be degenerate\n")
 	}
-	return &darkF
+	return f
 }
 
 
 // Load flat frame from FITS file
-func LoadFlat(flat string) *FITSImage {
-	flatF:=NewFITSImage()
-	flatF.ID=-2
-	err:=flatF.ReadFile(flat)
-	if err!=nil { panic(err) }
-	flatF.Stats=CalcBasicStats(flatF.Data)
-	flatF.Stats.Noise=EstimateNoise(flatF.Data, flatF.Naxisn[0])
-	LogPrintf("Flat %s stats: %v\n", flat, flatF.Stats)
-
-	if (flatF.Stats.Min<=0 && flatF.Stats.Max>=0) || flatF.Stats.StdDev<1e-8 {
+func LoadFlat(fileName string) *FITSImage {
+	f:=LoadAndCalcStats(fileName, "Light", -2)
+	if (f.Stats.Min<=0 && f.Stats.Max>=0) || f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: flat file may be degenerate\n")
 	}
-	return &flatF
+	return f
+}
+
+
+// Load alignment target frame from FITS file
+func LoadAlignTo(fileName string) *FITSImage {
+	f:=LoadAndCalcStats(fileName, "Align", -3)
+	if f.Stats.StdDev<1e-8 {
+		LogPrintf("Warnining: alignment target file may be degenerate\n")
+	}
+	return f
 }
 
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig float32, starRadius int32, starsShow string, backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
+func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsShow string, backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string, imageLevelParallelism int32) (lights []*FITSImage) {
 	//LogPrintf("CSV Id,%s\n", (&BasicStats{}).ToCSVHeader())
 
 	lights =make([]*FITSImage, len(fileNames))
@@ -67,7 +75,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, de
 		sem <- true 
 		go func(i int, id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, debayer, cfa, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starRadius, backGrid, backSigma, backClip, backPattern)
+			lightP, err:=PreProcessLight(id, fileName, darkF, flatF, debayer, cfa, binning, normRange, bpSigLow, bpSigHigh, starSig, starBpSig, starInOut, starRadius, backGrid, backSigma, backClip, backPattern)
 			if err!=nil {
 				LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -94,7 +102,7 @@ func PreProcessLights(ids []int, fileNames []string, darkF, flatF *FITSImage, de
 // Pre-processing includes loading, basic statistics, dark subtraction, flat division, 
 // bad pixel removal, star detection and HFR calculation.
 func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, bpSigLow, bpSigHigh, 
-	starSig, starBpSig float32, starRadius int32, backGrid int32, backSigma float32, backClip int32, backPattern string) (lightP *FITSImage, err error) {
+	starSig, starBpSig, starInOut float32, starRadius int32, backGrid int32, backSigma float32, backClip int32, backPattern string) (lightP *FITSImage, err error) {
 	// Load light frame
 	light:=NewFITSImage()
 	light.ID=id
@@ -152,7 +160,7 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 	if binning>1 {
 		binned:=BinNxN(&light, binning)
  		light=binned
-	}
+	} 
 
 	// automatic background extraction, if desired
 	if backGrid>0 {
@@ -180,14 +188,14 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 		// re-do stats and star detection
 		light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
 		if err!=nil { return nil, err }
-		light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starRadius, medianDiffStats)
+		light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starInOut, starRadius, medianDiffStats)
 		LogPrintf("%d: Stars %d HFR %.3g %v\n", id, len(light.Stars), light.HFR, light.Stats)
 	}
 
 	// calculate stats and find stars
 	light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
 	if err!=nil { return nil, err }
-	light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starRadius, medianDiffStats)
+	light.Stars, _, light.HFR=FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, starSig, starBpSig, starInOut, starRadius, medianDiffStats)
 	LogPrintf("%d: Stars %d HFR %.3g %v\n", id, len(light.Stars), light.HFR, light.Stats)
 	//LogPrintf("CSV %d,%s\n", id, light.Stats.ToCSVLine())
 
@@ -196,10 +204,10 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 		if light.Stats.Min==light.Stats.Max {
 			LogPrintf("%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", id, light.Stats.Min)
 		} else {
-			LogPrintf("%d: Normalizing from [%.4g,%.4g] to [0,1]\n", id, light.Stats.Min, light.Stats.Max)
-	    	light.Normalize()
-			light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
-			if err!=nil { return nil, err }
+			//LogPrintf("%d: Normalizing from [%.4g,%.4g] to [0,1]\n", id, light.Stats.Min, light.Stats.Max)
+	    	//light.Normalize()
+			//light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
+			//if err!=nil { return nil, err }
 		}
 	}
 
