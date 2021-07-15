@@ -226,7 +226,7 @@ func (f* FITSImage) ApplyMidtonesToChannel(chanID int, mid, black float32) {
 
 
 // Pixel function to convert a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
-func pfMonoToLum(data []float32, params interface{}) {
+func pfMonoToHSLuvLum(data []float32, params interface{}) {
 	for i, d:=range data {
 		_,_,lum:=colorful.LinearRgb(float64(d), float64(d), float64(d)).HSLuv()
 		data[i]=float32(lum)
@@ -234,8 +234,22 @@ func pfMonoToLum(data []float32, params interface{}) {
 }
 
 // Converts a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) MonoToLum() {
-	f.ApplyPixelFunction(pfMonoToLum, nil)
+func (f* FITSImage) MonoToHSLuvLum() {
+	f.ApplyPixelFunction(pfMonoToHSLuvLum, nil)
+}
+
+
+// Pixel function to convert a monochromic image to HSL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+func pfMonoToHSLLum(data []float32, params interface{}) {
+	for i, d:=range data {
+		_,_,lum:=colorful.LinearRgb(float64(d), float64(d), float64(d)).Hcl()
+		data[i]=float32(lum)
+	}
+}
+
+// Converts a monochromic image to HSL Luminance. Data must be normalized to [0,1]. Operates in-place. 
+func (f* FITSImage) MonoToHSLLum() {
+	f.ApplyPixelFunction(pfMonoToHSLLum, nil)
 }
 
 
