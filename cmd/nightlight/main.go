@@ -65,8 +65,9 @@ var binning= flag.Int64("binning", 0, "apply NxN binning, 0 or 1=no binning")
 var bpSigLow  = flag.Float64("bpSigLow", 3.0,"low sigma for bad pixel removal as multiple of standard deviations")
 var bpSigHigh = flag.Float64("bpSigHigh",5.0,"high sigma for bad pixel removal as multiple of standard deviations")
 
-var starSig   = flag.Float64("starSig", 10.0,"sigma for star detection as multiple of standard deviations")
+var starSig   = flag.Float64("starSig", 15.0,"sigma for star detection as multiple of standard deviations")
 var starBpSig = flag.Float64("starBpSig",-1.0,"sigma for star detection bad pixel removal as multiple of standard deviations, -1: auto")
+var starInOut = flag.Float64("starInOut",1.4,"minimal ratio of brightness inside HFR to outside HFR for star detection")
 var starRadius= flag.Int64("starRadius", 16.0, "radius for star detection in pixels")
 
 var backGrid  = flag.Int64("backGrid", 0, "automated background extraction: grid size in pixels, 0=off")
@@ -80,6 +81,7 @@ var usmThresh = flag.Float64("usmThresh", 1, "unsharp masking threshold, in stan
 var align     = flag.Int64("align",1,"1=align frames, 0=do not align")
 var alignK    = flag.Int64("alignK",20,"use triangles fromed from K brightest stars for initial alignment")
 var alignT    = flag.Float64("alignT",1.0,"skip frames if alignment to reference frame has residual greater than this")
+var alignTo   = flag.String("alignTo", "", "use given `file` as alignment reference")
 
 var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard)")
 var normRange = flag.Int64("normRange",0,"normalize range: 1=normalize to [0,1], 0=do not normalize")
@@ -193,7 +195,7 @@ Flags:
     	flag.Usage()
     	return
     }
-    if args[0]=="stats" || args[0]=="stack" || args[0]=="rgb" || args[0]=="argb" || args[0]=="lrgb" {
+    if args[0]=="stats" || args[0]=="stack" || args[0]=="stretch" || args[0]=="rgb" || args[0]=="argb" || args[0]=="lrgb" {
 	    nl.LogPrintf("Using location and scale estimator %d\n", *lsEst)
 		nl.LSEstimator=nl.LSEstimatorMode(*lsEst)
 	}
@@ -267,7 +269,7 @@ func cmdStats(args []string) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
+			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -355,7 +357,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Find stars in the newly stacked batch and report out on them
 		batch.Stars, _, batch.HFR=nl.FindStars(batch.Data, batch.Naxisn[0], batch.Stats.Location, batch.Stats.Scale, 
-			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
+			float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), nil)
 		nl.LogPrintf("Batch %d stack: Stars %d HFR %.2f Exposure %gs %v\n", b, len(batch.Stars), batch.HFR, batch.Exposure, batch.Stats)
 
 		expectedNoise:=avgNoise/float32(math.Sqrt(float64(batchFrames)))
@@ -397,7 +399,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Find stars in newly stacked image and report out on them
 		stack.Stars, _, stack.HFR=nl.FindStars(stack.Data, stack.Naxisn[0], stack.Stats.Location, stack.Stats.Scale, 
-			float32(*starSig), float32(*starBpSig), int32(*starRadius), nil)
+			float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), nil)
 		nl.LogPrintf("Overall stack: Stars %d HFR %.2f Exposure %gs %v\n", len(stack.Stars), stack.HFR, stack.Exposure, stack.Stats)
 
 		avgNoise:=stackNoise/float32(stackFrames)
@@ -425,7 +427,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
 		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 	debug.FreeOSMemory()					
 
 	// Remove nils from lights, in case of read errors
@@ -532,7 +534,9 @@ func cmdStretch(args []string) {
 		nl.LogFatal("Need exactly one file to perform a stretch")
 	}
 
-	f:=nl.NewFITSImage()
+	// load image to process, calculate stats and find stars
+	theF:=nl.NewFITSImage()
+	f:=&theF
 	f.ID=0
 	err:=f.ReadFile(fileNames[0])
 	if err!=nil { 
@@ -542,10 +546,47 @@ func cmdStretch(args []string) {
 	if err!=nil { 
 		nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) 
 	}
+	f.Stars, _, f.HFR=nl.FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), nil)
+	nl.LogPrintf("%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
+	// perform the stretch
+	nl.Stretch(f, float32(*autoLoc), float32(*autoScale), float32(*midtone), float32(*midBlack), 
+	              float32(*gamma),   float32(*ppGamma),   float32(*ppSigma), float32(*scaleBlack) )
 
-	nl.Stretch(&f, float32(*autoLoc), float32(*autoScale), float32(*midtone), float32(*midBlack), 
-	               float32(*gamma),   float32(*ppGamma),   float32(*ppSigma), float32(*scaleBlack) )
+	// optionally align to reference image. do this after the stretch so any filled-in averages at unaligned image boundaries become more accurate
+	if (*alignTo)!="" && (*alignTo)!=f.FileName {
+		// load alignment reference image, calculate stats and find stars
+		alignRef:=nl.LoadAlignTo(*alignTo)
+		alignRef.Stats, err=nl.CalcExtendedStats(alignRef.Data, alignRef.Naxisn[0])
+		if err!=nil { 
+			nl.LogFatalf("%d: Calculating stats: %s", alignRef.ID, err) 
+		}
+		alignRef.Stars, _, alignRef.HFR=nl.FindStars(alignRef.Data, alignRef.Naxisn[0], alignRef.Stats.Location, alignRef.Stats.Scale, float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), nil)
+		nl.LogPrintf("%d: Stars %d HFR %.3g %v\n", alignRef.ID, len(alignRef.Stars), alignRef.HFR, alignRef.Stats)
+
+		if *stars!="" {
+			starsImg:=nl.ShowStars(f, 2.0)
+			starsImg.WriteFile(fmt.Sprintf(*stars, 1))
+			if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
+		}
+
+		// prepare aligner and calculate alignment
+		aligner :=nl.NewAligner(alignRef.Naxisn, alignRef.Stars, int32(*alignK))
+		trans, residual := aligner.Align(f.Naxisn, f.Stars, f.ID)
+		alignThreshold:=float32(*alignT)
+		if residual>alignThreshold {
+			nl.LogFatalf("%d:Unable to align image as residual %g is above limit %g", f.ID, residual, alignThreshold)
+		} 
+		f.Trans, f.Residual=trans, residual
+		outOfBounds:=f.Stats.Location
+		nl.LogPrintf("%d: Transform %v; oob %.3g residual %.3g\n", f.ID, f.Trans, outOfBounds, f.Residual)
+
+		// Project image into reference frame
+		f, err= f.Project(aligner.Naxisn, trans, outOfBounds)
+		if err!=nil { nl.LogFatalf("%d: Projection error: %s", f.ID, err) }
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+	}
 
     // write out results, then free memory for the overall stack
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
@@ -556,6 +597,7 @@ func cmdStretch(args []string) {
 		f.WriteMonoJPGToFile(*jpg, 95)
 		if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	}
+	f=nil
 }
 
 
@@ -577,18 +619,19 @@ func cmdRGB(args []string) {
 	if imageLevelParallelism>3 { imageLevelParallelism=3 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 
 	// Pick reference frame
 	var refFrame *nl.FITSImage
 	var refFrameScore float32
 
-	if (*align)!=0 || (*normHist)!=0 {
+	//if (*align)!=0 || (*normHist)!=0 {
 		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
 		if refFrame==nil { panic("Reference channel for alignment not found.") }
 		nl.LogPrintf("Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
-	}
+	//}
 
+/*
 	// Post-process all channels (align, normalize)
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
@@ -596,6 +639,7 @@ func cmdRGB(args []string) {
 	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
 									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), *post, imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
+*/
 
 	// Combine RGB channels
 	nl.LogPrintf("\nCombining color channels...\n")
@@ -624,13 +668,22 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	if imageLevelParallelism>4 { imageLevelParallelism=4 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 
 	var refFrame, histoRef *nl.FITSImage
 	if (*align)!=0 {
 		// Always use luminance as reference frame
 		refFrame=lights[0]
 		nl.LogPrintf("Using luminance channel %d as reference for alignment.\n", refFrame.ID)
+
+		// Recalculate star detections for RGB frames with corrected radius if the images were previously binned
+		for _, light:=range(lights[1:]) {
+			correction:=refFrame.Naxisn[0] / light.Naxisn[0]
+			if correction!=1 {
+				light.Stars, _, light.HFR=nl.FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius)/correction, nil)
+				nl.LogPrintf("%d: Stars %d HFR %.3g %v\n", light.ID, len(light.Stars), light.HFR, light.Stats)
+			}
+		}
 	}
 
 	if (*normHist)!=0 {
@@ -646,6 +699,7 @@ func cmdLRGB(args []string, applyLuminance bool) {
 		nl.LogPrintf("Using color channel %d as reference for RGB peak normalization to %.4g...\n\n", histoRef.ID, histoRef.Stats.Location)
 	}
 
+	/*
 	// Align images if selected
 	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
 	nl.LogPrintf("Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
@@ -653,6 +707,7 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
 									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), "", imageLevelParallelism)
     if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
+    */
 
 	// Combine RGB channels
 	nl.LogPrintf("\nCombining color channels...\n")
@@ -667,31 +722,30 @@ func cmdLRGB(args []string, applyLuminance bool) {
 }
 
 func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
+
 	// Auto-balance colors in linear RGB color space
 	autoBalanceColors(rgb)
 
 	nl.LogPrintln("Converting color image to HSLuv color space")
 	rgb.RGBToHSLuv()
+	//nl.LogPrintln("Converting color image to modified CIE HCL space (i.e. HSL)")
+	//rgb.RGBToCIEHSL()
 
 	// Apply LRGB combination in linear CIE xyY color space
 	if lum!=nil {
-		// nl.LogPrintln("Converting linear RGB to linear CIE xyY for LRGB combination")
-	    // rgb.ToXyy()
-
 	    nl.LogPrintln("Converting luminance image to HSLuv as well...")
-	    lum.MonoToLum()
+	    lum.MonoToHSLuvLum()
+	    //nl.LogPrintln("Converting luminance image to HSL as well...")
+	    //lum.MonoToHSLLum()
 
 		nl.LogPrintln("Applying luminance image to luminance channel...")
 		rgb.ApplyLuminanceToCIExyY(lum)
-
-		// nl.LogPrintln("Converting linear CIE xyY to linear RGB")
-		// rgb.XyyToRGB()
 	}
 
     if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
 		nl.LogPrintf("Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
 
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		low :=loc + scale*float32(*neutSigmaLow)
 		high:=loc + scale*float32(*neutSigmaHigh)
@@ -704,7 +758,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
     	nl.LogPrintf("Applying gamma %.2f to saturation for values %.4g sigma above background...\n", *chromaGamma, *chromaSigma)
 
 		// calculate basic image stats as a fast location and scale estimate
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		threshold :=loc + scale*float32(*chromaSigma)
 		nl.LogPrintf("Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
@@ -727,11 +781,23 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 		rgb.SCNR(float32(*scnr))
     }
 
+	// apply unsharp masking, if requested
+	if *usmGain>0 {
+		min, max, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
+		absThresh:=loc + scale*float32(*usmThresh)
+		nl.LogPrintf("%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", rgb.ID, float32(*usmSigma), float32(*usmGain), float32(*usmThresh), absThresh)
+		kernel:=nl.GaussianKernel1D(float32(*usmSigma))
+		nl.LogPrintf("Unsharp masking kernel sigma %.2f size %d: %v\n", *usmSigma, len(kernel), kernel)
+		newLum:=nl.UnsharpMask(rgb.Data[2*len(rgb.Data)/3:], int(rgb.Naxisn[0]), float32(*usmSigma), float32(*usmGain), min, max, absThresh)
+		copy(rgb.Data[2*len(rgb.Data)/3:], newLum)
+	}
+
 	// Optionally adjust midtones
 	if (*midtone)!=0 {
 		nl.LogPrintf("Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", *midtone, *midBlack)
 		// calculate basic image stats as a fast location and scale estimate
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		absMid:=float32(*midtone)*scale
 		absBlack:=loc - float32(*midBlack)*scale
@@ -747,7 +813,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 
 	// Optionally adjust gamma post peak
 	if (*ppGamma)!=1 {
-	         loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+	         _, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
 	         if err!=nil { nl.LogFatal(err) }
 	 from:=loc+float32(*ppSigma)*scale
 	 to  :=float32(1.0)
@@ -760,7 +826,7 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 	 xyyTargetBlack:=float32((*scaleBlack)/100.0)
 		_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(xyyTargetBlack)).Hcl()
 		targetBlack:=float32(hclTargetBlack)
-		loc, scale, err:=nl.HCLLumLocScale(rgb.Data, rgb.Naxisn[0])
+		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
 		if err!=nil { nl.LogFatal(err) }
 		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 		if loc>targetBlack {
@@ -773,6 +839,8 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
 
 	nl.LogPrintln("Converting nonlinear HSLuv to linear RGB")
     rgb.HSLuvToRGB()
+	//nl.LogPrintln("Converting modified CIE HCL (i.e. HSL) to linear RGB")
+ 	//rgb.CIEHSLToRGB()
 
 	// Write outputs
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
