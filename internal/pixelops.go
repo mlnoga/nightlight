@@ -482,12 +482,17 @@ type pf3ChanRotateColorsArgs struct {
 	From   float32
 	To     float32
 	Offset float32
+	LThres float32
 }
 
-// RGB pixel function to selectively rotate hues in a given range. Data must be HCL. 2nd parameter must be a pf3ChanRotateColorsArgs
-func pf3ChanRotateColors(hs,cs,ls []float32, params interface{}) {
-	from, to, offset:=params.(pf3ChanRotateColorsArgs).From, params.(pf3ChanRotateColorsArgs).To, params.(pf3ChanRotateColorsArgs).Offset
-	for i,h:=range hs {
+// RGB pixel function to selectively rotate hues in a given range. Data must be HSLuv. 2nd parameter must be a pf3ChanRotateColorsArgs
+func pf3ChanRotateColors(hs,ss,ls []float32, params interface{}) {
+	from, to, offset, lthres:=params.(pf3ChanRotateColorsArgs).From, params.(pf3ChanRotateColorsArgs).To, params.(pf3ChanRotateColorsArgs).Offset, params.(pf3ChanRotateColorsArgs).LThres
+	for i,l:=range ls {
+		if l<lthres {
+			continue
+		}
+		h:=hs[i]
 		if ( from<=to  && (h>from && h<to)) ||
 		   ((from> to) && (h>from || h<to)) {  // if hue in given range (e.g. greens 100..190)
 			h+=offset                          // rotate by given amount (e.g yellow with -30)
@@ -496,20 +501,20 @@ func pf3ChanRotateColors(hs,cs,ls []float32, params interface{}) {
 	}
 }
 
-// Selectively rotate hues in a given range. Data must be HCL. 
+// Selectively rotate hues in a given range. Data must be HSLuv. 
 // Useful to create Hubble palette images from narrowband data, by turning greens to yellows, before applying SCNR
-func (f* FITSImage) RotateColors(from, to, offset float32) {
-	f.ApplyPixelFunction3Chan(pf3ChanRotateColors, pf3ChanRotateColorsArgs{from, to, offset})
+func (f* FITSImage) RotateColors(from, to, offset, lthres float32) {
+	f.ApplyPixelFunction3Chan(pf3ChanRotateColors, pf3ChanRotateColorsArgs{from, to, offset, lthres})
 }
 
 
-// RGB pixel function for subtractive chroma noise reduction on the green color channel. Data must be HCL. 2nd parameter must be a float32
+// RGB pixel function for subtractive chroma noise reduction on the green color channel. Data must be HSLuv. 2nd parameter must be a float32
 // Uses average neutral masking method with luminance protection
-func pf3ChanSCNR(hs,cs,ls []float32, params interface{}) {
+func pf3ChanSCNR(hs,ss,ls []float32, params interface{}) {
 	factor:=params.(float32)
 	for i:=0; i<len(hs); i++ {
-		h,c,l:=hs[i], cs[i], ls[i]
-		col  :=colorful.Hcl(float64(h), float64(c), float64(l)).Clamped()
+		h,s,l:=hs[i], ss[i], ls[i]
+		col  :=colorful.HSLuv(float64(h), float64(s), float64(l)).Clamped()
 		r,g,b:=col.LinearRgb()
 
 		correctedG:=0.5*(r+b)
@@ -518,8 +523,8 @@ func pf3ChanSCNR(hs,cs,ls []float32, params interface{}) {
 
 		// reassemble with luminance protection
 		col     =colorful.LinearRgb(float64(r),float64(weightedG),float64(b))
-		hh,cc,_:=col.Hcl()
-		hs[i], cs[i]=float32(hh), float32(cc)        
+		hnew,snew,_:=col.HSLuv()
+		hs[i], ss[i]=float32(hnew), float32(snew)        
 	}
 }
 

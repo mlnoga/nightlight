@@ -108,6 +108,7 @@ var chromaBy  = flag.Float64("chromaBy", 1, "scale LCH chroma for hues in [from,
 var rotFrom   = flag.Float64("rotFrom", 100, "rotate LCH color angles in [from,to] by given offset, e.g. 100 to aid Hubble palette for S2HaO3")
 var rotTo     = flag.Float64("rotTo", 190, "rotate LCH color angles in [from,to] by given offset, e.g. 190 to aid Hubble palette for S2HaO3")
 var rotBy     = flag.Float64("rotBy", 0, "rotate LCH color angles in [from,to] by given offset, e.g. -30 to aid Hubble palette for S2HaO3")
+var rotSigma  = flag.Float64("rotSigma", 1, "rotate LCH color angles in [from, to] vor luminances >= location + scale*sigma")
 
 var scnr      = flag.Float64("scnr",0,"apply SCNR in [0,1] to green channel, e.g. 0.5 for tricolor with S2HaO3 and 0.1 for bicolor HaO3O3")
 
@@ -772,8 +773,10 @@ func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage) {
     }
 
     if (*rotBy)!=0 {
-    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g...\n", *rotFrom, *rotTo, *rotBy)
-		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy))
+    	nl.LogPrintf("Rotating LCH hue angles in [%g,%g] by %.4g for lum>=loc+%g*scale...\n", *rotFrom, *rotTo, *rotBy, *rotSigma)
+		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
+		if err!=nil { nl.LogFatal(err) }
+		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy), loc + float32(*rotSigma) * scale)
     }
 
     if (*scnr)!=0 {
