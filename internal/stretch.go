@@ -111,7 +111,7 @@ func StretchIterative(f *FITSImage, targetLoc, targetScale float32) {
 
 			//gammaMin:=float32(1)
 			//gammaMax:=float32(25)
-			for gamma:=float32(1.0); gamma<=50; gamma+=0.01 {
+			for gamma:=float32(1.0); gamma<=8; gamma+=0.01 {
 				//gammaMid:=0.5*(gammaMin+gammaMax)
 				exponent:=1.0/float64(gamma)
 				newLocLower:=float32(math.Pow(float64(loc-scale), exponent))
