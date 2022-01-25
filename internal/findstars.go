@@ -351,6 +351,9 @@ func calcAndFilterHalfFluxRadius(stars []Star, data []float32, width int32, radi
 		if mass==0.0 { mass=1e-8 }
 		hfr:=float32(moment/mass)-1  // and subtracting one here to arrive at values compatible with the classic formula
 
+		// sanity check results to avoid long lockups
+		if hfr>radius { continue } 
+
 		// calculate mass inside HFR and number of inner pixels
 		innerMass, innerPixels:=float32(0), int32(0)
 		innerRad:=int32(math.Ceil(float64(hfr)))
