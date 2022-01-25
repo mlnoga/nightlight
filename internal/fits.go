@@ -156,12 +156,10 @@ func (f *FITSImage) SetBlackWhitePoints() error {
 	if err!=nil {return err}
 	locR, locG, locB:=statsR.Location, statsG.Location, statsB.Location
 
-	LogPrintf("r %s\ng %s\nb %s\n", statsR, statsG, statsB)
-
-	// Pick rightmost peak as new location
-	newBlack:=locR
-	if locG>newBlack { newBlack=locG }
-	if locB>newBlack { newBlack=locB }
+	// Pick rightmost histogram peak as new background peak location (do not clip blacks)
+	locNew:=locR
+	if locG>locNew { locNew=locG }
+	if locB>locNew { locNew=locB }
 
 	// Estimate median star color
 	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], f.Stars)
@@ -170,20 +168,22 @@ func (f *FITSImage) SetBlackWhitePoints() error {
 	LogPrintf("Background peak (%.2f%%, %.2f%%, %.2f%%) and median star color (%.2f%%, %.2f%%, %.2f%%)\n", 
 	  	      locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
 
-	// Calculate multiplicative correction factors to balance star colors to common minimum
-	starMin:=starR
-	if starMin>starG { starMin=starG }
-	if starMin>starB { starMin=starB }
-	alphaR:=starMin/starR
-	alphaG:=starMin/starG
-	alphaB:=starMin/starB
+	// Pick left most star color as new star color location (do not clip stars)
+	starNew:=starR
+	if starG<starNew { starNew=starG }
+	if starB<starNew { starNew=starB }
 
-	// Calculate additive correction factors to move old location to new black
-	betaR := newBlack-alphaR*locR
-	betaG := newBlack-alphaG*locG
-	betaB := newBlack-alphaB*locB
+	// Calculate multiplicative correction factors
+	alphaR:=(locNew-starNew)/(locR-starR)
+	alphaG:=(locNew-starNew)/(locG-starG)
+	alphaB:=(locNew-starNew)/(locG-starG)
 
-	LogPrintf("r=%.2f*r %+.2f%%, g=%.2f*g %+.2f%%, b=%.2f*b %+.2f%%\n", alphaR, betaR, alphaG, betaG, alphaB, betaB)
+	// Calculate additive correction factors 
+	betaR:=starNew - alphaR*starR
+	betaG:=starNew - alphaG*starG
+	betaB:=starNew - alphaB*starB
+
+	LogPrintf("r=%.3f*r %+.3f, g=%.3f*g %+.3f, b=%.3f*b %+.3f\n", alphaR, betaR, alphaG, betaG, alphaB, betaB)
 	f.ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB)
 	return nil
 }
