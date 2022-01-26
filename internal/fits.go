@@ -176,7 +176,7 @@ func (f *FITSImage) SetBlackWhitePoints() error {
 	// Calculate multiplicative correction factors
 	alphaR:=(locNew-starNew)/(locR-starR)
 	alphaG:=(locNew-starNew)/(locG-starG)
-	alphaB:=(locNew-starNew)/(locG-starG)
+	alphaB:=(locNew-starNew)/(locB-starB)
 
 	// Calculate additive correction factors 
 	betaR:=starNew - alphaR*starR
