@@ -330,18 +330,18 @@ func calcAndFilterHalfFluxRadius(stars []Star, data []float32, width int32, radi
 		// calculate mass, moment and HFR
 		moment, mass, pixels:=float32(0), float32(0), int32(0)
 		rad:=int32(math.Ceil(float64(radius)))
-		distSqLimit:=int32(math.Ceil(float64(radius+1+1e-8)*float64(radius+1+1e-8)))
+		distSqLimit:=int32(math.Ceil(float64(radius+1e-8)*float64(radius+1e-8)))
 		for y:=-rad; y<=rad; y++ {
 			for x:=-rad; x<=rad; x++ {
-				// the classic HFR formula weights the center pixel with zero, which makes no sense. adding one here
-				distSq:=(x+1)*(x+1)+(y+1)*(y+1)
+				distSq:=x*x+y*y
 				if distSq>distSqLimit { continue }
 				distance:=float32(math.Sqrt(float64(distSq)))
 
 				index:=s.Index+y*width+x
 				value:=float32(0.0)
 				if index>=0 && index<int32(len(data)) {
-					value=data[index]-location
+					v:=data[index]-location
+					if v>0 { value=v }
 				}
 				moment  +=distance*value
 				mass    +=value
@@ -349,7 +349,7 @@ func calcAndFilterHalfFluxRadius(stars []Star, data []float32, width int32, radi
 			}
 		}
 		if mass==0.0 { mass=1e-8 }
-		hfr:=float32(moment/mass)-1  // and subtracting one here to arrive at values compatible with the classic formula
+		hfr:=float32(moment/mass)
 
 		// sanity check results to avoid long lockups
 		if hfr>radius { continue } 
@@ -366,7 +366,8 @@ func calcAndFilterHalfFluxRadius(stars []Star, data []float32, width int32, radi
 				index:=s.Index+y*width+x
 				value:=float32(0.0)
 				if index>=0 && index<int32(len(data)) {
-					value=data[index]-location
+					v:=data[index]-location
+					if v>0 { value=v }
 				}
 				innerMass  +=value
 				innerPixels++
