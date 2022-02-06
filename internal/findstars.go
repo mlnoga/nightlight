@@ -57,7 +57,7 @@ func PrintStars(w io.Writer, stars []Star) {
 func FindStars(data []float32, width int32, location, scale, starSig, bpSigma, starInOut float32, radius int32, medianDiffStats *BasicStats) (stars []Star, sumOfShifts, avgHFR float32) {
 	// Begin star identification based on pixels significantly above the background
 	stars=findBrightPixels(data, width, location+scale*starSig, radius)
-	LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
+	//LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
 
 	// reject bad pixels which differ significantly from the local median
 	if bpSigma>0 {
@@ -68,20 +68,20 @@ func FindStars(data []float32, width int32, location, scale, starSig, bpSigma, s
 	// filter out faint stars overlapped by brighter ones
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	//LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// move stars to centroid position
 	sumOfShifts=shiftToCenterOfMass(stars, data, width, location+scale*starSig*0.5, radius)
-	LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
+	//LogPrintf("%.6g sum of shifts with center of mass box +/-%d\n", sumOfShifts, radius)
 
 	// filter out faint stars again
 	QSortStarsDesc(stars)
 	stars=filterOutOverlaps(stars, width, int32(len(data))/width, radius)
-	LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
+	//LogPrintf("%d (%.4g%%) stars left after +/-%d blocking mask\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), radius)
 
 	// remove implausible stars based on HFR and mass
 	stars, avgHFR=calcAndFilterHalfFluxRadius(stars, data, width, float32(radius), location, starInOut)
-	LogPrintf("%d (%.2g%%) stars left after HFR calc, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
+	//LogPrintf("%d (%.2g%%) stars left after HFR calc, avg HFR %.2g\n", len(stars), (100.0*float32(len(stars))/float32(len(data))), avgHFR)
 
 	// maxIndex:=10
 	// if maxIndex>len(stars) { maxIndex=len(stars)}
