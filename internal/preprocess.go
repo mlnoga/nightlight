@@ -30,7 +30,7 @@ func LoadAndCalcStats(fileName, label string, id int) *FITSImage {
 	if err!=nil { panic(err) }
 	f.Stats=CalcBasicStats(f.Data)
 	f.Stats.Noise=EstimateNoise(f.Data, f.Naxisn[0])
-	LogPrintf("%s %s stats: %v\n", label, fileName, f.Stats)
+	LogPrintf("%s %s %dx%d stats: %v\n", label, fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
 	return &f
 }
 
@@ -46,7 +46,7 @@ func LoadDark(fileName string) *FITSImage {
 
 // Load flat frame from FITS file
 func LoadFlat(fileName string) *FITSImage {
-	f:=LoadAndCalcStats(fileName, "Light", -2)
+	f:=LoadAndCalcStats(fileName, "Flat", -2)
 	if (f.Stats.Min<=0 && f.Stats.Max>=0) || f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: flat file may be degenerate\n")
 	}
