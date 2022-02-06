@@ -27,6 +27,8 @@ import (
 	"strings"
 	"time"
 	nl "github.com/mlnoga/nightlight/internal"
+	"github.com/mlnoga/nightlight/internal/state"
+	"github.com/mlnoga/nightlight/internal/rest"
 	"github.com/pbnjay/memory"
 	colorful "github.com/lucasb-eyer/go-colorful"
 )
@@ -124,9 +126,6 @@ var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
-var darkF *nl.FITSImage=nil
-var flatF *nl.FITSImage=nil
-
 var lights   =[]*nl.FITSImage{}
 
 func main() {
@@ -202,6 +201,8 @@ Flags:
 	}
 
     switch args[0] {
+    case "serve":
+    	rest.Serve();
     case "stats":
     	cmdStats(args[1:])
     case "stack":
@@ -252,9 +253,9 @@ func cmdStats(args []string) {
 	if *starBpSig<0 { *starBpSig=5 } // default to noise elimination, we don't know if stats are called on single frame or resulting stack
 
     // Load dark and flat if flagged
-    if *dark!="" { darkF=nl.LoadDark(*dark) }
-    if *flat!="" { flatF=nl.LoadFlat(*flat) }
-	if darkF!=nil && flatF!=nil && !nl.EqualInt32Slice(darkF.Naxisn, flatF.Naxisn) {
+    if *dark!="" { state.DarkF=nl.LoadDark(*dark) }
+    if *flat!="" { state.FlatF=nl.LoadFlat(*flat) }
+	if state.DarkF!=nil && state.FlatF!=nil && !nl.EqualInt32Slice(state.DarkF.Naxisn, state.FlatF.Naxisn) {
 		nl.LogFatal("Error: flat and dark files differ in size")
 	}
 
@@ -263,14 +264,14 @@ func cmdStats(args []string) {
 
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
-		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
+		len(fileNames), btoi(state.DarkF!=nil), btoi(state.FlatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 
 	sem   :=make(chan bool, runtime.NumCPU())
 	for id, fileName := range(fileNames) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=nl.PreProcessLight(id, fileName, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
+			lightP, err:=nl.PreProcessLight(id, fileName, state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
@@ -309,13 +310,13 @@ func cmdStack(args []string, batchPattern string) {
     sem   :=make(chan bool, 2) // limit parallelism to 2
     if *dark!="" { 
 		go func() { 
-			darkF=nl.LoadDark(*dark) 
+			state.DarkF=nl.LoadDark(*dark) 
 			sem <- true
 		}() 
 	}
     if *flat!="" { 
     	go func() { 
-    		flatF=nl.LoadFlat(*flat) 
+    		state.FlatF=nl.LoadFlat(*flat) 
 			sem <- true
 		}() 
 	}
@@ -326,7 +327,7 @@ func cmdStack(args []string, batchPattern string) {
 		<- sem
 	}
 
-	if darkF!=nil && flatF!=nil && !nl.EqualInt32Slice(darkF.Naxisn, flatF.Naxisn) {
+	if state.DarkF!=nil && state.FlatF!=nil && !nl.EqualInt32Slice(state.DarkF.Naxisn, state.FlatF.Naxisn) {
 		nl.LogFatal("Error: flat and dark files differ in size")
 	}
 
@@ -336,7 +337,7 @@ func cmdStack(args []string, batchPattern string) {
 		nl.LogFatal("Error: no input files")
 	}
 	// Split input into required number of randomized batches, given the permissible amount of memory
-	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, darkF, flatF)
+	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, state.DarkF, state.FlatF)
 
 	// Process each batch. The first batch sets the reference image, and if solving for sigLow/High also those. 
 	// They are then reused in subsequent batches
@@ -389,8 +390,8 @@ func cmdStack(args []string, batchPattern string) {
 
 	// Free more memory
 	refFrame=nil  // all other primary frames already freed after stacking
-	if darkF!=nil { darkF=nil }
-	if flatF!=nil { flatF=nil }
+	if state.DarkF!=nil { state.DarkF=nil }
+	if state.FlatF!=nil { state.FlatF=nil }
 	debug.FreeOSMemory()
 
 	if numBatches>1 {
@@ -426,8 +427,8 @@ func cmdStack(args []string, batchPattern string) {
 func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
-		len(fileNames), btoi(darkF!=nil), btoi(flatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
-	lights:=nl.PreProcessLights(ids, fileNames, darkF, flatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
+		len(fileNames), btoi(state.DarkF!=nil), btoi(state.FlatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
+	lights:=nl.PreProcessLights(ids, fileNames, state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
 	debug.FreeOSMemory()					
 

@@ -25,15 +25,15 @@ import (
 
 // Basic statistics on data arrays
 type BasicStats struct {
-	Min    float32  // Minimum
-	Max    float32  // Maximum
-	Mean   float32  // Mean (average)
-	StdDev float32  // Standard deviation (norm 2, sigma)
+	Min      float32 `json:"min"`      // Minimum
+	Max      float32 `json:"max"`      // Maximum
+	Mean     float32 `json:"mean"`     // Mean (average)
+	StdDev   float32 `json:"stddev"`   // Standard deviation (norm 2, sigma)
 
-	Location float32 // Selected location indicator (standard: randomized sigma-clipped median using randomized Qn)
-	Scale    float32 // Selected scale indicator (standard: randomized Qn)
+	Location float32 `json:"location"` // Selected location indicator (standard: randomized sigma-clipped median using randomized Qn)
+	Scale    float32 `json:"scale"`    // Selected scale indicator (standard: randomized Qn)
 
-	Noise  float32  // Noise estimation, not calculated by default (expensive)
+	Noise    float32 `json:"noise"`    // Noise estimation, not calculated by default (expensive)
 }
 
 

@@ -23,20 +23,23 @@ import (
 
 
 // Load frame from FITS file and calculate basic stats and noise
-func LoadAndCalcStats(fileName, label string, id int) *FITSImage {
-	f:=NewFITSImage()
+func LoadAndCalcStats(fileName string, id int) (f *FITSImage, err error) {
+	theF:=NewFITSImage()
+	f=&theF
 	f.ID=id
-	err:=f.ReadFile(fileName)
-	if err!=nil { panic(err) }
+	err=f.ReadFile(fileName)
+	if err!=nil { return nil, err }
 	f.Stats=CalcBasicStats(f.Data)
 	f.Stats.Noise=EstimateNoise(f.Data, f.Naxisn[0])
-	LogPrintf("%s %s %dx%d stats: %v\n", label, fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
-	return &f
+	return f, nil
 }
 
 // Load dark frame from FITS file
 func LoadDark(fileName string) *FITSImage {
-	f:=LoadAndCalcStats(fileName, "Dark", -1)
+	f, err:=LoadAndCalcStats(fileName, -1)
+	if err!=nil { panic(err.Error()) }
+
+	LogPrintf("%s %s %dx%d stats: %v\n", "dark", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
 	if f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: dark file may be degenerate\n")
 	}
@@ -46,7 +49,10 @@ func LoadDark(fileName string) *FITSImage {
 
 // Load flat frame from FITS file
 func LoadFlat(fileName string) *FITSImage {
-	f:=LoadAndCalcStats(fileName, "Flat", -2)
+	f, err:=LoadAndCalcStats(fileName, -2)
+	if err!=nil { panic(err.Error()) }
+
+	LogPrintf("%s %s %dx%d stats: %v\n", "flat", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
 	if (f.Stats.Min<=0 && f.Stats.Max>=0) || f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: flat file may be degenerate\n")
 	}
@@ -56,7 +62,10 @@ func LoadFlat(fileName string) *FITSImage {
 
 // Load alignment target frame from FITS file
 func LoadAlignTo(fileName string) *FITSImage {
-	f:=LoadAndCalcStats(fileName, "Align", -3)
+	f, err:=LoadAndCalcStats(fileName, -3)
+	if err!=nil { panic(err.Error()) }
+
+	LogPrintf("%s %s %dx%d stats: %v\n", "align", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
 	if f.Stats.StdDev<1e-8 {
 		LogPrintf("Warnining: alignment target file may be degenerate\n")
 	}

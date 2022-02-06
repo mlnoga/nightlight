@@ -1,6 +1,6 @@
 TARGET=nightlight
 SRCS=$(wildcard cmd/$(TARGET)/*.go) $(wildcard internal/*.go) $(wildcard internal/*.asm)
-FLAGS=-v# -gcflags "-m"
+FLAGS=-v -tags=jsoniter# -gcflags "-m"
 
 ifeq ($(OS),Windows_NT)
   EXECUTABLE=$(TARGET).exe

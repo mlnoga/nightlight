@@ -201,3 +201,6 @@ The binary version of this program uses several open source libraries and compon
 | [valyala/fastrand](https://github.com/valyala/fastrand) | MIT License |
 | [lucasb-eyer/go-colorful](https://github.com/lucasb-eyer/go-colorful) | MIT License |
 | [klauspost/cpuid](https://github.com/klauspost/cpuid) | MIT License |
+| [gin-gonic/gin](https://github.com/gin-gonic/gin) | MIT License |
+| [json-iterator/go](https://github.com/json-iterator/go)| MIT License |
+
