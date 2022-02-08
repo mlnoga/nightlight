@@ -134,7 +134,7 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 		if !EqualInt32Slice(flatF.Naxisn, light.Naxisn) {
 			return nil, errors.New("light size differs from flat size")
 		}
-		Divide(light.Data, light.Data, flatF.Data, flatF.Stats.Mean)
+		Divide(light.Data, light.Data, flatF.Data, flatF.Stats.Max)
 	}
 
 	// remove bad pixels if flagged
@@ -224,17 +224,44 @@ func PreProcessLight(id int, fileName string, darkF, flatF *FITSImage, debayer, 
 }
 
 
+
+// Reference frame selection mode
+type RefSelMode int
+const (
+	RFMStarsOverHFR = iota   // Pick frame with highest ratio of stars over HFR (for lights)
+	RFMMedianLoc             // Pick frame with median location (for multiplicative correction when integrating master flats)
+)
+
+
 // Select reference frame by maximizing the number of stars divided by HFR
-func SelectReferenceFrame(lights []*FITSImage) (refFrame *FITSImage, refScore float32) {
+func SelectReferenceFrame(lights []*FITSImage, mode RefSelMode) (refFrame *FITSImage, refScore float32) {
 	refFrame, refScore=(*FITSImage)(nil), -1
-	for _, lightP:=range lights {
-		if lightP==nil { continue }
-		score:=float32(len(lightP.Stars))/lightP.HFR
-		if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
-		if score>refScore {
-			refFrame, refScore = lightP, score
-		}
-	}	
+
+	if mode==RFMStarsOverHFR {
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			score:=float32(len(lightP.Stars))/lightP.HFR
+			if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
+			if score>refScore {
+				refFrame, refScore = lightP, score
+			}
+		}	
+	} else if mode==RFMMedianLoc {
+		locs:=make([]float32, len(lights))
+		num:=0
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			locs[num]=lightP.Stats.Location
+			num++
+		}	
+		medianLoc:=QSelectMedianFloat32(locs[:num])
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			if lightP.Stats.Location==medianLoc {
+				return lightP, medianLoc
+			}
+		}	
+	}
 	return refFrame, refScore
 }
 

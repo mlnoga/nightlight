@@ -85,9 +85,9 @@ var alignK    = flag.Int64("alignK",20,"use triangles fromed from K brightest st
 var alignT    = flag.Float64("alignT",1.0,"skip frames if alignment to reference frame has residual greater than this")
 var alignTo   = flag.String("alignTo", "", "use given `file` as alignment reference")
 
-var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard)")
+var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard), 4=histogram peak")
 var normRange = flag.Int64("normRange",0,"normalize range: 1=normalize to [0,1], 0=do not normalize")
-var normHist  = flag.Int64("normHist",3,"normalize histogram: 0=do not normalize, 1=location and scale, 2=black point shift for RGB align, 3=auto")
+var normHist  = flag.Int64("normHist",4,"normalize histogram: 0=do not normalize, 1=location, 2=location and scale, 3=black point shift for RGB align, 4=auto")
 
 var stMode    = flag.Int64("stMode", 5, "stacking mode. 0=median, 1=mean, 2=sigma clip, 3=winsorized sigma clip, 4=linear fit, 5=auto")
 var stClipPercLow = flag.Float64("stClipPercLow", 0.5,"set desired low clipping percentage for stacking, 0=ignore (overrides sigmas)")
@@ -96,6 +96,8 @@ var stSigLow  = flag.Float64("stSigLow", -1,"low sigma for stacking as multiple 
 var stSigHigh = flag.Float64("stSigHigh",-1,"high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
 var stWeight  = flag.Int64("stWeight", 0, "weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise")
 var stMemory  = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
+
+var refSelMode= flag.Int64("refSelMode", 0, "reference frame selection mode, 0=best #stars/HFR (default), 1=median HFR (for master flats)")
 
 var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
 var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
@@ -452,7 +454,7 @@ func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, s
 	// Select reference frame, unless one was provided from prior batches
 	if (*align!=0 || *normHist!=0) && (refFrame==nil) {
 		refFrameScore:=float32(0)
-		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
+		refFrame, refFrameScore=nl.SelectReferenceFrame(lights, nl.RefSelMode(*refSelMode))
 		if refFrame==nil { panic("Reference frame for alignment and normalization not found.") }
 		nl.LogPrintf("Using frame %d as reference. Score %.4g, %v.\n", refFrame.ID, refFrameScore, refFrame.Stats)
 	}
@@ -628,7 +630,7 @@ func cmdRGB(args []string) {
 	var refFrameScore float32
 
 	//if (*align)!=0 || (*normHist)!=0 {
-		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
+		refFrame, refFrameScore=nl.SelectReferenceFrame(lights, nl.RefSelMode(*refSelMode))
 		if refFrame==nil { panic("Reference channel for alignment not found.") }
 		nl.LogPrintf("Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
 	//}

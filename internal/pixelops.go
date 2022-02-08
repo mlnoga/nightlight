@@ -540,6 +540,24 @@ func (f* FITSImage) SCNR(factor float32) {
 // Simple, I/O-limited pixel operations. Not parallelized
 /////////////////////////////////////////////////////////
 
+// Adjust image data to match the histogram peak of refStats.
+// Assumes f.Stats are current; and updates them afterwards.
+func (f *FITSImage) MatchLocation(refLocation float32) {
+	multiplier:=refLocation / f.Stats.Location
+	data:=f.Data
+	for i, d:=range data {
+		data[i]=d*multiplier
+	}
+
+	// optimization, so we don't have to recompute f.Stats=CalcExtendedStats(f.Data, f.Naxisn[0])
+	f.Stats.Min     =f.Stats.Min     *multiplier
+	f.Stats.Max     =f.Stats.Max     *multiplier
+	f.Stats.Mean    =f.Stats.Mean    *multiplier
+	f.Stats.StdDev  =f.Stats.Mean    *multiplier
+	f.Stats.Location=f.Stats.Location*multiplier
+	f.Stats.Scale   =f.Stats.Scale   *multiplier
+}
+
 // Adjust image data to match the histogram shape of refStats.
 // Assumes f.Stats are current; and updates them afterwards.
 func (f *FITSImage) MatchHistogram(refStats *BasicStats) {
