@@ -592,6 +592,60 @@ func cmdStretch(args []string) {
 		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
 	}
 
+    nl.LogPrintf("%d: asdf\n", f.ID)
+
+	// apply unsharp masking, if requested
+	if *usmGain>0 {
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		absThresh:=f.Stats.Location + f.Stats.Scale*float32(*usmThresh)
+		nl.LogPrintf("%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", f.ID, float32(*usmSigma), float32(*usmGain), float32(*usmThresh), absThresh)
+		kernel:=nl.GaussianKernel1D(float32(*usmSigma))
+		nl.LogPrintf("Unsharp masking kernel sigma %.2f size %d: %v\n", *usmSigma, len(kernel), kernel)
+		f.Data=nl.UnsharpMask(f.Data, int(f.Naxisn[0]), float32(*usmSigma), float32(*usmGain), f.Stats.Min, f.Stats.Max, absThresh)
+	}
+
+	// Optionally adjust midtones
+	if (*midtone)!=0 {
+		nl.LogPrintf("Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", *midtone, *midBlack)
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		absMid:=float32(*midtone)*f.Stats.Scale
+		absBlack:=f.Stats.Location - float32(*midBlack)*f.Stats.Scale
+		nl.LogPrintf("loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*f.Stats.Location, 100*f.Stats.Scale, 100*absMid, 100*absBlack)
+		f.ApplyMidtones(absMid, absBlack)
+	}
+
+	// Optionally adjust gamma
+	if (*gamma)!=1 {
+		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
+		f.ApplyGamma(float32(*gamma))
+	}
+
+	// Optionally adjust gamma post peak
+	if (*ppGamma)!=1 {
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		from:=f.Stats.Location+float32(*ppSigma)*f.Stats.Scale
+		to  :=float32(1.0)
+		nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
+		f.ApplyPartialGamma(from, to, float32(*ppGamma))
+	}
+
+	// Optionally scale histogram peak
+	if (*scaleBlack)!=0 {
+	 	targetBlack:=float32((*scaleBlack)/100.0)
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", f.Stats.Location*100, f.Stats.Scale*100)
+		if f.Stats.Location>targetBlack {
+			nl.LogPrintf("scaling black to move location to%.2f%%...\n", targetBlack*100.0)
+			f.ShiftBlackToMove(f.Stats.Location, targetBlack)
+		} else {
+			nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
+		}
+	}
+
     // write out results, then free memory for the overall stack
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
 	err=f.WriteFile(*out)
