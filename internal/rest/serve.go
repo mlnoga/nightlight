@@ -83,11 +83,11 @@ func postDarkFlatAlign(c *gin.Context) *nl.FITSImage {
 }
 
 func postDark(c *gin.Context) {
-	state.DarkF=postDarkFlatAlign(c)
+	state.CalFrames.Dark=postDarkFlatAlign(c)
 }
 
 func postFlat(c *gin.Context) {
-	state.FlatF=postDarkFlatAlign(c)
+	state.CalFrames.Flat=postDarkFlatAlign(c)
 }
 
 func postAlign(c *gin.Context) {
@@ -116,11 +116,11 @@ func getDarkFlatAlign(c *gin.Context, f *nl.FITSImage) {
 }
 
 func getDark(c *gin.Context) {
-	getDarkFlatAlign(c, state.DarkF)
+	getDarkFlatAlign(c, state.CalFrames.Dark)
 }
 
 func getFlat(c *gin.Context) {
-	getDarkFlatAlign(c, state.FlatF)
+	getDarkFlatAlign(c, state.CalFrames.Flat)
 }
 
 func getAlign(c *gin.Context) {

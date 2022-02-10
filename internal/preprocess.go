@@ -74,24 +74,24 @@ func LoadAlignTo(fileName string) *FITSImage {
 
 
 // Load dark and flat in parallel if flagged
-func (cf *CalibrationFrames) Load(set *nl.CalibrationFrameSettings) error
-    sem    :=make(chan error, 2) // limit parallelism to 2
+func (cf *CalibrationFrames) Load(set *CalibrationFrameSettings) error {
+    sem    :=make(chan bool, 2) // limit parallelism to 2
     waiting:=0
 
     cf.Dark=nil
-    if set.DarkActive && set.Dark!="" { 
+    if set.ActiveDark && set.Dark!="" { 
 		waiting++ 
 		go func() { 
-			cf.Dark=nl.LoadDark(set.Dark) 
+			cf.Dark=LoadDark(set.Dark) 
 			sem <- true
 		}()
 	}
 
 	cf.Flat=nil
-    if set.FlatActive && set.Flat!="" { 
+    if set.ActiveFlat && set.Flat!="" { 
 		waiting++ 
     	go func() { 
-    		cf.Flat=nl.LoadFlat(set.Flat) 
+    		cf.Flat=LoadFlat(set.Flat) 
 			sem <- true
 		}() 
 	}
@@ -100,7 +100,7 @@ func (cf *CalibrationFrames) Load(set *nl.CalibrationFrameSettings) error
 		<- sem   // wait for goroutines to finish
 	}
 
-	if cf.Dark!=nil && cf.Flat!=nil && !nl.EqualInt32Slice(cf.Dark.Naxisn, cf.Flat.Naxisn) {
+	if cf.Dark!=nil && cf.Flat!=nil && !EqualInt32Slice(cf.Dark.Naxisn, cf.Flat.Naxisn) {
 		return errors.New(fmt.Sprintf("Error: dark dimensions %v differ from flat dimensions %v.", 
 			                          cf.Dark.Naxisn, cf.Flat.Naxisn))
 	}
@@ -138,8 +138,8 @@ type CalibrationFrameSettings struct {
 }
 
 type CalibrationFrames struct {
-	Dark              *nl.FITSImage
-	Flat              *nl.FITSImage
+	Dark              *FITSImage
+	Flat              *FITSImage
 }
 
 type BadPixelRemovalSettings struct {
@@ -182,16 +182,16 @@ type SavingSettings struct {
 }
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLightSettings(darkF, flatF *FITSImage, debayer, cfa string, binning, normRange int32, 
+func PreProcessLightSettings(dark, flat string, debayer, cfa string, binning, normRange int32, 
 	bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsPattern string, 
 	backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string) *PreProcessingSettings {
 	return &PreProcessingSettings{
 		Name: "command line parameters",
 			Calibration : CalibrationFrameSettings{
-			ActiveDark : darkF!=nil,
-			Dark       : darkF,
-			ActiveFlat : flatF!=nil,
-			Flat       : flatF,
+			ActiveDark : dark!="",
+			Dark       : dark,
+			ActiveFlat : flat!="",
+			Flat       : flat,
 		},
 		BadPixel    : BadPixelRemovalSettings{
 			Active    : bpSigLow!=0 && bpSigHigh!=0,
@@ -236,7 +236,7 @@ func PreProcessLightSettings(darkF, flatF *FITSImage, debayer, cfa string, binni
 }
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, set *PreProcessingSettings, calibF *nl.CalibrationFrames, imageLevelParallelism int32) (lights []*FITSImage) {
+func PreProcessLights(ids []int, fileNames []string, set *PreProcessingSettings, calibF *CalibrationFrames, imageLevelParallelism int32) (lights []*FITSImage) {
 	lights =make([]*FITSImage, len(fileNames))
 	sem   :=make(chan bool, imageLevelParallelism)
 	for i, fileName := range(fileNames) {
@@ -263,7 +263,7 @@ func PreProcessLights(ids []int, fileNames []string, set *PreProcessingSettings,
 // Preprocess a single light frame with given settings.
 // Pre-processing includes loading, basic statistics, dark subtraction, flat division, 
 // bad pixel removal, star detection and HFR calculation.
-func PreProcessLight(id int, fileName string, set *PreProcessingSettings, calibF *nl.CalibrationFrames) (f *FITSImage, logMsgs string, err error) {
+func PreProcessLight(id int, fileName string, set *PreProcessingSettings, calibF *CalibrationFrames) (f *FITSImage, logMsgs string, err error) {
 	theF:=NewFITSImage()
 	theF.ID=id
 	f=&theF
@@ -303,11 +303,11 @@ func PreProcessLight(id int, fileName string, set *PreProcessingSettings, calibF
 
 
 // Apply calibration frames if active and available
-func ApplyCalibrationFrames(f *FITSImage, set *CalibrationFrameSettings, calibF *nl.CalibrationFrames) (logMsg string, err error) {
+func ApplyCalibrationFrames(f *FITSImage, set *CalibrationFrameSettings, calibF *CalibrationFrames) (logMsg string, err error) {
 	if set.ActiveDark && calibF.Dark!=nil && calibF.Dark.Pixels>0 {
-		if !EqualInt32Slice(f.Naxis, calibF.Dark.Naxisn) {
+		if !EqualInt32Slice(f.Naxisn, calibF.Dark.Naxisn) {
 			return "", errors.New(fmt.Sprintf("%d: Light dimensions %v differ from dark dimensions %v",
-			                      f.ID, f.Naxisn, calibF.Dark.Naxisn)
+			                      f.ID, f.Naxisn, calibF.Dark.Naxisn))
 		}
 		Subtract(f.Data, f.Data, calibF.Dark.Data)
 		f.Stats=nil // invalidate stats
@@ -316,9 +316,9 @@ func ApplyCalibrationFrames(f *FITSImage, set *CalibrationFrameSettings, calibF 
 	if set.ActiveFlat && calibF.Flat!=nil && calibF.Flat.Pixels>0 {
 		if !EqualInt32Slice(f.Naxisn, calibF.Flat.Naxisn) {
 			return "", errors.New(fmt.Sprintf("%d: Light dimensions %v differ from flat dimensions %v",
-			                      f.ID, f.Naxisn, calibF.Dark.Naxisn)
+			                      f.ID, f.Naxisn, calibF.Dark.Naxisn))
 		}
-		Divide(f.Data, f.Data, set.Flat.Data, set.Flat.Stats.Mean)
+		Divide(f.Data, f.Data, calibF.Flat.Data, calibF.Flat.Stats.Max)
 		f.Stats=nil // invalidate stats
 	}
 	return "", nil
@@ -433,17 +433,44 @@ func ApplySave(f *FITSImage, set *SavingSettings) (logMsg string, err error) {
 }
 
 
+
+// Reference frame selection mode
+type RefSelMode int
+const (
+	RFMStarsOverHFR = iota   // Pick frame with highest ratio of stars over HFR (for lights)
+	RFMMedianLoc             // Pick frame with median location (for multiplicative correction when integrating master flats)
+)
+
+
 // Select reference frame by maximizing the number of stars divided by HFR
-func SelectReferenceFrame(lights []*FITSImage) (refFrame *FITSImage, refScore float32) {
+func SelectReferenceFrame(lights []*FITSImage, mode RefSelMode) (refFrame *FITSImage, refScore float32) {
 	refFrame, refScore=(*FITSImage)(nil), -1
-	for _, lightP:=range lights {
-		if lightP==nil { continue }
-		score:=float32(len(lightP.Stars))/lightP.HFR
-		if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
-		if score>refScore {
-			refFrame, refScore = lightP, score
-		}
-	}	
+
+	if mode==RFMStarsOverHFR {
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			score:=float32(len(lightP.Stars))/lightP.HFR
+			if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
+			if score>refScore {
+				refFrame, refScore = lightP, score
+			}
+		}	
+	} else if mode==RFMMedianLoc {
+		locs:=make([]float32, len(lights))
+		num:=0
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			locs[num]=lightP.Stats.Location
+			num++
+		}	
+		medianLoc:=QSelectMedianFloat32(locs[:num])
+		for _, lightP:=range lights {
+			if lightP==nil { continue }
+			if lightP.Stats.Location==medianLoc {
+				return lightP, medianLoc
+			}
+		}	
+	}
 	return refFrame, refScore
 }
 

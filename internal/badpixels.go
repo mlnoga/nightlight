@@ -131,9 +131,9 @@ func Subtract(c, a, b []float32) {
 	}
 }
 
-// Computes the element-wise division of arrays a and b, scaled with bMean and stores in array c, that is, c[i]=a[i]-b[i]
-func Divide(c, a, b []float32, bMean float32) {
+// Computes the element-wise division of arrays a and b, scaled with bMean and stores in array c, that is, c[i]=a[i]*bMax/b[i]
+func Divide(c, a, b []float32, bMax float32) {
 	for i,_ := range(c) {
-		c[i]=a[i]*bMean/b[i]
+		c[i]=a[i]*bMax/b[i]
 	}
 }

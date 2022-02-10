@@ -22,10 +22,11 @@ import (
 	"math"
 )
 
-// Replacement mode for out of bounds values when projecting images
+// Histogram normalization mode for post-processing
 type HistoNormMode int
 const (
 	HNMNone = iota   // Do not normalize histogram
+	HNMLocation      // Multiply with a factor to match histogram peak locations
 	HNMLocScale      // Normalize histogram by matching location and scale of the reference frame. Good for stacking lights
 	HNMLocBlack      // Normalize histogram to match location of the reference frame by shifting black point. Good for RGB
 	HNMAuto          // Auto mode. Uses ScaleLoc for stacking, and LocBlack for (L)RGB combination.
@@ -90,6 +91,9 @@ func postProcessLight(aligner *Aligner, histoRef, light *FITSImage, alignThresho
 	switch normalize {
 		case HNMNone: 
 			// do nothing
+		case HNMLocation:
+			light.MatchLocation(histoRef.Stats.Location)
+			LogPrintf("%d: %s\n", light.ID, light.Stats)
 		case HNMLocScale:
 			light.MatchHistogram(histoRef.Stats)
 			LogPrintf("%d: %s\n", light.ID, light.Stats)

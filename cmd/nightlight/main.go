@@ -85,9 +85,9 @@ var alignK    = flag.Int64("alignK",20,"use triangles fromed from K brightest st
 var alignT    = flag.Float64("alignT",1.0,"skip frames if alignment to reference frame has residual greater than this")
 var alignTo   = flag.String("alignTo", "", "use given `file` as alignment reference")
 
-var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard)")
+var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard), 4=histogram peak")
 var normRange = flag.Int64("normRange",0,"normalize range: 1=normalize to [0,1], 0=do not normalize")
-var normHist  = flag.Int64("normHist",3,"normalize histogram: 0=do not normalize, 1=location and scale, 2=black point shift for RGB align, 3=auto")
+var normHist  = flag.Int64("normHist",4,"normalize histogram: 0=do not normalize, 1=location, 2=location and scale, 3=black point shift for RGB align, 4=auto")
 
 var stMode    = flag.Int64("stMode", 5, "stacking mode. 0=median, 1=mean, 2=sigma clip, 3=winsorized sigma clip, 4=linear fit, 5=auto")
 var stClipPercLow = flag.Float64("stClipPercLow", 0.5,"set desired low clipping percentage for stacking, 0=ignore (overrides sigmas)")
@@ -96,6 +96,8 @@ var stSigLow  = flag.Float64("stSigLow", -1,"low sigma for stacking as multiple 
 var stSigHigh = flag.Float64("stSigHigh",-1,"high sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
 var stWeight  = flag.Int64("stWeight", 0, "weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise")
 var stMemory  = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
+
+var refSelMode= flag.Int64("refSelMode", 0, "reference frame selection mode, 0=best #stars/HFR (default), 1=median HFR (for master flats)")
 
 var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
 var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
@@ -252,31 +254,29 @@ func cmdStats(args []string) {
 	if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
 	if *starBpSig<0 { *starBpSig=5 } // default to noise elimination, we don't know if stats are called on single frame or resulting stack
 
-    // Load dark and flat if flagged
-    if *dark!="" { state.DarkF=nl.LoadDark(*dark) }
-    if *flat!="" { state.FlatF=nl.LoadFlat(*flat) }
-	if state.DarkF!=nil && state.FlatF!=nil && !nl.EqualInt32Slice(state.DarkF.Naxisn, state.FlatF.Naxisn) {
-		nl.LogFatal("Error: flat and dark files differ in size")
-	}
-
 	// Parse command line parameters into settings object
-	preSet:=nl.PreProcessLightSettings(state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
+	preSet:=nl.PreProcessLightSettings(*dark, *flat, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
 	)
+
+	// Pre-load needed calibration frames
+	calibF:=&nl.CalibrationFrames{}	
+	err:=calibF.Load(&state.PreProcessing.Calibration)
+	if err!=nil { panic(err) }
 
 	// Glob file name wildcards
 	fileNames:=globFilenameWildcards(args)
 
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
-		len(fileNames), btoi(state.DarkF!=nil), btoi(state.FlatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
+		len(fileNames), btoi(state.CalFrames.Dark!=nil), btoi(state.CalFrames.Flat!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 
 	sem   :=make(chan bool, runtime.NumCPU())
 	for id, fileName := range(fileNames) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, logMsg, err:=nl.PreProcessLight(id, fileName, preSet)
+			lightP, logMsg, err:=nl.PreProcessLight(id, fileName, preSet, calibF)
 			nl.LogPrintf("%s", logMsg)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
@@ -303,15 +303,15 @@ func cmdStack(args []string, batchPattern string) {
 	var stackNoise  float32 = 0
 
 	// Parse command line parameters into settings object
-	preSet:=nl.PreProcessLightSettings(state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), 
+	preSet:=nl.PreProcessLightSettings(*dark, *flat, *debayer, *cfa, int32(*binning), 
 		int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
 		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
 	)
 
 	// Pre-load needed calibration frames
-	calibF:=&CalibrationFrames{}	
-	err:=calibF.Load(state.PreProcessing)
+	calibF:=&nl.CalibrationFrames{}	
+	err:=calibF.Load(&state.PreProcessing.Calibration)
 	if err!=nil { panic(err) }
 
 	// Glob file name wildcards
@@ -320,7 +320,7 @@ func cmdStack(args []string, batchPattern string) {
 		nl.LogFatal("Error: no input files")
 	}
 	// Split input into required number of randomized batches, given the permissible amount of memory
-	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, state.DarkF, state.FlatF)
+	numBatches, batchSize, overallIDs, overallFileNames, imageLevelParallelism:=nl.PrepareBatches(fileNames, *stMemory, calibF.Dark, calibF.Flat)
 
 	// Process each batch. The first batch sets the reference image, and if solving for sigLow/High also those. 
 	// They are then reused in subsequent batches
@@ -373,8 +373,8 @@ func cmdStack(args []string, batchPattern string) {
 
 	// Free more memory
 	refFrame=nil  // all other primary frames already freed after stacking
-	if state.DarkF!=nil { state.DarkF=nil }
-	if state.FlatF!=nil { state.FlatF=nil }
+	if state.CalFrames.Dark!=nil { state.CalFrames.Dark=nil }
+	if state.CalFrames.Flat!=nil { state.CalFrames.Flat=nil }
 	debug.FreeOSMemory()
 
 	if numBatches>1 {
@@ -400,7 +400,7 @@ func cmdStack(args []string, batchPattern string) {
 	}
 
     // write out results, then free memory for the overall stack
-	err:=stack.WriteFile(*out)
+	err=stack.WriteFile(*out)
 	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
 	stack=nil
 }
@@ -410,7 +410,7 @@ func cmdStack(args []string, batchPattern string) {
 func stackBatch(ids []int, fileNames []string, preSet *nl.PreProcessingSettings, calibF *nl.CalibrationFrames, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
-		len(fileNames), btoi(state.DarkF!=nil), btoi(state.FlatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
+		len(fileNames), btoi(state.CalFrames.Dark!=nil), btoi(state.CalFrames.Flat!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
 
 	lights:=nl.PreProcessLights(ids, fileNames, preSet, calibF,imageLevelParallelism)
 	debug.FreeOSMemory()					
@@ -435,7 +435,7 @@ func stackBatch(ids []int, fileNames []string, preSet *nl.PreProcessingSettings,
 	// Select reference frame, unless one was provided from prior batches
 	if (*align!=0 || *normHist!=0) && (refFrame==nil) {
 		refFrameScore:=float32(0)
-		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
+		refFrame, refFrameScore=nl.SelectReferenceFrame(lights, nl.RefSelMode(*refSelMode))
 		if refFrame==nil { panic("Reference frame for alignment and normalization not found.") }
 		nl.LogPrintf("Using frame %d as reference. Score %.4g, %v.\n", refFrame.ID, refFrameScore, refFrame.Stats)
 	}
@@ -573,6 +573,60 @@ func cmdStretch(args []string) {
 		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
 	}
 
+    nl.LogPrintf("%d: asdf\n", f.ID)
+
+	// apply unsharp masking, if requested
+	if *usmGain>0 {
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		absThresh:=f.Stats.Location + f.Stats.Scale*float32(*usmThresh)
+		nl.LogPrintf("%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", f.ID, float32(*usmSigma), float32(*usmGain), float32(*usmThresh), absThresh)
+		kernel:=nl.GaussianKernel1D(float32(*usmSigma))
+		nl.LogPrintf("Unsharp masking kernel sigma %.2f size %d: %v\n", *usmSigma, len(kernel), kernel)
+		f.Data=nl.UnsharpMask(f.Data, int(f.Naxisn[0]), float32(*usmSigma), float32(*usmGain), f.Stats.Min, f.Stats.Max, absThresh)
+	}
+
+	// Optionally adjust midtones
+	if (*midtone)!=0 {
+		nl.LogPrintf("Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", *midtone, *midBlack)
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		absMid:=float32(*midtone)*f.Stats.Scale
+		absBlack:=f.Stats.Location - float32(*midBlack)*f.Stats.Scale
+		nl.LogPrintf("loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*f.Stats.Location, 100*f.Stats.Scale, 100*absMid, 100*absBlack)
+		f.ApplyMidtones(absMid, absBlack)
+	}
+
+	// Optionally adjust gamma
+	if (*gamma)!=1 {
+		nl.LogPrintf("Applying gamma %.3g\n", *gamma)
+		f.ApplyGamma(float32(*gamma))
+	}
+
+	// Optionally adjust gamma post peak
+	if (*ppGamma)!=1 {
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		from:=f.Stats.Location+float32(*ppSigma)*f.Stats.Scale
+		to  :=float32(1.0)
+		nl.LogPrintf("Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
+		f.ApplyPartialGamma(from, to, float32(*ppGamma))
+	}
+
+	// Optionally scale histogram peak
+	if (*scaleBlack)!=0 {
+	 	targetBlack:=float32((*scaleBlack)/100.0)
+		f.Stats, err=nl.CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { nl.LogFatalf("%d: Calculating stats: %s", f.ID, err) }
+		nl.LogPrintf("Location %.2f%% and scale %.2f%%: ", f.Stats.Location*100, f.Stats.Scale*100)
+		if f.Stats.Location>targetBlack {
+			nl.LogPrintf("scaling black to move location to%.2f%%...\n", targetBlack*100.0)
+			f.ShiftBlackToMove(f.Stats.Location, targetBlack)
+		} else {
+			nl.LogPrintf("cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
+		}
+	}
+
     // write out results, then free memory for the overall stack
 	nl.LogPrintf("Writing FITS to %s ...\n", *out)
 	err=f.WriteFile(*out)
@@ -605,18 +659,23 @@ func cmdRGB(args []string) {
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 
 	// Parse command line parameters into settings object
-	preSet:=nl.PreProcessLightSettings(nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
+	preSet:=nl.PreProcessLightSettings("", "", *debayer, *cfa, int32(*binning), 1, 0, 0, 
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
 	)
 
-	lights:=nl.PreProcessLights(ids, fileNames, preSet, imageLevelParallelism)
+	// Pre-load needed calibration frames
+	calibF:=&nl.CalibrationFrames{}	
+	err:=calibF.Load(&state.PreProcessing.Calibration)
+	if err!=nil { panic(err) }
+
+	lights:=nl.PreProcessLights(ids, fileNames, preSet, calibF, imageLevelParallelism)
 
 	// Pick reference frame
 	var refFrame *nl.FITSImage
 	var refFrameScore float32
 
 	//if (*align)!=0 || (*normHist)!=0 {
-		refFrame, refFrameScore=nl.SelectReferenceFrame(lights)
+		refFrame, refFrameScore=nl.SelectReferenceFrame(lights, nl.RefSelMode(*refSelMode))
 		if refFrame==nil { panic("Reference channel for alignment not found.") }
 		nl.LogPrintf("Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
 	//}
@@ -659,11 +718,17 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
 
 	// Parse command line parameters into settings object
-	preSet:=nl.PreProcessLightSettings(nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
+	preSet:=nl.PreProcessLightSettings("", "", *debayer, *cfa, int32(*binning), 1, 0, 0, 
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
 	)
 
-	lights:=nl.PreProcessLights(ids, fileNames, preSet, imageLevelParallelism)
+	// Pre-load needed calibration frames
+	calibF:=&nl.CalibrationFrames{}	
+	err:=calibF.Load(&state.PreProcessing.Calibration)
+	if err!=nil { panic(err) }
+
+
+	lights:=nl.PreProcessLights(ids, fileNames, preSet, calibF, imageLevelParallelism)
 
 	var refFrame, histoRef *nl.FITSImage
 	if (*align)!=0 {
