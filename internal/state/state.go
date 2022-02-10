@@ -5,7 +5,7 @@
 // the Free Software Foundation, either version 3 of the License, or
 // (at your option) any later version.
 //
-// This program is distributed in the hope that it will be useful,
+// This program is distributed in the hope that it will be Activeful,
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
@@ -21,6 +21,13 @@ import (
 )
 
 
-var DarkF *nl.FITSImage=nil
-var FlatF *nl.FITSImage=nil
+var PreProcessing nl.PreProcessingSettings
+var CalFrames     nl.CalibrationFrames
+
+
+
+
+
 var AlignF *nl.FITSImage=nil
+
+

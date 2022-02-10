@@ -259,6 +259,11 @@ func cmdStats(args []string) {
 		nl.LogFatal("Error: flat and dark files differ in size")
 	}
 
+	// Parse command line parameters into settings object
+	preSet:=nl.PreProcessLightSettings(state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
+	)
+
 	// Glob file name wildcards
 	fileNames:=globFilenameWildcards(args)
 
@@ -271,20 +276,11 @@ func cmdStats(args []string) {
 		sem <- true 
 		go func(id int, fileName string) {
 			defer func() { <-sem }()
-			lightP, err:=nl.PreProcessLight(id, fileName, state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), int32(*backGrid), float32(*backSigma), int32(*backClip), *back)
+			lightP, logMsg, err:=nl.PreProcessLight(id, fileName, preSet)
+			nl.LogPrintf("%s", logMsg)
 			if err!=nil {
 				nl.LogPrintf("%d: Error: %s\n", id, err.Error())
 			} else {
-				if (*pre)!="" {
-					err=lightP.WriteFile(fmt.Sprintf((*pre), id))
-					if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
-				}
-				if (*stars)!="" {
-					starsFits:=nl.ShowStars(lightP, 2.0)
-					err=starsFits.WriteFile(fmt.Sprintf((*stars), id))
-					if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
-					starsFits.Data=nil
-				}
 				lightP.Data=nil
 			}
 		}(id, fileName)
@@ -306,30 +302,17 @@ func cmdStack(args []string, batchPattern string) {
 	var stackFrames int64 = 0
 	var stackNoise  float32 = 0
 
-    // Load dark and flat in parallel if flagged
-    sem   :=make(chan bool, 2) // limit parallelism to 2
-    if *dark!="" { 
-		go func() { 
-			state.DarkF=nl.LoadDark(*dark) 
-			sem <- true
-		}() 
-	}
-    if *flat!="" { 
-    	go func() { 
-    		state.FlatF=nl.LoadFlat(*flat) 
-			sem <- true
-		}() 
-	}
-    if *dark!="" {   // wait for goroutine to finish
-		<- sem
-	}
-    if *flat!="" {   // wait for goroutine to finish
-		<- sem
-	}
+	// Parse command line parameters into settings object
+	preSet:=nl.PreProcessLightSettings(state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), 
+		int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
+		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
+	)
 
-	if state.DarkF!=nil && state.FlatF!=nil && !nl.EqualInt32Slice(state.DarkF.Naxisn, state.FlatF.Naxisn) {
-		nl.LogFatal("Error: flat and dark files differ in size")
-	}
+	// Pre-load needed calibration frames
+	calibF:=&CalibrationFrames{}	
+	err:=calibF.Load(state.PreProcessing)
+	if err!=nil { panic(err) }
 
 	// Glob file name wildcards
 	fileNames:=globFilenameWildcards(args)
@@ -355,7 +338,7 @@ func cmdStack(args []string, batchPattern string) {
 
 		// Stack the files in this batch
 		batch, avgNoise :=(*nl.FITSImage)(nil), float32(0)
-		batch, refFrame, sigLow, sigHigh, avgNoise=stackBatch(ids, fileNames, refFrame, sigLow, sigHigh, imageLevelParallelism)
+		batch, refFrame, sigLow, sigHigh, avgNoise=stackBatch(ids, fileNames, preSet, calibF, refFrame, sigLow, sigHigh, imageLevelParallelism)
 
 		// Find stars in the newly stacked batch and report out on them
 		batch.Stars, _, batch.HFR=nl.FindStars(batch.Data, batch.Naxisn[0], batch.Stats.Location, batch.Stats.Scale, 
@@ -424,12 +407,12 @@ func cmdStack(args []string, batchPattern string) {
 
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and the reference frame
-func stackBatch(ids []int, fileNames []string, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
+func stackBatch(ids []int, fileNames []string, preSet *nl.PreProcessingSettings, calibF *nl.CalibrationFrames, refFrame *nl.FITSImage, sigLow, sigHigh float32, imageLevelParallelism int32) (stack, refFrameOut *nl.FITSImage, sigLowOut, sigHighOut, avgNoise float32) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	nl.LogPrintf("\nPreprocessing %d frames with dark=%d flat=%d debayer=%s cfa=%s binning=%d normRange=%d bpSigLow=%.2f bpSigHigh=%.2f starSig=%.2f starBpSig=%.2f starRadius=%d backGrid=%d:\n", 
 		len(fileNames), btoi(state.DarkF!=nil), btoi(state.FlatF!=nil), *debayer, *cfa, *binning, *normRange, *bpSigLow, *bpSigHigh, *starSig, *starBpSig, *starRadius, *backGrid)
-	lights:=nl.PreProcessLights(ids, fileNames, state.DarkF, state.FlatF, *debayer, *cfa, int32(*binning), int32(*normRange), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+
+	lights:=nl.PreProcessLights(ids, fileNames, preSet, calibF,imageLevelParallelism)
 	debug.FreeOSMemory()					
 
 	// Remove nils from lights, in case of read errors
@@ -620,8 +603,13 @@ func cmdRGB(args []string) {
 	imageLevelParallelism:=int32(runtime.GOMAXPROCS(0))
 	if imageLevelParallelism>3 { imageLevelParallelism=3 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
-	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+
+	// Parse command line parameters into settings object
+	preSet:=nl.PreProcessLightSettings(nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
+	)
+
+	lights:=nl.PreProcessLights(ids, fileNames, preSet, imageLevelParallelism)
 
 	// Pick reference frame
 	var refFrame *nl.FITSImage
@@ -669,8 +657,13 @@ func cmdLRGB(args []string, applyLuminance bool) {
 	imageLevelParallelism:=int32(runtime.GOMAXPROCS(0))
 	if imageLevelParallelism>4 { imageLevelParallelism=4 }
 	nl.LogPrintf("\nReading color channels and detecting stars:\n")
-	lights:=nl.PreProcessLights(ids, fileNames, nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre, imageLevelParallelism)
+
+	// Parse command line parameters into settings object
+	preSet:=nl.PreProcessLightSettings(nil, nil, *debayer, *cfa, int32(*binning), 1, 0, 0, 
+		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
+	)
+
+	lights:=nl.PreProcessLights(ids, fileNames, preSet, imageLevelParallelism)
 
 	var refFrame, histoRef *nl.FITSImage
 	if (*align)!=0 {

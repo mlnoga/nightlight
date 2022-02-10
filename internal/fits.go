@@ -39,6 +39,8 @@ type FITSImage struct {
 	Exposure float32     // Image exposure in seconds
 
 	Stats  *BasicStats   // Basic image statistics: min, mean, max
+	MedianDiffStats *BasicStats // Local median difference stats, for bad pixel detection, star detection
+	 
 	Stars  []Star        // Star detections
 	HFR    float32       // Half-flux radius of the star detections
 
