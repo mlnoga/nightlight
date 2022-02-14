@@ -206,6 +206,8 @@ Flags:
     switch args[0] {
     case "serve":
     case "stats":
+    	*bpSigLow=0
+    	*bpSigHigh=0
 		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
 		if *starBpSig<0 { *starBpSig=0 } // default to no noise elimination
     case "stack":
@@ -238,23 +240,27 @@ Flags:
 		os.Exit(-1)
 	}
 
-	opPostProc:=nl.NewOpPostProcess(nl.HistoNormMode(*normHist), int32(*align), int32(*alignK), float32(*alignT), 
-									nl.OOBModeNaN, nl.RefSelMode(*refSelMode), *post)
-	if err:=opPostProc.Init(); err!=nil {
-		fmt.Fprintf(logWriter, "Error initializing postprocessing: %s\n", err.Error())
-		os.Exit(-1)
-	}
-
 	// run actions
     switch args[0] {
     case "serve":
     	rest.Serve();
 
     case "stats":
+    	var m []byte
+		m,err=json.MarshalIndent(opPreProc,"", "  ")
+		if err!=nil { break }
+		fmt.Fprintf(logWriter, "\nPreprocessing and statting %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
+
 		opParallel:=nl.NewOpParallel(opPreProc, int64(runtime.NumCPU()))
 		_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
 
 	case "stack":
+		opPostProc:=nl.NewOpPostProcess(nl.HistoNormMode(*normHist), int32(*align), int32(*alignK), float32(*alignT), 
+										nl.OOBModeNaN, nl.RefSelMode(*refSelMode), *post)
+		if err:=opPostProc.Init(); err!=nil {
+			fmt.Fprintf(logWriter, "Error initializing postprocessing: %s\n", err.Error())
+			os.Exit(-1)
+		}
 		opStack:=nl.NewOpStack(nl.StackMode(*stMode), nl.StackWeighting(*stWeight), float32(*stSigLow), float32(*stSigHigh))
     	opSingleBatch:=nl.NewOpSingleBatch(opPreProc, opPostProc, opStack, opPreProc.StarDetect, *batch)
     	opMultiBatch :=nl.NewOpMultiBatch(opSingleBatch, *stMemory, nl.NewOpSave(*out))
