@@ -18,10 +18,10 @@ package rest
 
 import (
 	"github.com/gin-gonic/gin"
-	"net/http"
+	// "net/http"
 
-	nl "github.com/mlnoga/nightlight/internal"
-	"github.com/mlnoga/nightlight/internal/state"
+	// nl "github.com/mlnoga/nightlight/internal"
+	// "github.com/mlnoga/nightlight/internal/state"
 )
 
 
@@ -32,12 +32,12 @@ func Serve() {
 		v1 := api.Group("/v1")
 		{
 			v1.GET ("/ping",  getPing)
-			v1.GET ("/dark",  getDark)
-			v1.POST("/dark",  postDark)
-			v1.GET ("/flat",  getFlat)
-			v1.POST("/flat",  postFlat)
-			v1.GET ("/align", getAlign)
-			v1.POST("/align", postAlign)
+			// v1.GET ("/dark",  getDark)
+			// v1.POST("/dark",  postDark)
+			// v1.GET ("/flat",  getFlat)
+			// v1.POST("/flat",  postFlat)
+			// v1.GET ("/align", getAlign)
+			// v1.POST("/align", postAlign)
 		}
 	}
 	r.Run() // listen and serve on 0.0.0.0:8080	
@@ -51,78 +51,78 @@ func getPing(c *gin.Context) {
 }
 
 
-type postDarkFlatAlignArgs struct {
-	Name string `json:"name" form:"name" binding:"required"`
-}
+// type postDarkFlatAlignArgs struct {
+// 	Name string `json:"name" form:"name" binding:"required"`
+// }
 
-func postDarkFlatAlign(c *gin.Context) *nl.FITSImage {
-	var a postDarkFlatAlignArgs
-	if err:=c.ShouldBind(&a); err!=nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
-		return nil
-	}
+// func postDarkFlatAlign(c *gin.Context) *nl.FITSImage {
+// 	var a postDarkFlatAlignArgs
+// 	if err:=c.ShouldBind(&a); err!=nil {
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
+// 		return nil
+// 	}
 
-	f,err:=nl.LoadAndCalcStats(a.Name, -1)
-	if err!=nil { 
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } ) 
-		return nil
-	}
+// 	f,err:=nl.LoadAndCalcStats(a.Name, -1)
+// 	if err!=nil { 
+// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } ) 
+// 		return nil
+// 	}
 
-	res:=gin.H{
-	 	"id": f.ID, 
-	    "name": f.FileName,
-	    "width": f.Naxisn[0],
-	    "height": f.Naxisn[1],
-	    "stats" : f.Stats,
-	}
-	if f.Stats.StdDev<1e-8 {
-		res["warning"]="File may be degenerate"
-	}
-	c.JSON(http.StatusCreated, res)
-	return f
-}
+// 	res:=gin.H{
+// 	 	"id": f.ID, 
+// 	    "name": f.FileName,
+// 	    "width": f.Naxisn[0],
+// 	    "height": f.Naxisn[1],
+// 	    "stats" : f.Stats,
+// 	}
+// 	if f.Stats.StdDev<1e-8 {
+// 		res["warning"]="File may be degenerate"
+// 	}
+// 	c.JSON(http.StatusCreated, res)
+// 	return f
+// }
 
-func postDark(c *gin.Context) {
-	state.CalFrames.Dark=postDarkFlatAlign(c)
-}
+// func postDark(c *gin.Context) {
+// 	state.CalFrames.Dark=postDarkFlatAlign(c)
+// }
 
-func postFlat(c *gin.Context) {
-	state.CalFrames.Flat=postDarkFlatAlign(c)
-}
+// func postFlat(c *gin.Context) {
+// 	state.CalFrames.Flat=postDarkFlatAlign(c)
+// }
 
-func postAlign(c *gin.Context) {
-	state.AlignF=postDarkFlatAlign(c)
-}
+// func postAlign(c *gin.Context) {
+// 	state.AlignF=postDarkFlatAlign(c)
+// }
 
 
 
-func getDarkFlatAlign(c *gin.Context, f *nl.FITSImage) {
-	if f==nil {
-		c.JSON(http.StatusNotFound, gin.H{} ) 
-		return
-	}
+// func getDarkFlatAlign(c *gin.Context, f *nl.FITSImage) {
+// 	if f==nil {
+// 		c.JSON(http.StatusNotFound, gin.H{} ) 
+// 		return
+// 	}
 
-	res:=gin.H{
-	 	"id": f.ID, 
-	    "name": f.FileName,
-	    "width": f.Naxisn[0],
-	    "height": f.Naxisn[1],
-	    "stats" : f.Stats,
-	}
-	if f.Stats.StdDev<1e-8 {
-		res["warning"]="File may be degenerate"
-	}
-	c.JSON(http.StatusOK, res)
-}
+// 	res:=gin.H{
+// 	 	"id": f.ID, 
+// 	    "name": f.FileName,
+// 	    "width": f.Naxisn[0],
+// 	    "height": f.Naxisn[1],
+// 	    "stats" : f.Stats,
+// 	}
+// 	if f.Stats.StdDev<1e-8 {
+// 		res["warning"]="File may be degenerate"
+// 	}
+// 	c.JSON(http.StatusOK, res)
+// }
 
-func getDark(c *gin.Context) {
-	getDarkFlatAlign(c, state.CalFrames.Dark)
-}
+// func getDark(c *gin.Context) {
+// 	getDarkFlatAlign(c, state.CalFrames.Dark)
+// }
 
-func getFlat(c *gin.Context) {
-	getDarkFlatAlign(c, state.CalFrames.Flat)
-}
+// func getFlat(c *gin.Context) {
+// 	getDarkFlatAlign(c, state.CalFrames.Flat)
+// }
 
-func getAlign(c *gin.Context) {
-	getDarkFlatAlign(c, state.AlignF)
-}
+// func getAlign(c *gin.Context) {
+// 	getDarkFlatAlign(c, state.AlignF)
+// }

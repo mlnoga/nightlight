@@ -17,17 +17,11 @@
 package state
 
 import (
-	nl "github.com/mlnoga/nightlight/internal"
+	//nl "github.com/mlnoga/nightlight/internal"
 )
 
 
-var PreProcessing nl.PreProcessingSettings
-var CalFrames     nl.CalibrationFrames
-
-
-
-
-
-var AlignF *nl.FITSImage=nil
-
+//var PreProcessing nl.PreProcessingSettings
+//var CalFrames     nl.CalibrationFrames
+//var AlignF *nl.FITSImage=nil
 

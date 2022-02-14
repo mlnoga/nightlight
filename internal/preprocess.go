@@ -19,6 +19,9 @@ package internal
 import (
 	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
+	"strings"
 )
 
 // Load frame from FITS file and calculate basic stats and noise
@@ -73,25 +76,208 @@ func LoadAlignTo(fileName string) *FITSImage {
 
 
 
+// An operator sourcing a single FITS image
+type OperatorSource interface {
+	Apply(logWriter io.Writer) (fOut *FITSImage, err error) 
+}
+
+// An operator working on a single FITS image, transforming/overwriting it and its data
+type OperatorUnary interface {
+	Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) 
+	Init() error
+}
+
+// An operator working on many FITS images in parallel, transforming/overwriting them
+type OperatorParallel interface {
+	ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOut []*FITSImage, err error) 
+	ApplyToFITS(sources []*FITSImage, logWriter io.Writer) (fOut []*FITSImage, err error) 
+}
+
+
+type OpInMemory struct {
+	Fits        *FITSImage    `json:"-"`
+}
+var _ OperatorSource = (*OpInMemory)(nil) // Compile time assertion: type implements the interface
+
+func NewInMemory(fits *FITSImage) *OpInMemory {
+	return &OpInMemory{
+		Fits : fits,
+	}
+}
+
+// Start processing from an in-memory fits
+func (op *OpInMemory) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
+	return op.Fits, nil
+}
+
+func (op *OpInMemory) Init() error { return nil }
+
+
+type OpLoadFile struct {
+	ID 		    int     `json:"id"`
+	FileName    string  `json:"fileName"`
+}
+var _ OperatorSource = (*OpLoadFile)(nil) // Compile time assertion: type implements the interface
+
+
+func NewOpLoadFile(id int, fileName string) *OpLoadFile {
+	return &OpLoadFile{
+		ID : id,
+		FileName : fileName,
+	}
+}
+
+// Load image from a file
+func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
+	fmt.Fprintf(logWriter, "%d: Loading light frame from %s\n", op.ID, op.FileName)
+	theF:=NewFITSImage()
+	theF.ID=op.ID
+	f:=&theF
+
+	err=f.ReadFile(op.FileName)
+	if err!=nil { return nil, err }
+	return f, nil	
+}
+
+func (op *OpLoadFile) Init() error { return nil }
+
+
+
+// Turn filename wildcards into list of file load operators
+func NewOpLoadFiles(args []string, logWriter io.Writer) (loaders []*OpLoadFile, err error) {
+	if len(args)<1 { return nil, errors.New("No frames to process.") }
+	ops:=[]*OpLoadFile{}
+	for _, pattern := range args {
+		matches, err := filepath.Glob(pattern)
+		if err!=nil { return nil, err }
+		for _,match:=range(matches) {
+			ops=append(ops, NewOpLoadFile(len(ops), match))
+		}
+	}
+	fmt.Fprintf(logWriter, "Found %d frames:\n", len(ops))
+	for _, op:=range(ops) {
+		fmt.Fprintf(logWriter, "%d:%s\n",op.ID, op.FileName)
+	}
+	return ops, nil
+}
+
+
+type OpSequence struct {
+	Steps       []OperatorUnary   `json:"steps"`
+}
+var _ OperatorUnary = (*OpSequence)(nil) // Compile time assertion: type implements the interface
+
+func NewOpSequence(steps []OperatorUnary) *OpSequence {
+	return &OpSequence{Steps: steps}
+}
+
+func (op *OpSequence) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	for _,step:=range op.Steps {
+		var err error
+		f, err=step.Apply(f, logWriter)
+		if err!=nil { return nil, err}
+	}
+	return f, nil
+}
+
+func (op *OpSequence) Init() error { 
+	for _,step:=range op.Steps {
+		if err:=step.Init(); err!=nil { return err }
+	}
+	return nil
+}
+
+
+type OpPreProcess struct {
+	Calibrate   *OpCalibrate    `json:"calibrate"` 
+	BadPixel    *OpBadPixel     `json:"badPixel"`
+	Debayer     *OpDebayer      `json:"debayer"`
+	Bin         *OpBin          `json:"bin"`
+	BackExtract *OpBackExtract  `json:"backExtract"`
+	StarDetect  *OpStarDetect   `json:"starDetect"` 
+	Save        *OpSave         `json:"save"`
+}
+var _ OperatorUnary = (*OpPreProcess)(nil) // Compile time assertion: type implements the interface
+
+// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func NewOpPreProcess(dark, flat string, debayer, cfa string, binning int32, 
+	bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsPattern string, 
+	backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string) *OpPreProcess {
+	opDebayer:=NewOpDebayer(debayer, cfa)
+	return &OpPreProcess{
+		Calibrate   : NewOpCalibrate(dark, flat),
+		BadPixel    : NewOpBadPixel(bpSigLow, bpSigHigh, opDebayer),
+		Debayer     : opDebayer,
+		Bin         : NewOpBin(binning),
+		BackExtract : NewOpBackExtract(backGrid, backSigma, backClip, backPattern),
+		StarDetect  : NewOpStarDetect(starRadius, starSig, starBpSig, starInOut, starsPattern),
+		Save        : NewOpSave(preprocessedPattern),
+	}	
+}
+
+func (op *OpPreProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if f, err=op.Calibrate  .Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.BadPixel   .Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.Debayer    .Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.Bin        .Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.BackExtract.Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.StarDetect .Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.Save       .Apply(f, logWriter); err!=nil { return nil, err}
+	return f, nil
+}
+
+func (op *OpPreProcess) Init() (err error) { 
+	if err=op.Calibrate  .Init(); err!=nil { return err }
+	if err=op.BadPixel   .Init(); err!=nil { return err }
+	if err=op.Debayer    .Init(); err!=nil { return err }
+	if err=op.Bin        .Init(); err!=nil { return err }
+	if err=op.BackExtract.Init(); err!=nil { return err }
+	if err=op.StarDetect .Init(); err!=nil { return err }
+	if err=op.Save       .Init(); err!=nil { return err }
+	return nil
+ }
+
+
+
+
+type OpCalibrate struct {
+	ActiveDark        bool        `json:"activeDark"`
+	Dark              string      `json:"dark"`
+	DarkFrame         *FITSImage  `json:"-"`
+	ActiveFlat        bool        `json:"activeFlat"`
+	Flat              string      `json:"flat"`
+	FlatFrame         *FITSImage  `json:"-"`
+}
+var _ OperatorUnary = (*OpCalibrate)(nil) // Compile time assertion: type implements the interface
+
+func NewOpCalibrate(dark, flat string) *OpCalibrate {
+	return &OpCalibrate{
+		ActiveDark : dark!="",
+		Dark       : dark,
+		ActiveFlat : flat!="",
+		Flat       : flat,
+	}
+}
+
 // Load dark and flat in parallel if flagged
-func (cf *CalibrationFrames) Load(set *CalibrationFrameSettings) error {
+func (op *OpCalibrate) Init() error {
     sem    :=make(chan bool, 2) // limit parallelism to 2
     waiting:=0
 
-    cf.Dark=nil
-    if set.ActiveDark && set.Dark!="" { 
+    op.DarkFrame=nil
+    if op.ActiveDark && op.Dark!="" { 
 		waiting++ 
 		go func() { 
-			cf.Dark=LoadDark(set.Dark) 
+			op.DarkFrame=LoadDark(op.Dark) 
 			sem <- true
 		}()
 	}
 
-	cf.Flat=nil
-    if set.ActiveFlat && set.Flat!="" { 
+	op.FlatFrame=nil
+    if op.ActiveFlat && op.Flat!="" { 
 		waiting++ 
     	go func() { 
-    		cf.Flat=LoadFlat(set.Flat) 
+    		op.FlatFrame=LoadFlat(op.Flat) 
 			sem <- true
 		}() 
 	}
@@ -100,283 +286,164 @@ func (cf *CalibrationFrames) Load(set *CalibrationFrameSettings) error {
 		<- sem   // wait for goroutines to finish
 	}
 
-	if cf.Dark!=nil && cf.Flat!=nil && !EqualInt32Slice(cf.Dark.Naxisn, cf.Flat.Naxisn) {
+	if op.DarkFrame!=nil && op.FlatFrame!=nil && !EqualInt32Slice(op.DarkFrame.Naxisn, op.FlatFrame.Naxisn) {
 		return errors.New(fmt.Sprintf("Error: dark dimensions %v differ from flat dimensions %v.", 
-			                          cf.Dark.Naxisn, cf.Flat.Naxisn))
+			                          op.DarkFrame.Naxisn, op.FlatFrame.Naxisn))
 	}
 	return nil
 }
 
 
+// Apply calibration frames if active and available. Must have been loaded
+func (op *OpCalibrate) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if op.ActiveDark && op.DarkFrame!=nil && op.DarkFrame.Pixels>0 {
+		if !EqualInt32Slice(f.Naxisn, op.DarkFrame.Naxisn) {
+			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from dark dimensions %v",
+			                      f.ID, f.Naxisn, op.DarkFrame.Naxisn))
+		}
+		Subtract(f.Data, f.Data, op.DarkFrame.Data)
+		f.Stats=nil // invalidate stats
+	}
 
-type PreProcessingJob struct {
-	Items     []WorkItem
-	Settings    PreProcessingSettings
+	if op.ActiveFlat && op.FlatFrame!=nil && op.FlatFrame.Pixels>0 {
+		if !EqualInt32Slice(f.Naxisn, op.FlatFrame.Naxisn) {
+			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from flat dimensions %v",
+			                      f.ID, f.Naxisn, op.FlatFrame.Naxisn))
+		}
+		Divide(f.Data, f.Data, op.FlatFrame.Data, op.FlatFrame.Stats.Max)
+		f.Stats=nil // invalidate stats
+	}
+	return f, nil
 }
 
-type WorkItem struct {
-	ID 		    int
-	FileName    string
-}
 
-type PreProcessingSettings struct {
-	Name        string                        `json:"name"`
-	Calibration CalibrationFrameSettings      `json:"calibration"`
-	BadPixel    BadPixelRemovalSettings       `json:"badPixel"`
-	Debayer     DebayerSettings               `json:"debayer"`
-	Binning     BinningSettings               `json:"binning"`
-	BackExtract BackgroundExtractionSettings  `json:"backExtract"`
-	StarDetect  StarDetectionSettings         `json:"starDetect"`
-	Save        SavingSettings                `json:"save"`
-}
-
-type CalibrationFrameSettings struct {
-	ActiveDark        bool        `json:"activeDark"`
-	Dark              string      `json:"dark"`
-	ActiveFlat        bool        `json:"activeFlat"`
-	Flat              string      `json:"flat"`
-}
-
-type CalibrationFrames struct {
-	Dark              *FITSImage
-	Flat              *FITSImage
-}
-
-type BadPixelRemovalSettings struct {
+type OpBadPixel struct {
 	Active            bool        `json:"active"`
 	SigmaLow          float32     `json:"sigmaLow"`
 	SigmaHigh         float32     `json:"sigmaHigh"`
+	Debayer           *OpDebayer  `json:"-"`
+}
+var _ OperatorUnary = (*OpBadPixel)(nil) // Compile time assertion: type implements the interface
+
+
+func NewOpBadPixel(bpSigLow, bpSigHigh float32, debayer *OpDebayer) *OpBadPixel {
+	return &OpBadPixel{
+		Active    : bpSigLow>0 && bpSigHigh>0,
+		SigmaLow  : bpSigLow, 
+		SigmaHigh : bpSigHigh,
+		Debayer   : debayer,
+	}
 }
 
-type DebayerSettings struct {
+// Apply bad pixel removal if active
+func (op *OpBadPixel) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active ||  op.SigmaLow==0 || op.SigmaHigh==0 {
+		return f, nil
+	}
+	if !op.Debayer.Active {
+		var bpm []int32
+		bpm, f.MedianDiffStats=BadPixelMap(f.Data, f.Naxisn[0], op.SigmaLow, op.SigmaHigh)
+		mask:=CreateMask(f.Naxisn[0], 1.5)
+		MedianFilterSparse(f.Data, bpm, mask)
+		fmt.Fprintf(logWriter, "%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
+			        f.ID, len(bpm), 100.0*float32(len(bpm))/float32(f.Pixels), op.SigmaLow, op.SigmaHigh)
+	} else {
+		numRemoved,err:=CosmeticCorrectionBayer(f.Data, f.Naxisn[0], op.Debayer.Debayer, op.Debayer.ColorFilterArray, op.SigmaLow, op.SigmaHigh)
+		if err!=nil { return nil, err }
+		fmt.Fprintf(logWriter, "%d: Removed %d bad bayer pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
+			        f.ID, numRemoved, 100.0*float32(numRemoved)/float32(f.Pixels), op.SigmaLow, op.SigmaHigh)
+	}
+	return f, nil
+}
+
+func (op *OpBadPixel) Init() error { return nil }
+
+
+type OpDebayer struct {
 	Active            bool        `json:"active"`
 	Debayer           string      `json:"debayer"`
 	ColorFilterArray  string      `json:"colorFilterArray"`
 }
+var _ OperatorUnary = (*OpDebayer)(nil) // Compile time assertion: type implements the interface
 
-type BinningSettings struct {
+
+func NewOpDebayer(debayer, cfa string) *OpDebayer {
+	return &OpDebayer{
+		Active           : debayer!="",
+		Debayer          : debayer,
+		ColorFilterArray : cfa,
+	}
+}
+
+// Apply debayering if active 
+func (op *OpDebayer) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active { return f, nil }
+
+	f.Data, f.Naxisn[0], err=DebayerBilinear(f.Data, f.Naxisn[0], op.Debayer, op.ColorFilterArray)
+	if err!=nil { return nil, err }
+	f.Pixels=int32(len(f.Data))
+	f.Naxisn[1]=f.Pixels/f.Naxisn[0]
+	fmt.Fprintf(logWriter, "%d: Debayered channel %s from cfa %s, new size %dx%d\n", f.ID, op.Debayer, op.ColorFilterArray, f.Naxisn[0], f.Naxisn[1])
+
+	return f, nil
+}
+
+func (op *OpDebayer) Init() error { return nil }
+
+
+type OpBin struct {
 	Active            bool        `json:"active"`
 	BinSize           int32       `json:"binSize"`
 }
+var _ OperatorUnary = (*OpBin)(nil) // Compile time assertion: type implements the interface
 
-type BackgroundExtractionSettings struct {
+func NewOpBin(binning int32) *OpBin {
+	return &OpBin{
+		Active  : binning>1,
+		BinSize : binning,
+	}
+}
+
+// Apply binning if active
+func (op *OpBin) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active || op.BinSize<1 { return f, nil }
+
+	newF:=BinNxN(f, op.BinSize)
+	fmt.Fprintf(logWriter, "%d: Applying %xx%d binning, new image size %dx%d\n", newF.ID, op.BinSize, newF.Naxisn[0], newF.Naxisn[1])
+
+	return f, nil
+}
+
+func (op *OpBin) Init() error { return nil }
+
+
+type OpBackExtract struct {
 	Active            bool            `json:"active"`
     GridSize     	  int32           `json:"gridSize"`
     Sigma 		      float32         `json:"sigma"`
     NumBlocksToClip   int32           `json:"numBlocksToClip"`
-    Save              SavingSettings  `json:"save"`
+    Save             *OpSave          `json:"save"`
 } 
+var _ OperatorUnary = (*OpBackExtract)(nil) // Compile time assertion: type implements the interface
 
-type StarDetectionSettings struct {
-	Active            bool            `json:"active"`
-    Radius            int32           `json:"radius"`
-	Sigma             float32         `json:"sigma"`
-    BadPixelSigma     float32         `json:"badPixelSigma"`
-    InOutRatio        float32         `json:"inOutRatio"`
-    Save              SavingSettings  `json:"save"`
-}
-
-type SavingSettings struct {
-	Active            bool            `json:"active"`
-	FilePattern       string          `json:"filePattern"`
-}
-
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLightSettings(dark, flat string, debayer, cfa string, binning, normRange int32, 
-	bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsPattern string, 
-	backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string) *PreProcessingSettings {
-	return &PreProcessingSettings{
-		Name: "command line parameters",
-			Calibration : CalibrationFrameSettings{
-			ActiveDark : dark!="",
-			Dark       : dark,
-			ActiveFlat : flat!="",
-			Flat       : flat,
-		},
-		BadPixel    : BadPixelRemovalSettings{
-			Active    : bpSigLow!=0 && bpSigHigh!=0,
-			SigmaLow  : bpSigLow, 
-			SigmaHigh : bpSigHigh,
-		},
-		Debayer     : DebayerSettings{
-			Active           : debayer!="",
-			Debayer          : debayer,
-			ColorFilterArray : cfa,
-		},
-		Binning     : BinningSettings{
-			Active  : binning>1,
-			BinSize : binning,
-		},
-		BackExtract : BackgroundExtractionSettings{
-			Active          : backGrid>0,
-		    GridSize     	: backGrid,
-		    Sigma 		    : backSigma,
-		    NumBlocksToClip : backClip,
-		    Save            : SavingSettings {
-				Active      : backPattern!="",
-				FilePattern : backPattern,
-			},
-		},
-		StarDetect  : StarDetectionSettings{
-			Active          : true,
-		    Radius          : starRadius,
-			Sigma           : starSig,
-		    BadPixelSigma   : starBpSig,
-		    InOutRatio      : starInOut,
-		    Save            : SavingSettings {
-				Active      : starsPattern!="",
-				FilePattern : starsPattern,
-			},
-		},
-		Save        : SavingSettings{
-			Active      : preprocessedPattern!="",
-			FilePattern : preprocessedPattern,
-		},		
-	}	
-}
-
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func PreProcessLights(ids []int, fileNames []string, set *PreProcessingSettings, calibF *CalibrationFrames, imageLevelParallelism int32) (lights []*FITSImage) {
-	lights =make([]*FITSImage, len(fileNames))
-	sem   :=make(chan bool, imageLevelParallelism)
-	for i, fileName := range(fileNames) {
-		id:=ids[i]
-		sem <- true 
-		go func(i int, id int, fileName string) {
-			defer func() { <-sem }()
-			lightP, logMsg, err:=PreProcessLight(id, fileName, set, calibF)
-			LogPrintf("%s", logMsg)
-			if err!=nil {
-				LogPrintf("%d: Error: %s\n", id, err.Error())
-			} else {
-				lights[i]=lightP
-			}
-		}(i, id, fileName)
+func NewOpBackExtract(backGrid int32, backSigma float32, backClip int32, savePattern string) *OpBackExtract {
+	return &OpBackExtract{
+		Active          : backGrid>0,
+	    GridSize     	: backGrid,
+	    Sigma 		    : backSigma,
+	    NumBlocksToClip : backClip,
+	    Save            : NewOpSave(savePattern),
 	}
-	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
-		sem <- true
-	}
-	return lights	
-}
-
-
-// Preprocess a single light frame with given settings.
-// Pre-processing includes loading, basic statistics, dark subtraction, flat division, 
-// bad pixel removal, star detection and HFR calculation.
-func PreProcessLight(id int, fileName string, set *PreProcessingSettings, calibF *CalibrationFrames) (f *FITSImage, logMsgs string, err error) {
-	theF:=NewFITSImage()
-	theF.ID=id
-	f=&theF
-
-	logMsg:=fmt.Sprintf("%d: Loading light frame from %s\n", f.ID, fileName)
-	err=f.ReadFile(fileName)
-	logMsgs+=logMsg;
-	if err!=nil { return nil, "", err }
-
-	logMsg, err=ApplyCalibrationFrames(f, &(set.Calibration), calibF);
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	logMsg, err=ApplyBadPixelRemoval(f, &(set.BadPixel), &(set.Debayer));
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	logMsg, err=ApplyDebayering(f, &(set.Debayer))
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	f, logMsg, err=ApplyBinning(f, &(set.Binning))
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	logMsg, err=ApplyBackgroundExtraction(f, &(set.BackExtract))
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	logMsg, err=ApplyStarDetection(f, &(set.StarDetect))
-	logMsgs+=logMsg;
-	if err!=nil { return nil, logMsgs, err }
-
-	return f, logMsgs, nil
-}
-
-
-
-// Apply calibration frames if active and available
-func ApplyCalibrationFrames(f *FITSImage, set *CalibrationFrameSettings, calibF *CalibrationFrames) (logMsg string, err error) {
-	if set.ActiveDark && calibF.Dark!=nil && calibF.Dark.Pixels>0 {
-		if !EqualInt32Slice(f.Naxisn, calibF.Dark.Naxisn) {
-			return "", errors.New(fmt.Sprintf("%d: Light dimensions %v differ from dark dimensions %v",
-			                      f.ID, f.Naxisn, calibF.Dark.Naxisn))
-		}
-		Subtract(f.Data, f.Data, calibF.Dark.Data)
-		f.Stats=nil // invalidate stats
-	}
-
-	if set.ActiveFlat && calibF.Flat!=nil && calibF.Flat.Pixels>0 {
-		if !EqualInt32Slice(f.Naxisn, calibF.Flat.Naxisn) {
-			return "", errors.New(fmt.Sprintf("%d: Light dimensions %v differ from flat dimensions %v",
-			                      f.ID, f.Naxisn, calibF.Dark.Naxisn))
-		}
-		Divide(f.Data, f.Data, calibF.Flat.Data, calibF.Flat.Stats.Max)
-		f.Stats=nil // invalidate stats
-	}
-	return "", nil
-}
-
-// Apply bad pixel removal if active
-func ApplyBadPixelRemoval(f *FITSImage, set *BadPixelRemovalSettings, bay *DebayerSettings) (logMsg string, err error) {
-	if !set.Active ||  set.SigmaLow==0 || set.SigmaHigh==0 {
-		return "", nil
-	}
-	if !bay.Active {
-		var bpm []int32
-		bpm, f.MedianDiffStats=BadPixelMap(f.Data, f.Naxisn[0], set.SigmaLow, set.SigmaHigh)
-		mask:=CreateMask(f.Naxisn[0], 1.5)
-		MedianFilterSparse(f.Data, bpm, mask)
-		logMsg=fmt.Sprintf("%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
-			f.ID, len(bpm), 100.0*float32(len(bpm))/float32(f.Pixels), set.SigmaLow, set.SigmaHigh)
-	} else {
-		numRemoved,err:=CosmeticCorrectionBayer(f.Data, f.Naxisn[0], bay.Debayer, bay.ColorFilterArray, set.SigmaLow, set.SigmaHigh)
-		if err!=nil { return "", err }
-		logMsg=fmt.Sprintf("%d: Removed %d bad bayer pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
-			f.ID, numRemoved, 100.0*float32(numRemoved)/float32(f.Pixels), set.SigmaLow, set.SigmaHigh)
-	}
-	return logMsg, nil
-}
-
-// Apply debayering if active 
-func ApplyDebayering(f *FITSImage, set *DebayerSettings) (logMsg string, err error) {
-	if !set.Active { return "", nil }
-
-	f.Data, f.Naxisn[0], err=DebayerBilinear(f.Data, f.Naxisn[0], set.Debayer, set.ColorFilterArray)
-	if err!=nil { return "", err }
-	f.Pixels=int32(len(f.Data))
-	f.Naxisn[1]=f.Pixels/f.Naxisn[0]
-	logMsg=fmt.Sprintf("%d: Debayered channel %s from cfa %s, new size %dx%d\n", f.ID, set.Debayer, set.ColorFilterArray, f.Naxisn[0], f.Naxisn[1])
-
-	return logMsg, nil
-}
-
-// Apply binning if active
-func ApplyBinning(f *FITSImage, set *BinningSettings) (fPrime *FITSImage, logMsg string, err error) {
-	if !set.Active || set.BinSize<1 { return f, "", nil }
-
-	newF:=BinNxN(f, set.BinSize)
-	f=&newF
-	logMsg=fmt.Sprintf("%d: Applying %xx%d binning, new image size %dx%d\n", f.ID, set.BinSize,f.Naxisn[0], f.Naxisn[1])
-
-	return f, logMsg, nil
 }
 
 // Apply background extraction if active
-func ApplyBackgroundExtraction(f *FITSImage, set *BackgroundExtractionSettings) (logMsg string, err error) {
-	if !set.Active || set.GridSize<=0 { return "", nil }
+func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active || op.GridSize<=0 { return f, nil }
 
-	bg:=NewBackground(f.Data, f.Naxisn[0], set.GridSize, set.Sigma, set.NumBlocksToClip)
-	logMsg=fmt.Sprintf("%d: %s\n", f.ID, bg)
+	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.NumBlocksToClip)
+	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, bg)
 
-	if !set.Save.Active || set.Save.FilePattern=="" {
+	if !op.Save.Active || op.Save.FilePattern=="" {
 		// faster, does not materialize background image explicitly
 		bg.Subtract(f.Data)
 	} else { 
@@ -389,88 +456,165 @@ func ApplyBackgroundExtraction(f *FITSImage, set *BackgroundExtractionSettings) 
 			Pixels:f.Pixels,
 			Data  :bgData,
 		}
-		fileName:=fmt.Sprintf(set.Save.FilePattern, f.ID)
-		err=bgFits.WriteFile(fileName)
-		if err!=nil { return logMsg, errors.New(fmt.Sprintf("%d: Error writing background file %s: %s\n", f.ID, fileName, err)) }
+		_,err:=op.Save.Apply(&bgFits, logWriter)
+		if err!=nil { return nil, err }
 		Subtract(f.Data, f.Data, bgData)
 		bgFits.Data, bgData=nil, nil
 	}
 	f.Stats=nil // invalidate stats
-	return logMsg, nil
+	return f, nil
+}
+
+func (op *OpBackExtract) Init() error { return nil }
+
+
+type OpStarDetect struct {
+	Active            bool            `json:"active"`
+    Radius            int32           `json:"radius"`
+	Sigma             float32         `json:"sigma"`
+    BadPixelSigma     float32         `json:"badPixelSigma"`
+    InOutRatio        float32         `json:"inOutRatio"`
+    Save             *OpSave          `json:"save"`
+}
+var _ OperatorUnary = (*OpStarDetect)(nil) // Compile time assertion: type implements the interface
+
+func NewOpStarDetect(starRadius int32, starSig, starBpSig, starInOut float32, savePattern string) *OpStarDetect {  
+	return &OpStarDetect{
+		Active          : true,
+	    Radius          : starRadius,
+		Sigma           : starSig,
+	    BadPixelSigma   : starBpSig,
+	    InOutRatio      : starInOut,
+	    Save            : NewOpSave(savePattern),
+	}
 }
 
 // Apply star detection if active. Calculates needed stats on demand if not current
-func ApplyStarDetection(f *FITSImage, set *StarDetectionSettings) (logMsg string, err error) {
-	if !set.Active { return "", nil }
+func (op *OpStarDetect) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active { return f, nil }
 
 	if f.Stats==nil {
 		f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { return logMsg, err }
+		if err!=nil { return nil, err }
 	}
 
-	f.Stars, _, f.HFR=FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, set.Sigma, set.BadPixelSigma, set.InOutRatio, set.Radius, f.MedianDiffStats)
-	logMsg=fmt.Sprintf("%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
+	f.Stars, _, f.HFR=FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
+	fmt.Fprintf(logWriter, "%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
-	if set.Save.Active && set.Save.FilePattern!="" {
+	if op.Save.Active {
 		stars:=ShowStars(f, 2.0)
-		fileName:=fmt.Sprintf(set.Save.FilePattern, f.ID)
-		err=stars.WriteFile(fileName)
-		if err!=nil { return logMsg, errors.New(fmt.Sprintf("%d: Error writing star detections to file %s: %s\n", f.ID, fileName, err)) }
+		_, err=op.Save.Apply(&stars, logWriter)
+		if err!=nil { return nil, err }
 	}	
 
-	return logMsg, nil
+	return f, nil
+}
+
+func (op *OpStarDetect) Init() error { return nil }
+
+
+type OpSave struct {
+	Active            bool            `json:"active"`
+	FilePattern       string          `json:"filePattern"`
+}
+var _ OperatorUnary = (*OpSave)(nil) // Compile time assertion: type implements the interface
+
+func NewOpSave(filenamePattern string) *OpSave {
+	return &OpSave{
+		Active      : filenamePattern!="",
+		FilePattern : filenamePattern,
+	}
 }
 
 // Apply saving if active
-func ApplySave(f *FITSImage, set *SavingSettings) (logMsg string, err error) {
-	if !set.Active || set.FilePattern=="" { return "", nil }
+func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active || op.FilePattern=="" { return f, nil }
 
-	fileName:=fmt.Sprintf(set.FilePattern, f.ID)
-	err=f.WriteFile(fileName)
-	if err!=nil { return logMsg, errors.New(fmt.Sprintf("%d: Error writing preprocessed file %s: %s\n", f.ID, fileName, err)) }
+	fileName:=fmt.Sprintf(op.FilePattern, f.ID)
+	fnLower:=strings.ToLower(fileName)
 
-	return logMsg,nil;
-}
-
-
-
-// Reference frame selection mode
-type RefSelMode int
-const (
-	RFMStarsOverHFR = iota   // Pick frame with highest ratio of stars over HFR (for lights)
-	RFMMedianLoc             // Pick frame with median location (for multiplicative correction when integrating master flats)
-)
-
-
-// Select reference frame by maximizing the number of stars divided by HFR
-func SelectReferenceFrame(lights []*FITSImage, mode RefSelMode) (refFrame *FITSImage, refScore float32) {
-	refFrame, refScore=(*FITSImage)(nil), -1
-
-	if mode==RFMStarsOverHFR {
-		for _, lightP:=range lights {
-			if lightP==nil { continue }
-			score:=float32(len(lightP.Stars))/lightP.HFR
-			if len(lightP.Stars)==0 || lightP.HFR==0 { score=0 }
-			if score>refScore {
-				refFrame, refScore = lightP, score
-			}
-		}	
-	} else if mode==RFMMedianLoc {
-		locs:=make([]float32, len(lights))
-		num:=0
-		for _, lightP:=range lights {
-			if lightP==nil { continue }
-			locs[num]=lightP.Stats.Location
-			num++
-		}	
-		medianLoc:=QSelectMedianFloat32(locs[:num])
-		for _, lightP:=range lights {
-			if lightP==nil { continue }
-			if lightP.Stats.Location==medianLoc {
-				return lightP, medianLoc
-			}
-		}	
+	if strings.HasSuffix(fnLower,".fits")      || strings.HasSuffix(fnLower,".fit")      || strings.HasSuffix(fnLower,".fts")     ||
+	   strings.HasSuffix(fnLower,".fits.gz")   || strings.HasSuffix(fnLower,".fit.gz")   || strings.HasSuffix(fnLower,".fts.gz")  ||
+	   strings.HasSuffix(fnLower,".fits.gzip") || strings.HasSuffix(fnLower,".fit.gzip") || strings.HasSuffix(fnLower,".fts.gzip") {     
+		fmt.Fprintf(logWriter,"%d: Writing FITS to %s", f.ID, fileName)
+		err=f.WriteFile(fileName)
+	} else if strings.HasSuffix(fnLower,".jpeg") || strings.HasSuffix(fnLower,".jpg") {
+		if len(f.Naxisn)==1 {
+			fmt.Fprintf(logWriter, "%d: Writing mono JPEG to %s ...\n", f.ID, fileName)
+			f.WriteMonoJPGToFile(fileName, 95)
+		} else if len(f.Naxisn)==3 {
+			fmt.Fprintf(logWriter, "%d: Writing color JPEG to %s ...\n", f.ID, fileName)
+			f.WriteJPGToFile(fileName, 95)
+		} else {
+			return nil, errors.New(fmt.Sprintf("%d: Unable to write image with dimensions %v as JPEG to %s\n", f.ID, f.Naxisn, fileName))
+		}
 	}
-	return refFrame, refScore
+	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err)) }
+	return f, nil;
 }
+
+func (op *OpSave) Init() error { return nil }
+
+
+
+type OpParallel struct {
+	Operator    OperatorUnary  `json:"operator"`
+	MaxThreads  int64          `json:"MaxThreads"`
+}
+var _ OperatorParallel = (*OpParallel)(nil) // Compile time assertion: type implements the interface
+
+func NewOpParallel(operator OperatorUnary, maxThreads int64) *OpParallel {
+	return &OpParallel{operator, maxThreads} 
+}
+
+// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOuts []*FITSImage, err error) {
+	fOuts =make([]*FITSImage, len(sources))
+	sem  :=make(chan bool, op.MaxThreads)
+	for i, src := range(sources) {
+		sem <- true 
+		go func(i int, source *OpLoadFile) {
+			defer func() { <-sem }()
+			f, err:=source.Apply(logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			f, err=op.Operator.Apply(f, logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			fOuts[i]=f
+		}(i, src)
+	}
+	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
+		sem <- true
+	}
+	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+}
+
+
+// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func (op *OpParallel) ApplyToFITS(sources []*FITSImage, logWriter io.Writer) (fOuts []*FITSImage, err error) {
+	fOuts =make([]*FITSImage, len(sources))
+	sem  :=make(chan bool, op.MaxThreads)
+	for i, src := range(sources) {
+		sem <- true 
+		go func(i int, f *FITSImage) {
+			defer func() { <-sem }()
+			f, err=op.Operator.Apply(f, logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			fOuts[i]=f
+		}(i, src)
+	}
+	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
+		sem <- true
+	}
+	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+}
+
 

@@ -18,10 +18,33 @@ package internal
 
 import (
 	"errors"
+	"fmt"
+	"io"
 	"math"
 	"runtime"
 	"sync"
 )
+
+type OperatorJoin interface {
+	Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error)
+	Init() (err error)
+}
+
+type OpStack struct {
+	Mode         StackMode       `json:"mode"`
+	Weighting    StackWeighting  `json:"weighting"`
+	SigmaLow     float32         `json:"sigmaLow"`
+	SigmaHigh    float32         `json:"sigmaHigh"`
+	RefFrameLoc  float32         `json:"-"`
+}
+var _ OperatorJoin = (*OpStack)(nil) // Compile time assertion: type implements the interface
+
+
+func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh float32) *OpStack {
+	return &OpStack{mode, weighting, sigmaLow, sigmaHigh, 0}
+}
+
+func (op *OpStack) Init() (err error) { return nil }
 
 type StackMode int
 
@@ -33,7 +56,6 @@ const (
 	StLinearFit
 	StAuto
 )
-
 
 // Auto-select stacking mode based on number of frames
 func autoSelectStackingMode(l int) StackMode {
@@ -48,23 +70,78 @@ func autoSelectStackingMode(l int) StackMode {
     }
 }
 
+type StackWeighting int
+
+const (
+	StWeightNone StackWeighting = iota
+	StWeightExposure
+	StWeightInverseNoise
+	StWeightInverseHFR
+)
+
+// Prepare weights for stacking based on selected weighting mode and given images 
+func getWeights(f []*FITSImage, weighting StackWeighting) (weights []float32, err error)  {
+	weights=[]float32(nil)
+	if weighting==StWeightNone {
+		weights=nil
+	} else if weighting==StWeightExposure { // exposure weighted stacking, longer exposure gets bigger weight
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			if f[i].Exposure==0 { return nil, errors.New(fmt.Sprintf("%d: Missing exposure information for exposure-weighted stacking", f[i].ID)) }
+			weights[i]=f[i].Exposure
+		}
+	} else if weighting==StWeightInverseNoise { // noise weighted stacking, smaller noise gets bigger weight
+		minNoise, maxNoise:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
+		for i:=0; i<len(f); i+=1 {
+			if f[i].Stats==nil { return nil, errors.New(fmt.Sprintf("%d: Missing stats information for noise-weighted stacking", f[i].ID)) }
+			n:=f[i].Stats.Noise
+			if n<minNoise { minNoise=n }
+			if n>maxNoise { maxNoise=n }
+		}		
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
+			weights[i]=1/(1+4*(f[i].Stats.Noise-minNoise)/(maxNoise-minNoise))
+		}
+	} else if weighting==StWeightInverseHFR { // HFR weighted stacking, smaller HFR gets bigger weight
+		minHFR, maxHFR:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
+		for i:=0; i<len(f); i+=1 {
+			h:=f[i].HFR
+			if h<minHFR { minHFR=h }
+			if h>maxHFR { maxHFR=h }
+		}		
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
+			weights[i]=1/(1+4*(f[i].HFR-minHFR)/(maxHFR-minHFR))
+		}
+	} else {
+		return nil, errors.New(fmt.Sprintf("Invalid weighting mode %d\n", weighting))
+	}
+	return weights, nil
+}
 
 // Stack a set of light frames. Limits parallelism to the number of available cores
-func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, sigmaLow, sigmaHigh float32) (result *FITSImage, numClippedLow, numClippedHigh int32, err error) {
+func (op *OpStack) Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error) {
 	// validate stacking modes and perform automatic mode selection if necesssary
+	mode:=op.Mode
 	if mode<StMedian || mode>StAuto {
-		return nil, -1, -1, errors.New("invalid stacking mode")
+		return nil, errors.New("invalid stacking mode")
 	}
 	if mode==StAuto { 
-		mode=autoSelectStackingMode(len(lights))
-		LogPrintf("Auto-selected stacking mode %d based on %d frames\n", mode, len(lights))
+		mode=autoSelectStackingMode(len(f))
+		fmt.Fprintf(logWriter, "Auto-selected stacking mode %d based on %d frames\n", mode, len(f))
 	}
 
+	// select weights if applicable
+	weights, err:=getWeights(f, op.Weighting)
+	if err!=nil { return nil, err }
+
 	// create return value array
-	data:=make([]float32,len(lights[0].Data))
+	data:=make([]float32,len(f[0].Data))
 
 	// split into 8 MB work packages, no fewer than 8*NumCPU()
-	numBatches:=4*len(lights)*len(lights[0].Data)/(8192*1024)
+	numBatches:=4*len(f)*len(f[0].Data)/(8192*1024)
 	if numBatches < 8*runtime.NumCPU() { numBatches=8*runtime.NumCPU() }
 	batchSize:=(len(data)+numBatches-1)/(numBatches)
 	sem   :=make(chan bool, runtime.NumCPU()) // limit parallelism to NumCPUs()
@@ -79,58 +156,53 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 		go func(lower, upper int) {
 			defer func() { <-sem }()
 
-			// subslice lightsData elements for given batch
-			ldBatch:=make([][]float32, len(lights))
-			for i, l:=range lights { ldBatch[i]=l.Data[lower:upper] }
+			// subslice f data elements for given batch
+			ldBatch:=make([][]float32, len(f))
+			for i, l:=range f { ldBatch[i]=l.Data[lower:upper] }
 
+			var clipLow, clipHigh int32
 			// run stacking for the given batch
 			switch mode {
 			case StMedian:
-				StackMedian(ldBatch, refMedian, data[lower:upper])
+				StackMedian(ldBatch, op.RefFrameLoc, data[lower:upper])
 
 			case StMean: 
 				if weights==nil {
-					StackMean(ldBatch, refMedian, data[lower:upper])
+					StackMean(ldBatch, op.RefFrameLoc, data[lower:upper])
 				} else {
-					StackMeanWeighted(ldBatch, weights, refMedian, data[lower:upper])
+					StackMeanWeighted(ldBatch, weights, op.RefFrameLoc, data[lower:upper])
 				}
 
 			case StSigma:
-				var clipLow, clipHigh int32
 				if weights==nil {
-					clipLow, clipHigh=StackSigma(ldBatch, refMedian, sigmaLow, sigmaHigh, data[lower:upper])
+					clipLow, clipHigh=StackSigma(ldBatch, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
 				} else {
-					clipLow, clipHigh=StackSigmaWeighted(ldBatch, weights, refMedian, sigmaLow, sigmaHigh, data[lower:upper])
+					clipLow, clipHigh=StackSigmaWeighted(ldBatch, weights, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
 				}
-				numClippedLock.Lock()
-				numClippedLow+=clipLow
-				numClippedHigh+=clipHigh
-				numClippedLock.Unlock()
 
 			case StWinsorSigma:
-				var clipLow, clipHigh int32
 				if weights==nil {
-					clipLow, clipHigh=StackWinsorSigma(ldBatch, refMedian, sigmaLow, sigmaHigh, data[lower:upper])
+					clipLow, clipHigh=StackWinsorSigma(ldBatch, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
 				} else {
-					clipLow, clipHigh=StackWinsorSigmaWeighted(ldBatch, weights, refMedian, sigmaLow, sigmaHigh, data[lower:upper])
+					clipLow, clipHigh=StackWinsorSigmaWeighted(ldBatch, weights, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
 				}
-				numClippedLock.Lock()
-				numClippedLow+=clipLow
-				numClippedHigh+=clipHigh
-				numClippedLock.Unlock()
 
 			case StLinearFit:
-				clipLow, clipHigh:=StackLinearFit(ldBatch, refMedian, sigmaLow, sigmaHigh, data[lower:upper])
+				clipLow, clipHigh=StackLinearFit(ldBatch, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
+			} 
+
+			// update clipping totals
+			if clipLow>0 || clipHigh>0 {
 				numClippedLock.Lock()
 				numClippedLow+=clipLow
 				numClippedHigh+=clipHigh
 				numClippedLock.Unlock()
-			} 
+			}
 
 			// display progress indicator
 			progressLock.Lock()
 			progress+=float32(batchSize)/float32(len(data))
-			LogPrintf("\r%d%%", int(progress*100))
+			fmt.Fprintf(logWriter, "\r%d%%", int(progress*100))
 			progressLock.Unlock()
 
 		}(lower, upper)
@@ -138,25 +210,25 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
 		sem <- true
 	}
-	LogPrint("\r")
+	fmt.Fprintf(logWriter, "\r")
 
 	// report back on clipping for modes that apply clipping
 	if mode>=StSigma {
-		LogPrintf("Clipped low %d (%.2f%%) high %d (%.2f%%)\n", 
-			numClippedLow,  float32(numClippedLow )*100.0/(float32(len(data)*len(lights))),
-			numClippedHigh, float32(numClippedHigh)*100.0/(float32(len(data)*len(lights))) )
+		fmt.Fprintf(logWriter, "Clipped low %d (%.2f%%) high %d (%.2f%%)\n", 
+			numClippedLow,  float32(numClippedLow )*100.0/(float32(len(data)*len(f))),
+			numClippedHigh, float32(numClippedHigh)*100.0/(float32(len(data)*len(f))) )
 	}
 
 	exposureSum:=float32(0)
-	for _,l :=range lights { exposureSum+=l.Exposure }
+	for _,l :=range f { exposureSum+=l.Exposure }
 
 	// Assemble into in-memory FITS
 	stack:=FITSImage{
 		Header: NewFITSHeader(),
 		Bitpix: -32,
 		Bzero : 0,
-		Naxisn: append([]int32(nil), lights[0].Naxisn...), // clone slice
-		Pixels: lights[0].Pixels,
+		Naxisn: append([]int32(nil), f[0].Naxisn...), // clone slice
+		Pixels: f[0].Pixels,
 		Data  : data,
 		Exposure: exposureSum,
 		Stats : nil, 
@@ -164,18 +236,15 @@ func Stack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, si
 		Residual: 0,
 	}
 
-	stack.Stats, err=CalcExtendedStats(data, lights[0].Naxisn[0])
-	if err!=nil { return nil, -1, -1, err }
+	stack.Stats, err=CalcExtendedStats(data, f[0].Naxisn[0])
+	if err!=nil { return nil, err }
 
-	if mode>=StSigma {
-		return &stack, numClippedLow, numClippedHigh, nil
-	}
-	return &stack, -1, -1, nil
+	return &stack, nil
 }
 
 
 // Stacking with median function
-func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
+func StackMedian(lightsData [][]float32, RefFrameLoc float32, res []float32) {
 	gatheredFull:=make([]float32,len(lightsData))
 
 	// for all pixels
@@ -196,7 +265,7 @@ func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]
@@ -208,7 +277,7 @@ func StackMedian(lightsData [][]float32, refMedian float32, res []float32) {
 
 
 // Stacking with mean function
-func StackMean(lightsData [][]float32, refMedian float32, res []float32) {
+func StackMean(lightsData [][]float32, RefFrameLoc float32, res []float32) {
 	// for all pixels
 	for i, _:=range res {
 
@@ -229,7 +298,7 @@ func StackMean(lightsData [][]float32, refMedian float32, res []float32) {
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		res[i]=sum/float32(numGathered)
@@ -238,7 +307,7 @@ func StackMean(lightsData [][]float32, refMedian float32, res []float32) {
 
 
 // Stacking with mean function and weights
-func StackMeanWeighted(lightsData [][]float32, weights []float32, refMedian float32, res []float32) {
+func StackMeanWeighted(lightsData [][]float32, weights []float32, RefFrameLoc float32, res []float32) {
 	// for all pixels
 	for i, _:=range res {
 
@@ -262,7 +331,7 @@ func StackMeanWeighted(lightsData [][]float32, weights []float32, refMedian floa
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		res[i]=sum/float32(weightSum)
@@ -273,7 +342,7 @@ func StackMeanWeighted(lightsData [][]float32, weights []float32, refMedian floa
 // Mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are excluded from the average calculation.
 // The standard deviation is calculated w.r.t the mean for robustness.
-func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+func StackSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
 	gatheredFull:=make([]float32,len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
 
@@ -296,7 +365,7 @@ func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, 
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]
@@ -343,7 +412,7 @@ func StackSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, 
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are excluded from the average calculation.
 // The standard deviation is calculated w.r.t the mean for robustness.
-func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+func StackSigmaWeighted(lightsData [][]float32, weights []float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
 	gatheredFull:=make([]float32,len(lightsData))
 	weightsFull :=make([]float32,len(weights))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
@@ -368,7 +437,7 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, si
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]
@@ -437,7 +506,7 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, si
 
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are replaced with the lowest/highest valid value.
-func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+func StackWinsorSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
 	gatheredFull  :=make([]float32,len(lightsData))
 	winsorizedFull:=make([]float32,len(lightsData))
 	numClippedLow, numClippedHigh:=int32(0), int32(0)
@@ -461,7 +530,7 @@ func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh flo
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]
@@ -536,7 +605,7 @@ func StackWinsorSigma(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh flo
 
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from the mean are replaced with the lowest/highest valid value.
-func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
 	gatheredFull  :=make([]float32,len(lightsData))
 	weightsFull   :=make([]float32,len(weights))
 	winsorizedFull:=make([]float32,len(lightsData))
@@ -562,7 +631,7 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedi
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]
@@ -660,7 +729,7 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, refMedi
 
 // Stacking with linear regression fit. Values which are more than sigmaLow/sigmaHigh
 // standard deviations away from linear fit  are excluded from the average calculation.
-func StackLinearFit(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+func StackLinearFit(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
 	gatheredFull:=make([]float32,len(lightsData))
 	xs:=make([]float32,len(lightsData))
 	for i, _:=range(xs) {
@@ -689,7 +758,7 @@ func StackLinearFit(lightsData [][]float32, refMedian, sigmaLow, sigmaHigh float
 			// compare equal to itself, this would require a full reimplementation
 			// of basic partitioning and sorting primitives on float32. 
 			// Not going down that rabbit hole for now. 
-			res[i]=refMedian 
+			res[i]=RefFrameLoc 
 			continue	
 		}
 		gatheredCur:=gatheredFull[:numGathered]

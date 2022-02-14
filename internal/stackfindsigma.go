@@ -17,10 +17,10 @@
 package internal
 
 import (
-	"runtime/debug"
+	// "runtime/debug"
 )
 
-
+/*
 // Find lower and upper sigma bounds given desired clipping percentages, and stack using these values
 func FindSigmasAndStack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *FITSImage, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
 	// If desired, auto-select stacking mode based on number of frames    
@@ -166,3 +166,4 @@ func newtonMethodAndStack(lights []*FITSImage, mode StackMode, weights []float32
 		sigLow, sigHigh=newSigLow, newSigHigh
 	}
 }
+*/

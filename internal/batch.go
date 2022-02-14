@@ -17,80 +17,133 @@
 package internal
 
 import (
-	"github.com/pbnjay/memory"
-	"math/rand"
-	"runtime"
-	"sort"
+	"errors"
+	"fmt"
+	"io"
+	"math"
+	"runtime/debug"
 )
 
-
-// Split input into required number of randomized batches, given the permissible amount of memory
-func PrepareBatches(fileNames []string, stMemory int64, darkF, flatF *FITSImage) (numBatches, batchSize int64, ids []int, shuffledFileNames []string, imageLevelParallelism int32) {
-	numFrames:=int64(len(fileNames))
-	width, height:=int64(0), int64(0)
-	if darkF!=nil {
-		width, height=int64(darkF.Naxisn[0]), int64(darkF.Naxisn[1])
-	}  else if flatF!=nil {
-		width, height=int64(flatF.Naxisn[0]), int64(flatF.Naxisn[1])
-	} else {
-		LogPrintf("\nEstimating memory needs for %d images from %s:\n", numFrames, fileNames[0])
-		first:=NewFITSImage()
-		first.ReadFile(fileNames[0])
-		width, height=int64(first.Naxisn[0]), int64(first.Naxisn[1])
-	}
-	pixels:=width*height
-	mPixels:=float32(width)*float32(height)*1e-6
-	bytes:=pixels*4
-	mib:=bytes/1024/1024
-	LogPrintf("%d images of %dx%d pixels (%.1f MPixels), which each take %d MiB in-memory as floating point.\n", 
-	           numFrames, width, height, mPixels, mib)
-
-	availableFrames:=(int64(stMemory)*1024*1024)/bytes // rounding down
-	imageLevelParallelism=int32(runtime.GOMAXPROCS(0))
-	LogPrintf("CPU has %d threads. Physical memory is %d MiB, -stMemory is %d MiB, this fits %d frames.\n", imageLevelParallelism, memory.TotalMemory()/1024/1024, stMemory, availableFrames)
-
-	// Calculate batch sizes for preprocessing
-	for ; imageLevelParallelism>=1; imageLevelParallelism-- {
-		// Besides the lights in the current batch, we need one temp frame per thread,
-		// the optional dark and flat, the reference frame from batch 0 (if >1 batches), 
-		// and the stack of stacks (if >1 bacthes) 
-		batchSize=availableFrames - int64(imageLevelParallelism)
-		if darkF!=nil { batchSize-- }
-		if flatF!=nil { batchSize-- }
-		if batchSize<2 { continue }
-
-		// correct for multi-batch memory requirements 
-		numBatches=(numFrames+batchSize-1)/batchSize
-		if numBatches>1 {
-			batchSize-=2	// reference frame from batch 0, and stack of stacks
-		}
-		if batchSize<2 { continue }
-		if batchSize<int64(imageLevelParallelism) { continue }
-		break
-	}
-	if imageLevelParallelism<1 || batchSize<2 { LogFatal("Cannot find a stacking execution path within the given memory constraints.") }
-	// even out size of the last frame
-	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
-	LogPrintf("Using %d batches of batch size %d with %d images in parallel.\n", numBatches, batchSize, imageLevelParallelism)
-
-	perm:=make([]int, len(fileNames))
-	for i,_:=range perm {
-		perm[i]=i
-	}
-	if numBatches>1 {
-		LogPrintf("Randomizing input files across batches...\n")
-		perm=rand.Perm(len(fileNames))
-		for i:=0; i<int(numBatches); i++ {
-			from:=i*int(batchSize)
-			to  :=(i+1)*int(batchSize)
-			if to>len(perm) { to=len(perm) }
-			sort.Ints(perm[from:to])
-		}
-		old:=fileNames
-		fileNames:=make([]string, len(fileNames))
-		for i,_:=range fileNames {
-			fileNames[i]=old[perm[i]]
-		}
-	}
-	return numBatches, batchSize, perm, fileNames, imageLevelParallelism
+type OperatorJoinFiles interface {
+	Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (result *FITSImage, err error)
+	Init() (err error)
 }
+
+type OpSingleBatch struct {
+	PreProcess  *OpPreProcess   `json:"preProcess"`
+	PostProcess *OpPostProcess  `json:"postProcess"`
+	Stack       *OpStack        `json:"stack"`
+	StarDetect  *OpStarDetect   `json:"starDetect"` 
+	Save        *OpSave         `json:"save"`
+	MaxThreads   int64          `json:"-"`
+}
+var _ OperatorJoinFiles = (*OpSingleBatch)(nil) // Compile time assertion: type implements the interface
+
+
+func NewOpSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStack *OpStack, opStarDetect *OpStarDetect, save string) *OpSingleBatch {
+	return &OpSingleBatch{
+		PreProcess:  opPreProc, 
+		PostProcess: opPostProc,
+		Stack:       opStack, 
+		StarDetect:  opStarDetect,
+		Save:        NewOpSave(save), 
+		MaxThreads:  0,
+	}
+}
+
+
+func (op *OpSingleBatch) Init() (err error) { 
+	if err=op.PreProcess .Init(); err!=nil { return err }
+	if err=op.PostProcess.Init(); err!=nil { return err }
+	if err=op.Stack      .Init(); err!=nil { return err }
+	if err=op.StarDetect .Init(); err!=nil { return err }
+	if err=op.Save       .Init(); err!=nil { return err }
+	return nil
+}
+
+
+// Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
+// Returns the stack for the batch, and updates reference frame internally
+func (op *OpSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
+	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
+
+	opParallelPre:=NewOpParallel(op.PreProcess, op.MaxThreads)
+	lights, err:=opParallelPre.ApplyToFiles(opLoadFiles, logWriter)
+	if err!=nil { return nil, err }
+	lights=RemoveNils(lights) // Remove nils from lights, in case of read errors
+	debug.FreeOSMemory()					
+
+	avgNoise:=float32(0)
+	for _,l:=range lights {
+		avgNoise+=l.Stats.Noise
+	}
+	avgNoise/=float32(len(lights))
+	fmt.Fprintf(logWriter, "Average input frame noise is %.4g\n", avgNoise)
+
+	// Select reference frame, unless one was provided from prior batches
+	if (op.PostProcess.Normalize.Active || op.PostProcess.Align.Active) && op.PostProcess.Align.Reference==nil {
+		refFrameScore:=float32(0)
+		op.PostProcess.Align.Reference, refFrameScore=SelectReferenceFrame(lights, RefSelMode(op.PostProcess.Align.RefSelMode))
+		op.PostProcess.Normalize.Reference=op.PostProcess.Align.Reference
+		if op.PostProcess.Align.Reference==nil { return nil, errors.New("Reference frame for alignment and normalization not found.") }
+		fmt.Fprintf(logWriter, "Using frame %d as reference. Score %.4g, %v.\n", op.PostProcess.Align.Reference.ID, refFrameScore, op.PostProcess.Align.Reference.Stats)
+	}
+
+	// Post-process all light frames (align, normalize)
+	fmt.Fprintf(logWriter, "\nPostprocessing %d frames...\n", len(lights))
+
+	opParallelPost:=NewOpParallel(op.PostProcess, op.MaxThreads)
+	lights, err=opParallelPost.ApplyToFITS(lights, logWriter)
+	if err!=nil { return nil, err }
+	lights=RemoveNils(lights) // Remove nils from lights, in case of alignment errors
+	debug.FreeOSMemory()					
+
+	// Tell the stacker the location of the reference frame. Used to fill in NaN pixels when stacking
+	op.Stack.RefFrameLoc=0
+	if op.PostProcess.Align.Reference!=nil && op.PostProcess.Align.Reference.Stats!=nil {
+		op.Stack.RefFrameLoc=op.PostProcess.Align.Reference.Stats.Location
+	}
+	numFrames:=len(lights)
+
+	// Perform the stack
+	fOut, err=op.Stack.Apply(lights, logWriter)
+	if err!=nil { return nil, err }
+
+	// Free memory
+	lights=nil
+	debug.FreeOSMemory()
+
+
+	// Find stars in the newly stacked batch and report out on them
+	fOut, err=op.StarDetect.Apply(fOut, logWriter)
+	fmt.Fprintf(logWriter, "Batch %d stack: Stars %d HFR %.2f Exposure %gs %v\n", 0, len(fOut.Stars), fOut.HFR, fOut.Exposure, fOut.Stats)
+	// FIXME: Batch ID
+
+	expectedNoise:=avgNoise/float32(math.Sqrt(float64(numFrames)))
+	fmt.Fprintf(logWriter, "Batch %d expected noise %.4g from stacking %d frames with average noise %.4g\n",
+				0, expectedNoise, numFrames, avgNoise )
+	// FIXME: Batch ID
+
+	// Save batch interim results, if desired
+	if fOut, err=op.Save.Apply(fOut, logWriter); err!=nil { return nil, err}
+
+	return fOut, nil
+}
+
+
+// Remove nils from an array of FITSImages, editing the underlying array in place
+func RemoveNils(lights []*FITSImage) ([]*FITSImage) {
+	o:=0
+	for i:=0; i<len(lights); i+=1 {
+		if lights[i]!=nil {
+			lights[o]=lights[i]
+			o+=1
+		}
+	}
+	for i:=o; i<len(lights); i++ {
+		lights[i]=nil
+	}
+	return lights[:o]	
+}
+
