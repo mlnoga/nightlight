@@ -17,10 +17,14 @@
 package rest
 
 import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"runtime"
 	"github.com/gin-gonic/gin"
-	// "net/http"
 
-	// nl "github.com/mlnoga/nightlight/internal"
+	nl "github.com/mlnoga/nightlight/internal"
 	// "github.com/mlnoga/nightlight/internal/state"
 )
 
@@ -32,17 +36,11 @@ func Serve() {
 		v1 := api.Group("/v1")
 		{
 			v1.GET ("/ping",  getPing)
-			// v1.GET ("/dark",  getDark)
-			// v1.POST("/dark",  postDark)
-			// v1.GET ("/flat",  getFlat)
-			// v1.POST("/flat",  postFlat)
-			// v1.GET ("/align", getAlign)
-			// v1.POST("/align", postAlign)
+			v1.POST("/stats", postStats)
 		}
 	}
 	r.Run() // listen and serve on 0.0.0.0:8080	
 }
-
 
 func getPing(c *gin.Context) {
 	c.JSON(200, gin.H{
@@ -50,79 +48,51 @@ func getPing(c *gin.Context) {
 	})
 }
 
+func printArgs(logWriter io.Writer, prefix, suffix string, args interface{}) error {
+	m,err:=json.MarshalIndent(args, "", "  ")
+	if err!=nil { return err }
+	fmt.Fprintf(logWriter, "%s%s%s", prefix, string(m), suffix)
+	return nil
+}
 
-// type postDarkFlatAlignArgs struct {
-// 	Name string `json:"name" form:"name" binding:"required"`
-// }
+type postStatsArgs struct {
+	FilePatterns []string             `json:"filePatterns"`
+	StarDetect    *nl.OpStarDetect    `json:"starDetect"`
+}
 
-// func postDarkFlatAlign(c *gin.Context) *nl.FITSImage {
-// 	var a postDarkFlatAlignArgs
-// 	if err:=c.ShouldBind(&a); err!=nil {
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
-// 		return nil
-// 	}
+func postStats(c *gin.Context)  {
+	logWriter := c.Writer
+	var args postStatsArgs
+	if err:=c.ShouldBind(&args); err!=nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
+		return
+	}
 
-// 	f,err:=nl.LoadAndCalcStats(a.Name, -1)
-// 	if err!=nil { 
-// 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } ) 
-// 		return nil
-// 	}
+	header := logWriter.Header()
+	//header.Set("Transfer-Encoding", "chunked")
+	header.Set("Content-Type", "text/plain")
+	logWriter.WriteHeader(http.StatusOK)
 
-// 	res:=gin.H{
-// 	 	"id": f.ID, 
-// 	    "name": f.FileName,
-// 	    "width": f.Naxisn[0],
-// 	    "height": f.Naxisn[1],
-// 	    "stats" : f.Stats,
-// 	}
-// 	if f.Stats.StdDev<1e-8 {
-// 		res["warning"]="File may be degenerate"
-// 	}
-// 	c.JSON(http.StatusCreated, res)
-// 	return f
-// }
+	if err:=printArgs(logWriter, "Arguments:\n", "\n", args); err!=nil {
+		fmt.Fprintf(logWriter, "Error printing arguments: %s\n", err.Error())
+		return
+	}
 
-// func postDark(c *gin.Context) {
-// 	state.CalFrames.Dark=postDarkFlatAlign(c)
-// }
+	// glob filename arguments into OpLoadFiles operators
+	var err error
+	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	if err!=nil {
+		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
+		return
+	}
 
-// func postFlat(c *gin.Context) {
-// 	state.CalFrames.Flat=postDarkFlatAlign(c)
-// }
+	opParallel:=nl.NewOpParallel(args.StarDetect, int64(runtime.NumCPU()))
+	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
+	if(err!=nil) {
+		fmt.Fprintf(logWriter, "error: %s\n", err.Error())		
+	}
+	logWriter.(http.Flusher).Flush()
 
-// func postAlign(c *gin.Context) {
-// 	state.AlignF=postDarkFlatAlign(c)
-// }
+	return
+}
 
-
-
-// func getDarkFlatAlign(c *gin.Context, f *nl.FITSImage) {
-// 	if f==nil {
-// 		c.JSON(http.StatusNotFound, gin.H{} ) 
-// 		return
-// 	}
-
-// 	res:=gin.H{
-// 	 	"id": f.ID, 
-// 	    "name": f.FileName,
-// 	    "width": f.Naxisn[0],
-// 	    "height": f.Naxisn[1],
-// 	    "stats" : f.Stats,
-// 	}
-// 	if f.Stats.StdDev<1e-8 {
-// 		res["warning"]="File may be degenerate"
-// 	}
-// 	c.JSON(http.StatusOK, res)
-// }
-
-// func getDark(c *gin.Context) {
-// 	getDarkFlatAlign(c, state.CalFrames.Dark)
-// }
-
-// func getFlat(c *gin.Context) {
-// 	getDarkFlatAlign(c, state.CalFrames.Flat)
-// }
-
-// func getAlign(c *gin.Context) {
-// 	getDarkFlatAlign(c, state.AlignF)
-// }
