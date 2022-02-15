@@ -17,6 +17,7 @@
 package internal
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -129,13 +130,13 @@ func NewOpLoadFile(id int, fileName string) *OpLoadFile {
 
 // Load image from a file
 func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
-	fmt.Fprintf(logWriter, "%d: Loading light frame from %s\n", op.ID, op.FileName)
 	theF:=NewFITSImage()
 	theF.ID=op.ID
 	f:=&theF
 
 	err=f.ReadFile(op.FileName)
 	if err!=nil { return nil, err }
+	fmt.Fprintf(logWriter, "%d: Loaded %v pixel frame from %s\n", f.ID, f.DimensionsToString(), f.FileName)
 	return f, nil	
 }
 
@@ -154,9 +155,9 @@ func NewOpLoadFiles(args []string, logWriter io.Writer) (loaders []*OpLoadFile, 
 			ops=append(ops, NewOpLoadFile(len(ops), match))
 		}
 	}
-	fmt.Fprintf(logWriter, "Found %d frames:\n", len(ops))
+	fmt.Fprintf(logWriter, "Found %d files:\n", len(ops))
 	for _, op:=range(ops) {
-		fmt.Fprintf(logWriter, "%d:%s\n",op.ID, op.FileName)
+		fmt.Fprintf(logWriter, "%d: %s\n",op.ID, op.FileName)
 	}
 	return ops, nil
 }
@@ -216,24 +217,24 @@ func NewOpPreProcess(dark, flat string, debayer, cfa string, binning int32,
 }
 
 func (op *OpPreProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
-	if f, err=op.Calibrate  .Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.BadPixel   .Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.Debayer    .Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.Bin        .Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.BackExtract.Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.StarDetect .Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.Save       .Apply(f, logWriter); err!=nil { return nil, err}
+	if op.Calibrate  !=nil { if f, err=op.Calibrate  .Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.BadPixel   !=nil { if f, err=op.BadPixel   .Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.Debayer    !=nil { if f, err=op.Debayer    .Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.Bin        !=nil { if f, err=op.Bin        .Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.BackExtract!=nil { if f, err=op.BackExtract.Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.StarDetect !=nil { if f, err=op.StarDetect .Apply(f, logWriter); err!=nil { return nil, err} }
+	if op.Save       !=nil { if f, err=op.Save       .Apply(f, logWriter); err!=nil { return nil, err} }
 	return f, nil
 }
 
 func (op *OpPreProcess) Init() (err error) { 
-	if err=op.Calibrate  .Init(); err!=nil { return err }
-	if err=op.BadPixel   .Init(); err!=nil { return err }
-	if err=op.Debayer    .Init(); err!=nil { return err }
-	if err=op.Bin        .Init(); err!=nil { return err }
-	if err=op.BackExtract.Init(); err!=nil { return err }
-	if err=op.StarDetect .Init(); err!=nil { return err }
-	if err=op.Save       .Init(); err!=nil { return err }
+	if op.Calibrate  !=nil { if err=op.Calibrate  .Init(); err!=nil { return err } }
+	if op.BadPixel   !=nil { if err=op.BadPixel   .Init(); err!=nil { return err } }
+	if op.Debayer    !=nil { if err=op.Debayer    .Init(); err!=nil { return err } }
+	if op.Bin        !=nil { if err=op.Bin        .Init(); err!=nil { return err } }
+	if op.BackExtract!=nil { if err=op.BackExtract.Init(); err!=nil { return err } }
+	if op.StarDetect !=nil { if err=op.StarDetect .Init(); err!=nil { return err } }
+	if op.Save       !=nil { if err=op.Save       .Init(); err!=nil { return err } }
 	return nil
  }
 
@@ -335,12 +336,28 @@ func NewOpBadPixel(bpSigLow, bpSigHigh float32, debayer *OpDebayer) *OpBadPixel 
 	}
 }
 
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpBadPixel) UnmarshalJSON(data []byte) error {
+	type defaults OpBadPixel
+	def:=defaults{
+		Active    : true,
+		SigmaLow  : 3,
+		SigmaHigh : 5,
+		Debayer   : nil,
+	}
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpBadPixel(def)
+	return nil
+}
+
+
 // Apply bad pixel removal if active
 func (op *OpBadPixel) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active ||  op.SigmaLow==0 || op.SigmaHigh==0 {
 		return f, nil
 	}
-	if !op.Debayer.Active {
+	if op.Debayer==nil || !op.Debayer.Active {
 		var bpm []int32
 		bpm, f.MedianDiffStats=BadPixelMap(f.Data, f.Naxisn[0], op.SigmaLow, op.SigmaHigh)
 		mask:=CreateMask(f.Naxisn[0], 1.5)
@@ -375,6 +392,20 @@ func NewOpDebayer(debayer, cfa string) *OpDebayer {
 	}
 }
 
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpDebayer) UnmarshalJSON(data []byte) error {
+	type defaults OpDebayer
+	def:=defaults{
+		Active    : false,
+		Debayer   : "",
+		ColorFilterArray : "RGGB",
+	}
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpDebayer(def)
+	return nil
+}
+
 // Apply debayering if active 
 func (op *OpDebayer) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -402,6 +433,19 @@ func NewOpBin(binning int32) *OpBin {
 		Active  : binning>1,
 		BinSize : binning,
 	}
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpBin) UnmarshalJSON(data []byte) error {
+	type defaults OpBin
+	def:=defaults{
+		Active    : false,
+		BinSize   : 1,
+	}
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpBin(def)
+	return nil
 }
 
 // Apply binning if active
@@ -436,6 +480,22 @@ func NewOpBackExtract(backGrid int32, backSigma float32, backClip int32, savePat
 	}
 }
 
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpBackExtract) UnmarshalJSON(data []byte) error {
+	type defaults OpBackExtract
+	def:=defaults{
+		Active          : false,
+	    GridSize     	: 256,
+	    Sigma 		    : 1.5,
+	    NumBlocksToClip : 0,
+	    Save            : NewOpSave(""),
+	}
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpBackExtract(def)
+	return nil
+}
+
 // Apply background extraction if active
 func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active || op.GridSize<=0 { return f, nil }
@@ -443,7 +503,7 @@ func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSIma
 	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.NumBlocksToClip)
 	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, bg)
 
-	if !op.Save.Active || op.Save.FilePattern=="" {
+	if op.Save==nil || !op.Save.Active || op.Save.FilePattern=="" {
 		// faster, does not materialize background image explicitly
 		bg.Subtract(f.Data)
 	} else { 
@@ -489,6 +549,23 @@ func NewOpStarDetect(starRadius int32, starSig, starBpSig, starInOut float32, sa
 	}
 }
 
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpStarDetect) UnmarshalJSON(data []byte) error {
+	type defaults OpStarDetect
+	def:=defaults{
+		Active          : true,
+	    Radius          : 16,
+		Sigma           : 15,
+	    BadPixelSigma   : -1,   // FIXME: auto-detect??
+	    InOutRatio      : 1.4,  // FIXME: way too low??
+	    Save            : NewOpSave(""),
+	}
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpStarDetect(def)
+	return nil
+}
+
 // Apply star detection if active. Calculates needed stats on demand if not current
 func (op *OpStarDetect) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -501,7 +578,7 @@ func (op *OpStarDetect) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImag
 	f.Stars, _, f.HFR=FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
 	fmt.Fprintf(logWriter, "%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
-	if op.Save.Active {
+	if op.Save!=nil && op.Save.Active {
 		stars:=ShowStars(f, 2.0)
 		_, err=op.Save.Apply(&stars, logWriter)
 		if err!=nil { return nil, err }
@@ -540,13 +617,13 @@ func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err
 		err=f.WriteFile(fileName)
 	} else if strings.HasSuffix(fnLower,".jpeg") || strings.HasSuffix(fnLower,".jpg") {
 		if len(f.Naxisn)==1 {
-			fmt.Fprintf(logWriter, "%d: Writing mono JPEG to %s ...\n", f.ID, fileName)
+			fmt.Fprintf(logWriter, "%d: Writing %s pixel mono JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
 			f.WriteMonoJPGToFile(fileName, 95)
 		} else if len(f.Naxisn)==3 {
-			fmt.Fprintf(logWriter, "%d: Writing color JPEG to %s ...\n", f.ID, fileName)
+			fmt.Fprintf(logWriter, "%d: Writing %s pixel color JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
 			f.WriteJPGToFile(fileName, 95)
 		} else {
-			return nil, errors.New(fmt.Sprintf("%d: Unable to write image with dimensions %v as JPEG to %s\n", f.ID, f.Naxisn, fileName))
+			return nil, errors.New(fmt.Sprintf("%d: Unable to write %s pixel image as JPEG to %s\n", f.ID, f.DimensionsToString(), fileName))
 		}
 	}
 	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err)) }
