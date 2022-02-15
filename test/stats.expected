@@ -1,0 +1,24 @@
+Arguments:
+{
+  "filePatterns": [
+    "*.fits"
+  ],
+  "starDetect": {
+    "active": true,
+    "radius": 16,
+    "sigma": 8,
+    "badPixelSigma": -1,
+    "inOutRatio": 8,
+    "save": {
+      "active": false,
+      "filePattern": ""
+    }
+  }
+}
+Found 2 files:
+0: M101_Pinwheel_L.fits
+1: M101_Pinwheel_L_stretch.fits
+1: Loaded 5496x3672 pixel frame from M101_Pinwheel_L_stretch.fits
+0: Loaded 5496x3672 pixel frame from M101_Pinwheel_L.fits
+0: Stars 1159 HFR 4.45 Min -67.1675 Max 63847.1 Mean 10.3287 StdDev 284.072 Location 5.34085 Scale 3.26121 Noise 2.049
+1: Stars 265 HFR 5.9 Min 0 Max 1 Mean 0.230833 StdDev 0.0819983 Location 0.231657 Scale 0.0622652 Noise 0.03822

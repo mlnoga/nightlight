@@ -1,0 +1,7 @@
+{ 
+  "filePatterns" : ["*.fits"],
+  "starDetect"       : {
+    "sigma": 8,
+    "inOutRatio": 8
+  }
+}
