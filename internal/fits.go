@@ -17,7 +17,9 @@
 package internal
 
 import (
+	"fmt"
 	"math"
+	"strings"
 )
 
 // A FITS image. 
@@ -85,6 +87,18 @@ func NewFITSHeader() FITSHeader {
 const fitsBlockSize int      = 2880       // Block size of FITS header and data units
 const fitsHeaderLineSize int =   80       // Line size of a FITS header
 
+
+func (f *FITSImage) DimensionsToString() string {
+	b:=strings.Builder{}
+	for i,naxis:=range(f.Naxisn) {
+		if i>0 { 
+			fmt.Fprintf(&b, "x%d", naxis)
+		} else {
+			fmt.Fprintf(&b, "%d", naxis)
+		}
+	} 
+	return b.String()
+}
 
 // Combine single color images into one multi-channel image.
 // All images must have the same dimensions, or undefined results occur. 
