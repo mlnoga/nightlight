@@ -1,5 +1,5 @@
 TARGET=nightlight
-SRCS=$(wildcard cmd/$(TARGET)/*.go) $(wildcard internal/*.go) $(wildcard internal/*.asm)
+SRCS=$(wildcard cmd/$(TARGET)/*.go) $(wildcard internal/*.go) $(wildcard internal/*.asm) $(wildcard internal/*/*.go) $(wildcard internal/*/*.asm)
 FLAGS=-v -tags=jsoniter# -gcflags "-m"
 
 ifeq ($(OS),Windows_NT)
