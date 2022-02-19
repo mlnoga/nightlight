@@ -483,7 +483,10 @@ func NewOpSave(filenamePattern string) *OpSave {
 func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active || op.FilePattern=="" { return f, nil }
 
-	fileName:=fmt.Sprintf(op.FilePattern, f.ID)
+	fileName:=op.FilePattern
+	if strings.Contains(fileName, "%d") {
+		fileName=fmt.Sprintf(op.FilePattern, f.ID)
+	}
 	fnLower:=strings.ToLower(fileName)
 
 	if strings.HasSuffix(fnLower,".fits")      || strings.HasSuffix(fnLower,".fit")      || strings.HasSuffix(fnLower,".fts")     ||
@@ -501,8 +504,10 @@ func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err
 		} else {
 			return nil, errors.New(fmt.Sprintf("%d: Unable to write %s pixel image as JPEG to %s\n", f.ID, f.DimensionsToString(), fileName))
 		}
+	} else {
+		err=errors.New("Unknown suffix")
 	}
-	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err)) }
+	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err.Error())) }
 	return f, nil;
 }
 
