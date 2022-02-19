@@ -17,7 +17,6 @@
 package internal
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,14 +31,14 @@ import (
 
 
 
-type OpMultiBatch struct {
-	Batch            *OpSingleBatch   `json:"batch"`
+type OpStackMultiBatch struct {
+	Batch            *OpStackSingleBatch   `json:"batch"`
 	Memory            int64           `json:"memory"`
 	Save             *OpSave          `json:"save"`
 }
 
-func NewOpMultiBatch(batch *OpSingleBatch, memory int64, save *OpSave) (op *OpMultiBatch) {
-	return &OpMultiBatch{
+func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *OpSave) (op *OpStackMultiBatch) {
+	return &OpStackMultiBatch{
 		Batch       : batch,
 		Memory      : memory,
 		Save        : save,
@@ -47,18 +46,11 @@ func NewOpMultiBatch(batch *OpSingleBatch, memory int64, save *OpSave) (op *OpMu
 }
 
 
-func (op *OpMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
 	// Partition the loaders into optimal batches
 	opLoadFilesPerm, numBatches, batchSize, maxThreads, err := op.partition(opLoadFiles, logWriter)
 	if err!=nil { return nil, err }
 	op.Batch.MaxThreads=maxThreads
-
-	// Print settings
-	{
-		m, err:=json.MarshalIndent(op,"", "  ")
-		if err!=nil { return nil, err }
-		fmt.Fprintf(logWriter, "\nBatch stacking %d frames with these settings:\n%s\n", len(opLoadFilesPerm), string(m))
-	}
 	
 	// Process each batch. The first batch sets the reference image 
 	stack:=(*FITSImage)(nil)
@@ -120,7 +112,7 @@ func (op *OpMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (f
 }
 
 
-func (op *OpMultiBatch) partition(opLoadFiles []*OpLoadFile, logWriter io.Writer) (opLoadFilesPerm []*OpLoadFile, 
+func (op *OpStackMultiBatch) partition(opLoadFiles []*OpLoadFile, logWriter io.Writer) (opLoadFilesPerm []*OpLoadFile, 
 	                                                                               numBatches, batchSize, maxThreads int64, err error) {
 	numFrames:=int64(len(opLoadFiles))
 	width, height:=int64(0), int64(0)

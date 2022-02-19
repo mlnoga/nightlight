@@ -253,12 +253,36 @@ Flags:
 		_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
 
 	case "stack":
-		opPostProc:=nl.NewOpPostProcess(nl.HistoNormMode(*normHist), int32(*align), int32(*alignK), float32(*alignT), 
-										nl.OOBModeNaN, nl.RefSelMode(*refSelMode), *post)
-		opStack:=nl.NewOpStack(nl.StackMode(*stMode), nl.StackWeighting(*stWeight), float32(*stSigLow), float32(*stSigHigh))
-    	opSingleBatch:=nl.NewOpSingleBatch(opPreProc, opPostProc, opStack, opPreProc.StarDetect, *batch)
-    	opMultiBatch :=nl.NewOpMultiBatch(opSingleBatch, *stMemory, nl.NewOpSave(*out))
-    	_, err=opMultiBatch.Apply(opLoadFiles, logWriter)
+    	opStackMultiBatch :=nl.NewOpStackMultiBatch(
+	    	nl.NewOpStackSingleBatch(
+	    		opPreProc, 
+	    		nl.NewOpPostProcess(
+	    			nl.HistoNormMode(*normHist), 
+	    			int32(*align), 
+	    			int32(*alignK), 
+	    			float32(*alignT), 
+					nl.OOBModeNaN,
+					nl.RefSelMode(*refSelMode), 
+					*post,
+				), 
+				nl.NewOpStack(
+					nl.StackMode(*stMode), 
+					nl.StackWeighting(*stWeight), 
+					float32(*stSigLow), 
+					float32(*stSigHigh),
+				),
+	    		opPreProc.StarDetect, 
+	    		*batch,
+	    	),
+			*stMemory, 
+			nl.NewOpSave(*out),
+		)
+
+		m, err:=json.MarshalIndent(opStackMultiBatch, "", "  ")
+		if err!=nil { break }
+		fmt.Fprintf(logWriter, "\nBatch stacking %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
+
+    	_, err=opStackMultiBatch.Apply(opLoadFiles, logWriter)
 
     case "stretch":
     	opStretch:=nl.NewOpStretch(

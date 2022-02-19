@@ -25,7 +25,7 @@ import (
 )
 
 
-type OpSingleBatch struct {
+type OpStackSingleBatch struct {
 	PreProcess  *OpPreProcess   `json:"preProcess"`
 	PostProcess *OpPostProcess  `json:"postProcess"`
 	Stack       *OpStack        `json:"stack"`
@@ -33,11 +33,11 @@ type OpSingleBatch struct {
 	Save        *OpSave         `json:"save"`
 	MaxThreads   int64          `json:"-"`
 }
-var _ OperatorJoinFiles = (*OpSingleBatch)(nil) // Compile time assertion: type implements the interface
+var _ OperatorJoinFiles = (*OpStackSingleBatch)(nil) // Compile time assertion: type implements the interface
 
 
-func NewOpSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStack *OpStack, opStarDetect *OpStarDetect, save string) *OpSingleBatch {
-	return &OpSingleBatch{
+func NewOpStackSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStack *OpStack, opStarDetect *OpStarDetect, save string) *OpStackSingleBatch {
+	return &OpStackSingleBatch{
 		PreProcess:  opPreProc, 
 		PostProcess: opPostProc,
 		Stack:       opStack, 
@@ -50,7 +50,7 @@ func NewOpSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStac
 
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and updates reference frame internally
-func (op *OpSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
 
