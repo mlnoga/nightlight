@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -30,7 +29,6 @@ import (
 	nl "github.com/mlnoga/nightlight/internal"
 	"github.com/mlnoga/nightlight/internal/rest"
 	"github.com/pbnjay/memory"
-	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
 const version = "0.2.5"
@@ -215,7 +213,11 @@ Flags:
 		if *starBpSig<0 { *starBpSig=5 } // default to noise elimination when working with individual subexposures
     case "stretch":
     case "rgb":
+		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
+		if *starBpSig<0 { *starBpSig=0 }  // inputs are typically stacked and have undergone noise removal
     case "lrgb":
+		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
+		if *starBpSig<0 { *starBpSig=0 }  // inputs are typically stacked and have undergone noise removal
     case "legal":
     case "version":
     case "help", "?":
@@ -293,14 +295,39 @@ Flags:
     	opParallel:=nl.NewOpParallel(opStretch, int64(runtime.GOMAXPROCS(0)))
     	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)  // FIXME: materializes all files in memory
 
-    case "rgb":
-    	cmdRGB(args[1:], logWriter)
+    case "rgb", "lrgb":
+    	opRGB:=nl.NewOpRGBLProcess(nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars), 
+			nl.NewOpSelectReference(nl.RFMStarsOverHFR),                       			   
+			nl.NewOpRGBCombine(true), 
+			nl.NewOpRGBBalance(true),
+			nl.NewOpRGBToHSLuv(true),
+			nl.NewOpHSLApplyLum(true),
+			nl.NewOpSequence([]nl.OperatorUnary{
+				nl.NewOpHSLApplyLum(true),
+				nl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
+				nl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
+				nl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
+				nl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
+				nl.NewOpHSLSCNR(float32(*scnr)),
+				nl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
+				nl.NewOpHSLGamma(float32(*gamma)),
+				nl.NewOpHSLPPGamma(float32(*ppGamma), float32(*ppSigma)),
+				nl.NewOpHSLScaleBlack(float32(*scaleBlack)),
+			}), 
+			nl.NewOpHSLuvToRGB(true),
+			nl.NewOpSave(*out),
+			nl.NewOpSave(*jpg),
+		) 
 
-    case "lrgb":
-    	cmdLRGB(args[1:], logWriter)
+    	var m []byte
+		m,err=json.MarshalIndent(opRGB,"", "  ")
+		if err!=nil { break }
+		fmt.Fprintf(logWriter, "\nCombining %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
+
+    	_, err=opRGB.Apply(opLoadFiles, logWriter)
 
     case "legal":
-    	cmdLegal()
+    	fmt.Fprintf(logWriter, legal)
 
     case "version":
     	fmt.Fprintf(logWriter, "Version %s\n", version)
@@ -341,360 +368,8 @@ Flags:
 
 
 
-// Perform RGB combination command
-func cmdRGB(args []string, logWriter io.Writer) {
-	// Set default parameters for this command
-	if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
-	if *starBpSig<0 { *starBpSig=0 }  // inputs are typically stacked and have undergone noise removal
-
-	// Glob file name wildcards
-	opLoadFiles, err:=nl.NewOpLoadFiles(args, logWriter)
-	if err!=nil {
-		fmt.Fprintf(logWriter, "error globbing wildcards: %s\n", err.Error())
-		return // FIXME
-	}
-	if len(opLoadFiles)!=3 {
-		fmt.Fprintf(logWriter, "Need exactly three input files to perform a RGB combination")
-		return // FIXME
-	}
-
-	// Read files and detect stars
-	imageLevelParallelism:=int64(runtime.GOMAXPROCS(0))
-	if imageLevelParallelism>3 { imageLevelParallelism=3 }
-	fmt.Fprintf(logWriter, "\nReading color channels and detecting stars:\n")
-
-	// Parse command line parameters into settings object
-	opPreProc:=nl.NewOpPreProcess("", "", *debayer, *cfa, 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
-		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
-	)
-	if err:=opPreProc.Init(); err!=nil {
-		panic(err)
-	}
-
-	opParallelPre:=nl.NewOpParallel(opPreProc, imageLevelParallelism)
-	lights, err=opParallelPre.ApplyToFiles(opLoadFiles, logWriter)
-	if err!=nil { panic(err.Error()) }
-
-	// Pick reference frame
-	var refFrame *nl.FITSImage
-	var refFrameScore float32
-
-	//if (*align)!=0 || (*normHist)!=0 {
-		refFrame, refFrameScore=nl.SelectReferenceFrame(lights, nl.RefSelMode(*refSelMode))
-		if refFrame==nil { panic("Reference channel for alignment not found.") }
-		fmt.Fprintf(logWriter, "Using channel %d with score %.4g as reference for alignment and normalization.\n\n", refFrame.ID, refFrameScore)
-	//}
-
-/*
-	// Post-process all channels (align, normalize)
-	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
-	fmt.Fprintf(logWriter, "Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
-				 len(lights), *align, *alignK, *alignT, *normHist, oobMode, float32(*usmSigma), float32(*usmGain), float32(*usmThresh))
-	numErrors:=nl.PostProcessLights(refFrame, refFrame, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
-									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), *post, imageLevelParallelism)
-    if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
-*/
-
-	// Combine RGB channels
-	fmt.Fprintf(logWriter, "\nCombining color channels...\n")
-	rgb:=nl.CombineRGB(lights, refFrame)
-
-	postProcessAndSaveRGBComposite(&rgb, nil, logWriter)
-	rgb.Data=nil
-}
-
-
-// Perform LRGB combination command
-func cmdLRGB(args []string, logWriter io.Writer) {
-	// Set default parameters for this command
-	if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
-	if *starBpSig<0 { *starBpSig=0 }    // inputs are typically stacked and have undergone noise removal
-
-	// Glob file name wildcards
-	opLoadFiles,err:=nl.NewOpLoadFiles(args, logWriter)
-	if len(opLoadFiles)!=4 {
-		nl.LogFatal("Need exactly four input files to perform a LRGB combination")
-	}
-
-	// Read files and detect stars
-	imageLevelParallelism:=int64(runtime.GOMAXPROCS(0))
-	if imageLevelParallelism>3 { imageLevelParallelism=3 }
-	fmt.Fprintf(logWriter, "\nReading color channels and detecting stars:\n")
-
-	// Parse command line parameters into settings object
-	opPreProc:=nl.NewOpPreProcess("", "", *debayer, *cfa, 1, 0, 0, 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
-		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
-	)
-	if err:=opPreProc.Init(); err!=nil {
-		panic(err)
-	}
-
-	opParallelPre:=nl.NewOpParallel(opPreProc, imageLevelParallelism)
-	lights, err=opParallelPre.ApplyToFiles(opLoadFiles, logWriter)
-	if err!=nil { panic(err.Error()) }
-
-	var refFrame, histoRef *nl.FITSImage
-	if (*align)!=0 {
-		// Always use luminance as reference frame
-		refFrame=lights[0]
-		fmt.Fprintf(logWriter, "Using luminance channel %d as reference for alignment.\n", refFrame.ID)
-
-		// Recalculate star detections for RGB frames with corrected radius if the images were previously binned
-		for _, light:=range(lights[1:]) {
-			correction:=refFrame.Naxisn[0] / light.Naxisn[0]
-			if correction!=1 {
-				light.Stars, _, light.HFR=nl.FindStars(light.Data, light.Naxisn[0], light.Stats.Location, light.Stats.Scale, float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius)/correction, nil)
-				fmt.Fprintf(logWriter, "%d: Stars %d HFR %.3g %v\n", light.ID, len(light.Stars), light.HFR, light.Stats)
-			}
-		}
-	}
-
-	if (*normHist)!=0 {
-		// Normalize to [0,1]
-		histoRef=lights[1]
-		minLoc:=float32(histoRef.Stats.Location)
-	    for id, light:=range(lights) {
-	    	if id>0 && light.Stats.Location<minLoc { 
-	    		minLoc=light.Stats.Location 
-	    		histoRef=light
-	    	}
-	    }
-		fmt.Fprintf(logWriter, "Using color channel %d as reference for RGB peak normalization to %.4g...\n\n", histoRef.ID, histoRef.Stats.Location)
-	}
-
-	/*
-	// Align images if selected
-	var oobMode nl.OutOfBoundsMode=nl.OOBModeOwnLocation
-	fmt.Fprintf(logWriter, "Postprocessing %d channels with align=%d alignK=%d alignT=%.3f normHist=%d oobMode=%d usmSigma=%g usmGain=%g usmThresh=%g:\n", 
-		         len(lights), *align, *alignK, *alignT, *normHist, oobMode, *usmSigma, *usmGain, *usmThresh)
-	numErrors:=nl.PostProcessLights(refFrame, histoRef, lights, int32(*align), int32(*alignK), float32(*alignT), nl.HistoNormMode(*normHist), oobMode, 
-									float32(*usmSigma), float32(*usmGain), float32(*usmThresh), "", imageLevelParallelism)
-    if numErrors>0 { nl.LogFatal("Need aligned RGB frames to proceed") }
-    */
-
-	// Combine RGB channels
-	fmt.Fprintf(logWriter, "\nCombining color channels...\n")
-	rgb:=nl.CombineRGB(lights[1:], lights[0])
-
-	postProcessAndSaveRGBComposite(&rgb, lights[0], logWriter)
-	rgb.Data=nil
-}
-
-func postProcessAndSaveRGBComposite(rgb *nl.FITSImage, lum *nl.FITSImage, logWriter io.Writer) {
-
-	// Auto-balance colors in linear RGB color space
-	autoBalanceColors(rgb)
-
-	nl.LogPrintln("Converting color image to HSLuv color space")
-	rgb.RGBToHSLuv()
-	//nl.LogPrintln("Converting color image to modified CIE HCL space (i.e. HSL)")
-	//rgb.RGBToCIEHSL()
-
-	// Apply LRGB combination in linear CIE xyY color space
-	if lum!=nil {
-	    nl.LogPrintln("Converting luminance image to HSLuv as well...")
-	    lum.MonoToHSLuvLum()
-	    //nl.LogPrintln("Converting luminance image to HSL as well...")
-	    //lum.MonoToHSLLum()
-
-		nl.LogPrintln("Applying luminance image to luminance channel...")
-		rgb.ApplyLuminanceToCIExyY(lum)
-	}
-
-    if (*neutSigmaLow>=0) && (*neutSigmaHigh>=0) {
-		fmt.Fprintf(logWriter, "Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", *neutSigmaLow, *neutSigmaHigh)    	
-
-		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		low :=loc + scale*float32(*neutSigmaLow)
-		high:=loc + scale*float32(*neutSigmaHigh)
-		fmt.Fprintf(logWriter, "Location %.2f%%, scale %.2f%%, low %.2f%% high %.2f%%\n", loc*100, scale*100, low*100, high*100)
-
-		rgb.NeutralizeBackground(low, high)		
-    }
-
-    if (*chromaGamma)!=1 {
-    	fmt.Fprintf(logWriter, "Applying gamma %.2f to saturation for values %.4g sigma above background...\n", *chromaGamma, *chromaSigma)
-
-		// calculate basic image stats as a fast location and scale estimate
-		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		threshold :=loc + scale*float32(*chromaSigma)
-		fmt.Fprintf(logWriter, "Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
-
-		rgb.AdjustChroma(float32(*chromaGamma), threshold)
-    }
-
-    if (*chromaBy)!=1 {
-    	fmt.Fprintf(logWriter, "Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", *chromaBy, *chromaFrom, *chromaTo)
-		rgb.AdjustChromaForHues(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy))
-    }
-
-    if (*rotBy)!=0 {
-    	fmt.Fprintf(logWriter, "Rotating LCH hue angles in [%g,%g] by %.4g for lum>=loc+%g*scale...\n", *rotFrom, *rotTo, *rotBy, *rotSigma)
-		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		rgb.RotateColors(float32(*rotFrom), float32(*rotTo), float32(*rotBy), loc + float32(*rotSigma) * scale)
-    }
-
-    if (*scnr)!=0 {
-    	fmt.Fprintf(logWriter, "Applying SCNR of %.4g ...\n", *scnr)
-		rgb.SCNR(float32(*scnr))
-    }
-
-	// apply unsharp masking, if requested
-	if *usmGain>0 {
-		min, max, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		absThresh:=loc + scale*float32(*usmThresh)
-		fmt.Fprintf(logWriter, "%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", rgb.ID, float32(*usmSigma), float32(*usmGain), float32(*usmThresh), absThresh)
-		kernel:=nl.GaussianKernel1D(float32(*usmSigma))
-		fmt.Fprintf(logWriter, "Unsharp masking kernel sigma %.2f size %d: %v\n", *usmSigma, len(kernel), kernel)
-		newLum:=nl.UnsharpMask(rgb.Data[2*len(rgb.Data)/3:], int(rgb.Naxisn[0]), float32(*usmSigma), float32(*usmGain), min, max, absThresh)
-		copy(rgb.Data[2*len(rgb.Data)/3:], newLum)
-	}
-
-	// Optionally adjust midtones
-	if (*midtone)!=0 {
-		fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", *midtone, *midBlack)
-		// calculate basic image stats as a fast location and scale estimate
-		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		absMid:=float32(*midtone)*scale
-		absBlack:=loc - float32(*midBlack)*scale
-		fmt.Fprintf(logWriter, "loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*loc, 100*scale, 100*absMid, 100*absBlack)
-		rgb.ApplyMidtonesToChannel(2, absMid, absBlack)
-	}
-
-	// Optionally adjust gamma
-	if (*gamma)!=1 {
-		fmt.Fprintf(logWriter, "Applying gamma %.3g\n", *gamma)
-		rgb.ApplyGammaToChannel(2, float32(*gamma))
-	}
-
-	// Optionally adjust gamma post peak
-	if (*ppGamma)!=1 {
-	         _, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-	         if err!=nil { nl.LogFatal(err) }
-	 from:=loc+float32(*ppSigma)*scale
-	 to  :=float32(1.0)
-	 fmt.Fprintf(logWriter, "Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", *ppSigma, from*100, to*100, *ppGamma)
-	         rgb.ApplyPartialGammaToChannel(2, from, to, float32(*ppGamma))
-	}
-
-	// Optionally scale histogram peak
-	if (*scaleBlack)!=0 {
-	 xyyTargetBlack:=float32((*scaleBlack)/100.0)
-		_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(xyyTargetBlack)).Hcl()
-		targetBlack:=float32(hclTargetBlack)
-		_, _, loc, scale, err:=nl.HCLLumMinMaxLocScale(rgb.Data, rgb.Naxisn[0])
-		if err!=nil { nl.LogFatal(err) }
-		fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
-		if loc>targetBlack {
-			fmt.Fprintf(logWriter, "scaling black to move location to HCL %.2f%% for linear %.2f%%...\n", targetBlack*100.0, xyyTargetBlack*100.0)
-			rgb.ShiftBlackToMoveChannel(2,loc, targetBlack)
-		} else {
-			fmt.Fprintf(logWriter, "cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
-		}
-	}
-
-	nl.LogPrintln("Converting nonlinear HSLuv to linear RGB")
-    rgb.HSLuvToRGB()
-	//nl.LogPrintln("Converting modified CIE HCL (i.e. HSL) to linear RGB")
- 	//rgb.CIEHSLToRGB()
-
-	// Write outputs
-	fmt.Fprintf(logWriter, "Writing FITS to %s ...\n", *out)
-	err:=rgb.WriteFile(*out)
-	if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
-	if (*jpg)!="" {
-		fmt.Fprintf(logWriter, "Writing JPG to %s ...\n", *jpg)
-		rgb.WriteJPGToFile(*jpg, 95)
-		if err!=nil { nl.LogFatalf("Error writing file: %s\n", err) }
-	}
-}
-
-
-// Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func autoBalanceColors(rgb *nl.FITSImage) {
-	if len(rgb.Stars)==0 {
-		nl.LogPrintln("Skipping black and white point adjustment as zero stars have been detected")
-	} else {
-		nl.LogPrintln("Setting black point so histogram peaks align and white point so median star color becomes neutral...")
-		err:=rgb.SetBlackWhitePoints()
-		if err!=nil { nl.LogFatal(err) }
-	}
-}
-
-
 // Helper: convert bool to int
 func btoi(b bool) int {
 	if b { return 1 }
 	return 0
-}
-
-// Show licensing information
-func cmdLegal() {
-	nl.LogPrint(`Nightlight is Copyright (c) 2020 Markus L. Noga
-This program comes with ABSOLUTELY NO WARRANTY.
-This is free software, and you are welcome to redistribute it under certain conditions.
-Refer to https://www.gnu.org/licenses/gpl-3.0.en.html for details.
-The binary version of this program uses several open source libraries and components, which come with their own licensing terms. See below for a list of attributions.
-
-ATTRIBUTIONS
-
-A1. https://github.com/gonum/gonum is Copyright (c) 2013 The Gonum Authors. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-A2. https://github.com/pbnjay/memory is Copyright (c) 2017, Jeremy Jay. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
-
-* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-
-* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-
-* Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-
-A3. https://github.com/valyala/fastrand is Copyright (c) 2017 Aliaksandr Valialkin
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-A4. https://github.com/lucasb-eyer/go-colorful is Copyright (c) 2013 Lucas Beyer
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-
-A5. https://github.com/klauspost/cpuid is Copyright (c) 2015 Klaus Post
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-`)
 }
