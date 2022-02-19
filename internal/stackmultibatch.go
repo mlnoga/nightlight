@@ -35,13 +35,15 @@ type OpStackMultiBatch struct {
 	Batch            *OpStackSingleBatch   `json:"batch"`
 	Memory            int64           `json:"memory"`
 	Save             *OpSave          `json:"save"`
+	Save2            *OpSave          `json:"save2"`
 }
 
-func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *OpSave) (op *OpStackMultiBatch) {
+func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save, save2 *OpSave) (op *OpStackMultiBatch) {
 	return &OpStackMultiBatch{
 		Batch       : batch,
 		Memory      : memory,
 		Save        : save,
+		Save2       : save2,
 	}
 }
 
@@ -63,7 +65,7 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Write
 		if batchEndOffset>int64(len(opLoadFilesPerm)) { batchEndOffset=int64(len(opLoadFilesPerm)) }
 		batchFrames     :=batchEndOffset-batchStartOffset
 		opLoadFilesBatch:=opLoadFilesPerm[batchStartOffset:batchEndOffset]
-		fmt.Fprintf(logWriter, "\nStarting batch %d of %d with %d frames...\n", b, numBatches, len(opLoadFilesBatch))
+		fmt.Fprintf(logWriter, "\nStarting batch %d of %d with %d frames...\n", b+1, numBatches, len(opLoadFilesBatch))
 
 		// Stack the files in this batch
 		batch, err:=op.Batch.Apply(opLoadFilesBatch, logWriter)
@@ -106,6 +108,8 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Write
 
 	// Save and return
 	stack, err=op.Save.Apply(stack, logWriter)
+	if err!=nil { return nil, err }
+	stack, err=op.Save2.Apply(stack, logWriter)
 	if err!=nil { return nil, err }
 
 	return stack, nil;

@@ -93,6 +93,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writ
 	numFrames:=len(lights)
 
 	// Perform the stack
+	fmt.Fprintf(logWriter, "\nStacking %d frames...\n", len(lights))
 	fOut, err=op.Stack.Apply(lights, logWriter)
 	if err!=nil { return nil, err }
 
