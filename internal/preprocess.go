@@ -140,9 +140,9 @@ func NewOpCalibrate(dark, flat string) *OpCalibrate {
 func (op *OpCalibrate) init() error {
 	op.mutex.Lock()
 	defer op.mutex.Unlock()
-    if !( (op.ActiveDark && op.Dark!="" && op.DarkFrame!=nil) ||
-          (op.ActiveFlat && op.Flat!="" && op.FlatFrame!=nil)    ) {
-          return nil  
+    if !( (op.ActiveDark && op.Dark!="" && op.DarkFrame==nil) ||
+          (op.ActiveFlat && op.Flat!="" && op.FlatFrame==nil)    ) {
+        	return nil  
 	}
 
     sem    :=make(chan bool, 2) // limit parallelism to 2
