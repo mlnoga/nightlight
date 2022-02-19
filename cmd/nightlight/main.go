@@ -237,10 +237,6 @@ Flags:
 		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
 		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
 	)
-	if err:=opPreProc.Init(); err!=nil {
-		fmt.Fprintf(logWriter, "Error initializing preprocessing: %s\n", err.Error())
-		os.Exit(-1)
-	}
 
 	// run actions
     switch args[0] {
@@ -259,17 +255,9 @@ Flags:
 	case "stack":
 		opPostProc:=nl.NewOpPostProcess(nl.HistoNormMode(*normHist), int32(*align), int32(*alignK), float32(*alignT), 
 										nl.OOBModeNaN, nl.RefSelMode(*refSelMode), *post)
-		if err:=opPostProc.Init(); err!=nil {
-			fmt.Fprintf(logWriter, "Error initializing postprocessing: %s\n", err.Error())
-			os.Exit(-1)
-		}
 		opStack:=nl.NewOpStack(nl.StackMode(*stMode), nl.StackWeighting(*stWeight), float32(*stSigLow), float32(*stSigHigh))
     	opSingleBatch:=nl.NewOpSingleBatch(opPreProc, opPostProc, opStack, opPreProc.StarDetect, *batch)
     	opMultiBatch :=nl.NewOpMultiBatch(opSingleBatch, *stMemory, nl.NewOpSave(*out))
-		if err:=opMultiBatch.Init(); err!=nil {
-			fmt.Fprintf(logWriter, "Error initializing stacking: %s\n", err.Error())
-			os.Exit(-1)
-		}
     	_, err=opMultiBatch.Apply(opLoadFiles, logWriter)
 
     case "stretch":

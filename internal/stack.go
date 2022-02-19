@@ -40,8 +40,6 @@ func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh fl
 	return &OpStack{mode, weighting, sigmaLow, sigmaHigh, 0}
 }
 
-func (op *OpStack) Init() (err error) { return nil }
-
 type StackMode int
 
 const (

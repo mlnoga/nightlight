@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sync"
 )
 
 
@@ -48,13 +49,6 @@ func (op *OpPostProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSIma
 	return f, nil
 }
 
-func (op *OpPostProcess) Init() (err error) { 
-	if err=op.Normalize.Init(); err!=nil { return err }
-	if err=op.Align    .Init(); err!=nil { return err }
-	if err=op.Save     .Init(); err!=nil { return err }
-	return nil
- }
-
 
 // Histogram normalization mode for post-processing
 type HistoNormMode int
@@ -74,8 +68,6 @@ type OpNormalize struct {
 func NewOpNormalize(mode HistoNormMode) *OpNormalize {
 	return &OpNormalize{mode!=HNMNone, mode, nil}
 }
-
-func (op *OpNormalize) Init() error { return nil }
 
 func (op *OpNormalize) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error)  {
 	if !op.Active || op.Mode==HNMNone { return f, nil }
@@ -112,7 +104,8 @@ type OpAlign struct {
 	RefSelMode RefSelMode      `json:"refSelMode"`
 	Reference *FITSImage       `json:"-"`
 	HistoRef  *FITSImage       `json:"-"`
-	Aligner   *Aligner         `json:"-"`       
+	Aligner   *Aligner         `json:"-"`
+	mutex     sync.Mutex       `json:"-"`       
 }
 
 func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode, refSelMode RefSelMode) *OpAlign {
@@ -125,8 +118,11 @@ func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBounds
 	}
 }
 
-func (op *OpAlign) Init() error {
-	if !op.Active { return nil }
+func (op *OpAlign) init() error {
+	op.mutex.Lock()
+	defer op.mutex.Unlock()
+	if !op.Active || op.Aligner!=nil { return nil }
+
 	if op.Reference==nil || op.Reference.Stars==nil || len(op.Reference.Stars)==0 {
 		return errors.New("Unable to align without star detections in reference frame")
 	}
@@ -135,6 +131,8 @@ func (op *OpAlign) Init() error {
 }
 
 func (op *OpAlign) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if err=op.init(); err!=nil { return nil, err }
+
 	// Is alignment to the reference frame required?
 	if !op.Active || op.Aligner==nil || op.Aligner.RefStars==nil || len(op.Aligner.RefStars)==0 {
 		// Generally not required

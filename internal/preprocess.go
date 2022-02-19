@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"sync"
 )
 
 // Load frame from FITS file and calculate basic stats and noise
@@ -115,19 +116,6 @@ func (op *OpPreProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImag
 	return f, nil
 }
 
-func (op *OpPreProcess) Init() (err error) { 
-	if op.Calibrate  !=nil { if err=op.Calibrate  .Init(); err!=nil { return err } }
-	if op.BadPixel   !=nil { if err=op.BadPixel   .Init(); err!=nil { return err } }
-	if op.Debayer    !=nil { if err=op.Debayer    .Init(); err!=nil { return err } }
-	if op.Bin        !=nil { if err=op.Bin        .Init(); err!=nil { return err } }
-	if op.BackExtract!=nil { if err=op.BackExtract.Init(); err!=nil { return err } }
-	if op.StarDetect !=nil { if err=op.StarDetect .Init(); err!=nil { return err } }
-	if op.Save       !=nil { if err=op.Save       .Init(); err!=nil { return err } }
-	return nil
- }
-
-
-
 
 type OpCalibrate struct {
 	ActiveDark        bool        `json:"activeDark"`
@@ -136,6 +124,7 @@ type OpCalibrate struct {
 	ActiveFlat        bool        `json:"activeFlat"`
 	Flat              string      `json:"flat"`
 	FlatFrame         *FITSImage  `json:"-"`
+	mutex             sync.Mutex  `json:"-"`
 }
 var _ OperatorUnary = (*OpCalibrate)(nil) // Compile time assertion: type implements the interface
 
@@ -149,7 +138,14 @@ func NewOpCalibrate(dark, flat string) *OpCalibrate {
 }
 
 // Load dark and flat in parallel if flagged
-func (op *OpCalibrate) Init() error {
+func (op *OpCalibrate) init() error {
+	op.mutex.Lock()
+	defer op.mutex.Unlock()
+    if !( (op.ActiveDark && op.Dark!="" && op.DarkFrame!=nil) ||
+          (op.ActiveFlat && op.Flat!="" && op.FlatFrame!=nil)    ) {
+          return nil  
+	}
+
     sem    :=make(chan bool, 2) // limit parallelism to 2
     waiting:=0
 
@@ -185,6 +181,8 @@ func (op *OpCalibrate) Init() error {
 
 // Apply calibration frames if active and available. Must have been loaded
 func (op *OpCalibrate) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if err=op.init(); err!=nil { return nil, err }
+
 	if op.ActiveDark && op.DarkFrame!=nil && op.DarkFrame.Pixels>0 {
 		if !EqualInt32Slice(f.Naxisn, op.DarkFrame.Naxisn) {
 			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from dark dimensions %v",
@@ -261,8 +259,6 @@ func (op *OpBadPixel) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage,
 	return f, nil
 }
 
-func (op *OpBadPixel) Init() error { return nil }
-
 
 type OpDebayer struct {
 	Active            bool        `json:"active"`
@@ -307,8 +303,6 @@ func (op *OpDebayer) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, 
 	return f, nil
 }
 
-func (op *OpDebayer) Init() error { return nil }
-
 
 type OpBin struct {
 	Active            bool        `json:"active"`
@@ -345,8 +339,6 @@ func (op *OpBin) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err 
 
 	return f, nil
 }
-
-func (op *OpBin) Init() error { return nil }
 
 
 type OpBackExtract struct {
@@ -413,8 +405,6 @@ func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSIma
 	return f, nil
 }
 
-func (op *OpBackExtract) Init() error { return nil }
-
 
 type OpStarDetect struct {
 	Active            bool            `json:"active"`
@@ -475,8 +465,6 @@ func (op *OpStarDetect) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImag
 	return f, nil
 }
 
-func (op *OpStarDetect) Init() error { return nil }
-
 
 type OpSave struct {
 	Active            bool            `json:"active"`
@@ -517,8 +505,6 @@ func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err
 	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err)) }
 	return f, nil;
 }
-
-func (op *OpSave) Init() error { return nil }
 
 
 

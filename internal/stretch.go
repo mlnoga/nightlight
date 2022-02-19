@@ -55,21 +55,6 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 	}
 }
 
-func (op *OpStretch) Init() (err error) {
-	if op.NormalizeRange  !=nil { if err=op.NormalizeRange  .Init(); err!=nil { return err } }
-	if op.StretchIterative!=nil { if err=op.StretchIterative.Init(); err!=nil { return err } }
-	if op.Midtones        !=nil { if err=op.Midtones        .Init(); err!=nil { return err } }
-	if op.Gamma           !=nil { if err=op.Gamma           .Init(); err!=nil { return err } }
-	if op.PPGamma         !=nil { if err=op.PPGamma         .Init(); err!=nil { return err } }
-	if op.ScaleBlack      !=nil { if err=op.ScaleBlack      .Init(); err!=nil { return err } }
-	if op.StarDetect      !=nil { if err=op.StarDetect      .Init(); err!=nil { return err } }
-	if op.Align           !=nil { if err=op.Align           .Init(); err!=nil { return err } }
-	if op.UnsharpMask     !=nil { if err=op.UnsharpMask     .Init(); err!=nil { return err } }
-	if op.Save            !=nil { if err=op.Save            .Init(); err!=nil { return err } }
-	if op.Save2           !=nil { if err=op.Save2           .Init(); err!=nil { return err } }
-	return nil
-}
-
 func (op *OpStretch) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if op.NormalizeRange  !=nil { if f,err=op.NormalizeRange  .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.StretchIterative!=nil { if f,err=op.StretchIterative.Apply(f, logWriter); err!=nil { return nil, err } }
@@ -92,8 +77,6 @@ type OpNormalizeRange struct {
 func NewOpNormalizeRange(active bool) *OpNormalizeRange {
 	return &OpNormalizeRange{active}
 }
-
-func (op *OpNormalizeRange) Init() error { return nil }
 
 func (op *OpNormalizeRange) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -121,8 +104,6 @@ type OpStretchIterative struct {
 func NewOpStretchIterative(loc float32, scale float32) (*OpStretchIterative) {
 	return &OpStretchIterative{ loc!=0 && scale!=0, loc, scale }
 }
-
-func (op *OpStretchIterative) Init() (err error) { return nil }
 
 func (op *OpStretchIterative) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -217,8 +198,6 @@ func NewOpMidtones(mid, black float32) *OpMidtones {
 	}
 }
 
-func (op *OpMidtones) Init() error { return nil }
-
 func (op *OpMidtones) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
@@ -245,8 +224,6 @@ func NewOpGamma(gamma float32) *OpGamma {
 	return &OpGamma{gamma!=1.0, gamma}
 }
 
-func (op *OpGamma) Init() error { return nil }
-
 func (op *OpGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying gamma %.3g\n", op.Gamma)
@@ -265,8 +242,6 @@ type OpPPGamma struct {
 func NewOpPPGamma(gamma, sigma float32) *OpPPGamma {
 	return &OpPPGamma{gamma!=1.0, gamma, sigma}
 }
-
-func (op *OpPPGamma) Init() error { return nil }
 
 func (op *OpPPGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -293,8 +268,6 @@ type OpScaleBlack struct {
 func NewOpScaleBlack(black float32) *OpScaleBlack {
 	return &OpScaleBlack{black!=0, black}
 }
-
-func (op *OpScaleBlack) Init() error { return nil }
 
 func (op *OpScaleBlack) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -324,8 +297,6 @@ type OpUnsharpMask struct {
 func NewOpUnsharpMask(sigma, gain, threshold float32) *OpUnsharpMask {
 	return &OpUnsharpMask{gain>0, sigma, gain, threshold}
 }
-
-func (op *OpUnsharpMask) Init() error { return nil }
 
 func (op *OpUnsharpMask) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }

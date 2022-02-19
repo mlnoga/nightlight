@@ -46,12 +46,6 @@ func NewOpMultiBatch(batch *OpSingleBatch, memory int64, save *OpSave) (op *OpMu
 	}
 }
 
-func (op *OpMultiBatch) Init() (err error) { 
-	if err=op.Batch.Init(); err!=nil { return err } 
-	if err=op.Save .Init(); err!=nil { return err }
-	return nil 
-}
-
 
 func (op *OpMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
 	// Partition the loaders into optimal batches

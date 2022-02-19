@@ -32,7 +32,6 @@ type OperatorSource interface {
 // An operator working on a single FITS image, transforming/overwriting it and its data
 type OperatorUnary interface {
 	Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) 
-	Init() error
 }
 
 // An operator working on many FITS images in parallel, transforming/overwriting them
@@ -43,12 +42,10 @@ type OperatorParallel interface {
 
 type OperatorJoin interface {
 	Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error)
-	Init() (err error)
 }
 
 type OperatorJoinFiles interface {
 	Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (result *FITSImage, err error)
-	Init() (err error)
 }
 
 
@@ -68,8 +65,6 @@ func NewInMemory(fits *FITSImage) *OpInMemory {
 func (op *OpInMemory) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
 	return op.Fits, nil
 }
-
-func (op *OpInMemory) Init() error { return nil }
 
 
 type OpLoadFile struct {
@@ -97,9 +92,6 @@ func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
 	fmt.Fprintf(logWriter, "%d: Loaded %v pixel frame from %s\n", f.ID, f.DimensionsToString(), f.FileName)
 	return f, nil	
 }
-
-func (op *OpLoadFile) Init() error { return nil }
-
 
 
 // Turn filename wildcards into list of file load operators
@@ -139,11 +131,4 @@ func (op *OpSequence) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage,
 		if err!=nil { return nil, err}
 	}
 	return f, nil
-}
-
-func (op *OpSequence) Init() error { 
-	for _,step:=range op.Steps {
-		if err:=step.Init(); err!=nil { return err }
-	}
-	return nil
 }

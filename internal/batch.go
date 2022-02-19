@@ -48,16 +48,6 @@ func NewOpSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStac
 }
 
 
-func (op *OpSingleBatch) Init() (err error) { 
-	if err=op.PreProcess .Init(); err!=nil { return err }
-	if err=op.PostProcess.Init(); err!=nil { return err }
-	if err=op.Stack      .Init(); err!=nil { return err }
-	if err=op.StarDetect .Init(); err!=nil { return err }
-	if err=op.Save       .Init(); err!=nil { return err }
-	return nil
-}
-
-
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and updates reference frame internally
 func (op *OpSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {

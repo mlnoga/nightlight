@@ -34,8 +34,6 @@ func NewOpHSLApplyLum(active bool) *OpHSLApplyLum {
 	return &OpHSLApplyLum{Active: active}
 }
 
-func (op *OpHSLApplyLum) Init() (err error) { return nil }
-
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
 func (op *OpHSLApplyLum) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active || op.Lum==nil { return f, nil }
@@ -59,8 +57,6 @@ var _ OperatorUnary = (*OpHSLNeutralizeBackground)(nil) // Compile time assertio
 func NewOpHSLNeutralizeBackground(sigmaLow, sigmaHigh float32) *OpHSLNeutralizeBackground {
 	return &OpHSLNeutralizeBackground{sigmaLow!=0 || sigmaHigh!=0, sigmaLow, sigmaHigh}
 }
-
-func (op *OpHSLNeutralizeBackground) Init() (err error) { return nil }
 
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
 func (op *OpHSLNeutralizeBackground) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
@@ -92,8 +88,6 @@ func NewOpHSLSaturationGamma(gamma, sigma float32) *OpHSLSaturationGamma {
 	return &OpHSLSaturationGamma{gamma!=1.0, gamma, sigma}
 }
 
-func (op *OpHSLSaturationGamma) Init() (err error) { return nil }
-
 func (op *OpHSLSaturationGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
    	fmt.Fprintf(logWriter, "Applying gamma %.2f to saturation for values %.4g sigma above background...\n", op.Gamma, op.Sigma)
@@ -122,8 +116,6 @@ func NewOpHSLSelectiveSaturation(from, to, factor float32) *OpHSLSelectiveSatura
 	return &OpHSLSelectiveSaturation{factor!=1, from, to, factor}
 }
 
-func (op *OpHSLSelectiveSaturation) Init() (err error) { return nil }
-
 func (op *OpHSLSelectiveSaturation) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", op.Factor, op.From, op.To)
@@ -145,8 +137,6 @@ var _ OperatorUnary = (*OpHSLRotateHue)(nil) // Compile time assertion: type imp
 func NewOpHSLRotateHue(from, to, offset, sigma float32) *OpHSLRotateHue {
 	return &OpHSLRotateHue{offset!=0, from, to, offset, sigma}
 }
-
-func (op *OpHSLRotateHue) Init() (err error) { return nil }
 
 func (op *OpHSLRotateHue) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -171,8 +161,6 @@ var _ OperatorUnary = (*OpHSLSCNR)(nil) // Compile time assertion: type implemen
 func NewOpHSLSCNR(factor float32) *OpHSLSCNR {
 	return &OpHSLSCNR{factor!=0, factor}
 }
-
-func (op *OpHSLSCNR) Init() (err error) { return nil }
 
 func (op *OpHSLSCNR) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
@@ -200,8 +188,6 @@ func NewOpHSLMidtones(mid, black float32) *OpHSLMidtones {
 	}
 }
 
-func (op *OpHSLMidtones) Init() error { return nil }
-
 func (op *OpHSLMidtones) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
@@ -226,8 +212,6 @@ type OpHSLGamma struct {
 func NewOpHSLGamma(gamma float32) *OpHSLGamma {
 	return &OpHSLGamma{gamma!=1.0, gamma}
 }
-
-func (op *OpHSLGamma) Init() error { return nil }
 
 func (op *OpHSLGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
