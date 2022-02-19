@@ -25,10 +25,6 @@ import (
 	"sync"
 )
 
-type OperatorJoin interface {
-	Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error)
-	Init() (err error)
-}
 
 type OpStack struct {
 	Mode         StackMode       `json:"mode"`
