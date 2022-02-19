@@ -24,10 +24,6 @@ import (
 	"runtime/debug"
 )
 
-type OperatorJoinFiles interface {
-	Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (result *FITSImage, err error)
-	Init() (err error)
-}
 
 type OpSingleBatch struct {
 	PreProcess  *OpPreProcess   `json:"preProcess"`
