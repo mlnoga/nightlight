@@ -276,7 +276,6 @@ Flags:
 	    	),
 			*stMemory, 
 			nl.NewOpSave(*out),
-			nl.NewOpSave(*jpg),
 		)
 
 		m, err:=json.MarshalIndent(opStackMultiBatch, "", "  ")
