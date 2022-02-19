@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 )
 
 
@@ -110,6 +111,52 @@ func NewOpLoadFiles(args []string, logWriter io.Writer) (loaders []*OpLoadFile, 
 		fmt.Fprintf(logWriter, "%d: %s\n",op.ID, op.FileName)
 	}
 	return ops, nil
+}
+
+
+type OpSave struct {
+	Active            bool            `json:"active"`
+	FilePattern       string          `json:"filePattern"`
+}
+var _ OperatorUnary = (*OpSave)(nil) // Compile time assertion: type implements the interface
+
+func NewOpSave(filenamePattern string) *OpSave {
+	return &OpSave{
+		Active      : filenamePattern!="",
+		FilePattern : filenamePattern,
+	}
+}
+
+// Apply saving if active
+func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if !op.Active || op.FilePattern=="" { return f, nil }
+
+	fileName:=op.FilePattern
+	if strings.Contains(fileName, "%d") {
+		fileName=fmt.Sprintf(op.FilePattern, f.ID)
+	}
+	fnLower:=strings.ToLower(fileName)
+
+	if strings.HasSuffix(fnLower,".fits")      || strings.HasSuffix(fnLower,".fit")      || strings.HasSuffix(fnLower,".fts")     ||
+	   strings.HasSuffix(fnLower,".fits.gz")   || strings.HasSuffix(fnLower,".fit.gz")   || strings.HasSuffix(fnLower,".fts.gz")  ||
+	   strings.HasSuffix(fnLower,".fits.gzip") || strings.HasSuffix(fnLower,".fit.gzip") || strings.HasSuffix(fnLower,".fts.gzip") {     
+		fmt.Fprintf(logWriter,"%d: Writing FITS to %s", f.ID, fileName)
+		err=f.WriteFile(fileName)
+	} else if strings.HasSuffix(fnLower,".jpeg") || strings.HasSuffix(fnLower,".jpg") {
+		if len(f.Naxisn)==1 {
+			fmt.Fprintf(logWriter, "%d: Writing %s pixel mono JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
+			f.WriteMonoJPGToFile(fileName, 95)
+		} else if len(f.Naxisn)==3 {
+			fmt.Fprintf(logWriter, "%d: Writing %s pixel color JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
+			f.WriteJPGToFile(fileName, 95)
+		} else {
+			return nil, errors.New(fmt.Sprintf("%d: Unable to write %s pixel image as JPEG to %s\n", f.ID, f.DimensionsToString(), fileName))
+		}
+	} else {
+		err=errors.New("Unknown suffix")
+	}
+	if err!=nil { return nil, errors.New(fmt.Sprintf("%d: Error writing to file %s: %s\n", f.ID, fileName, err.Error())) }
+	return f, nil;
 }
 
 
