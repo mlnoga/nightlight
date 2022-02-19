@@ -56,32 +56,32 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 }
 
 func (op *OpStretch) Init() (err error) {
-	if err=op.NormalizeRange  .Init(); err!=nil { return err }
-	if err=op.StretchIterative.Init(); err!=nil { return err }
-	if err=op.Midtones        .Init(); err!=nil { return err }
-	if err=op.Gamma           .Init(); err!=nil { return err }
-	if err=op.PPGamma         .Init(); err!=nil { return err }
-	if err=op.ScaleBlack      .Init(); err!=nil { return err }
-	if err=op.StarDetect      .Init(); err!=nil { return err }
-	if err=op.Align           .Init(); err!=nil { return err }
-	if err=op.UnsharpMask     .Init(); err!=nil { return err }
-	if err=op.Save            .Init(); err!=nil { return err }
-	if err=op.Save2           .Init(); err!=nil { return err }
+	if op.NormalizeRange  !=nil { if err=op.NormalizeRange  .Init(); err!=nil { return err } }
+	if op.StretchIterative!=nil { if err=op.StretchIterative.Init(); err!=nil { return err } }
+	if op.Midtones        !=nil { if err=op.Midtones        .Init(); err!=nil { return err } }
+	if op.Gamma           !=nil { if err=op.Gamma           .Init(); err!=nil { return err } }
+	if op.PPGamma         !=nil { if err=op.PPGamma         .Init(); err!=nil { return err } }
+	if op.ScaleBlack      !=nil { if err=op.ScaleBlack      .Init(); err!=nil { return err } }
+	if op.StarDetect      !=nil { if err=op.StarDetect      .Init(); err!=nil { return err } }
+	if op.Align           !=nil { if err=op.Align           .Init(); err!=nil { return err } }
+	if op.UnsharpMask     !=nil { if err=op.UnsharpMask     .Init(); err!=nil { return err } }
+	if op.Save            !=nil { if err=op.Save            .Init(); err!=nil { return err } }
+	if op.Save2           !=nil { if err=op.Save2           .Init(); err!=nil { return err } }
 	return nil
 }
 
 func (op *OpStretch) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
-	if f,err=op.NormalizeRange  .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.StretchIterative.Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.Midtones        .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.Gamma           .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.PPGamma         .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.ScaleBlack      .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.StarDetect      .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.Align           .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.UnsharpMask     .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.Save            .Apply(f, logWriter); err!=nil { return nil, err }
-	if f,err=op.Save2           .Apply(f, logWriter); err!=nil { return nil, err }
+	if op.NormalizeRange  !=nil { if f,err=op.NormalizeRange  .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.StretchIterative!=nil { if f,err=op.StretchIterative.Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.Midtones        !=nil { if f,err=op.Midtones        .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.Gamma           !=nil { if f,err=op.Gamma           .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.PPGamma         !=nil { if f,err=op.PPGamma         .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.ScaleBlack      !=nil { if f,err=op.ScaleBlack      .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.StarDetect      !=nil { if f,err=op.StarDetect      .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.Align           !=nil { if f,err=op.Align           .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.UnsharpMask     !=nil { if f,err=op.UnsharpMask     .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.Save            !=nil { if f,err=op.Save            .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.Save2           !=nil { if f,err=op.Save2           .Apply(f, logWriter); err!=nil { return nil, err } }
 	return f, nil
 }
 
