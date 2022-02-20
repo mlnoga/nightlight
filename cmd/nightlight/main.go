@@ -299,6 +299,12 @@ Flags:
 			nl.NewOpSave            (*jpg),
     	)
 
+    	if(*alignTo!="") {
+	    	opStretch.Align.Active=true
+	    	opStretch.Align.Reference=nl.LoadAlignTo(*alignTo)
+	    	opStretch.Align.Active=false
+	    }
+
     	var m []byte
 		m,err=json.MarshalIndent(opStretch,"", "  ")
 		if err!=nil { break }
