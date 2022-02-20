@@ -124,7 +124,7 @@ var _ OperatorParallel = (*OpSelectReference)(nil) // Compile time assertion: ty
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpSelectReference(mode RefSelMode) *OpSelectReference {
-	return &OpSelectReference{Mode: mode}
+	return &OpSelectReference{Active: true, Mode: mode}
 }
 
 func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (fsOut []*FITSImage, err error) {
@@ -132,6 +132,7 @@ func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (
 	if len(fs)==4 {
 		op.Frame=fs[3]
 		fmt.Fprintf(logWriter, "Using luminance channel %d as reference frame\n", op.Frame.ID)
+		fs=fs[:3]
 	} else {
 		op.Frame, op.Score=SelectReferenceFrame(fs, op.Mode)
 		if op.Frame==nil { panic("Reference channel for alignment not found.") }
@@ -159,9 +160,10 @@ func NewOpRGBCombine(active bool) *OpRGBCombine {
 
 func (op *OpRGBCombine) Apply(fs []*FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return nil, errors.New("RGB combination inactive, unable to produce image") }
-	if len(fs)<3 || len(fs)>4 {
+	if len(fs)!=3 {
 		return nil, errors.New(fmt.Sprintf("Invalid number of channels for color combination: %d", len(fs)))
 	}
+
 	fmt.Fprintf(logWriter, "\nCombining RGB color channels...\n")
 	fOut2:=CombineRGB(fs, op.RefFrame)
 	return &fOut2, nil
