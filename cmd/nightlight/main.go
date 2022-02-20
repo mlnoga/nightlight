@@ -137,8 +137,7 @@ Commands:
   stats   Show input image statistics
   stack   Stack input images
   stretch Stretch single image
-  rgb     Combine color channels. Inputs are treated as r, g and b channel in that order
-  lrgb    Combine color channels and combine with luminance. Inputs are treated as l, r, g and b channels
+  rgb     Combine color channels. Inputs are treated as r, g, b and optional l channel in that order
   legal   Show license and attribution information
   version Show version information
 
@@ -306,7 +305,7 @@ Flags:
     	opParallel:=nl.NewOpParallel(opStretch, int64(runtime.GOMAXPROCS(0)))
     	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)  // FIXME: materializes all files in memory
 
-    case "rgb", "lrgb":
+    case "rgb":
     	opRGB:=nl.NewOpRGBLProcess(nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars), 
 			nl.NewOpSelectReference(nl.RFMStarsOverHFR),                       			   
 			nl.NewOpRGBCombine(true), 
