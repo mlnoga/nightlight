@@ -33,13 +33,6 @@ import (
 
 const version = "0.2.5"
 
-type Job struct {
-	Id       int
-	FileName string
-	Image    *nl.FITSImage 
-	Err      error
-}
-
 var totalMiBs=memory.TotalMemory()/1024/1024
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
