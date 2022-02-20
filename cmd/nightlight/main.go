@@ -248,6 +248,7 @@ Flags:
     	opStackMultiBatch :=nl.NewOpStackMultiBatch(
 	    	nl.NewOpStackSingleBatch(
 	    		opPreProc, 
+	    		nl.NewOpSelectReference(nl.RefSelMode(*refSelMode), *alignTo, opPreProc.StarDetect),
 	    		nl.NewOpPostProcess(
 	    			nl.HistoNormMode(*normHist), 
 	    			int32(*align), 
@@ -264,7 +265,7 @@ Flags:
 					float32(*stSigHigh),
 				),
 	    		opPreProc.StarDetect, 
-	    		*batch,
+	    		nl.NewOpSave(*batch),
 	    	),
 			*stMemory, 
 			nl.NewOpSave(*out),
@@ -277,6 +278,7 @@ Flags:
     	_, err=opStackMultiBatch.Apply(opLoadFiles, logWriter)
 
     case "stretch":
+    	opStarDetect:=nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
     	opStretch:=nl.NewOpStretch(
 			nl.NewOpNormalizeRange  (true),
 			nl.NewOpStretchIterative(float32(*autoLoc / 100), float32(*autoScale / 100)),
@@ -284,18 +286,13 @@ Flags:
 			nl.NewOpGamma           (float32(*gamma)),
 			nl.NewOpPPGamma         (float32(*ppGamma), float32(*ppSigma)),
 			nl.NewOpScaleBlack      (float32(*scaleBlack / 100)),
-			nl.NewOpStarDetect      (int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars),
+			opStarDetect,
+			nl.NewOpSelectReference (nl.RFMFileName, *alignTo, opStarDetect),
 			nl.NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), nl.OOBModeOwnLocation, nl.RefSelMode(*refSelMode)),
 			nl.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			nl.NewOpSave            (*out),
 			nl.NewOpSave            (*jpg),
     	)
-
-    	if(*alignTo!="") {
-	    	opStretch.Align.Active=true
-	    	opStretch.Align.Reference=nl.LoadAlignTo(*alignTo)
-	    	opStretch.Align.Active=false
-	    }
 
     	var m []byte
 		m,err=json.MarshalIndent(opStretch,"", "  ")
@@ -306,8 +303,10 @@ Flags:
     	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)  // FIXME: materializes all files in memory
 
     case "rgb":
-    	opRGB:=nl.NewOpRGBLProcess(nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars), 
-			nl.NewOpSelectReference(nl.RFMStarsOverHFR),                       			   
+    	opStarDetect:=nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
+    	opRGB:=nl.NewOpRGBLProcess(
+    		opStarDetect,
+			nl.NewOpSelectReference(nl.RFMStarsOverHFR, "", opStarDetect),
 			nl.NewOpRGBCombine(true), 
 			nl.NewOpRGBBalance(true),
 			nl.NewOpRGBToHSLuv(true),

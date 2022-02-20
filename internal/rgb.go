@@ -88,14 +88,18 @@ func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (
 	if err=op.init(); err!=nil { return nil, err }
 
 	var fs []*FITSImage
-	if l:=len(opLoadFiles); l<3 || l>4 {
+	fmt.Fprintf(logWriter, "Reading color channels and detecting stars:\n")
+	if op.parStarDetect  !=nil { if fs,   err=op.parStarDetect  .ApplyToFiles(opLoadFiles, logWriter); err!=nil { return nil, err} }
+
+	if l:=len(fs); l<3 || l>4 {
 		return nil, errors.New(fmt.Sprintf("Need 3 or 4 channels for RGB(L) combination, have %d",l))
 	} else if len(fs)==4 { 
 		op.HSLApplyLum.Lum=fs[3] 
+		op.SelectReference.Frame=fs[3]
+		op.SelectReference.Mode=RFMFrame
+		fs=fs[:3]
 	} 
 
-	fmt.Fprintf(logWriter, "Reading color channels and detecting stars:\n")
-	if op.parStarDetect  !=nil { if fs,   err=op.parStarDetect  .ApplyToFiles(opLoadFiles, logWriter); err!=nil { return nil, err} }
 	if op.SelectReference!=nil { if fs,   err=op.SelectReference.ApplyToFITS (fs,          logWriter); err!=nil { return nil, err} }
 	if op.SelectReference!=nil && op.RGBCombine!=nil { op.RGBCombine.RefFrame=op.SelectReference.Frame }
 	if op.RGBCombine     !=nil { if fOut, err=op.RGBCombine     .Apply       (fs,          logWriter); err!=nil { return nil, err} 
@@ -110,39 +114,6 @@ func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (
 	if op.Save           !=nil && op.Save          .Active { if fOut, err=op.Save          .Apply(fOut, logWriter); err!=nil { return nil, err } }
 	if op.Save2          !=nil && op.Save2         .Active { if fOut, err=op.Save2         .Apply(fOut, logWriter); err!=nil { return nil, err } }
 	return fOut, nil
-}
-
-
-
-type OpSelectReference struct {
-	Active          bool               `json:"active"`
-	Mode            RefSelMode         `json:"mode"`
-	Frame          *FITSImage          `json:"-"`
-	Score           float32            `json:"-"`
-}
-var _ OperatorParallel = (*OpSelectReference)(nil) // Compile time assertion: type implements the interface
-
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpSelectReference(mode RefSelMode) *OpSelectReference {
-	return &OpSelectReference{Active: true, Mode: mode}
-}
-
-func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (fsOut []*FITSImage, err error) {
-	if !op.Active { return fs, nil }
-	if len(fs)==4 {
-		op.Frame=fs[3]
-		fmt.Fprintf(logWriter, "Using luminance channel %d as reference frame\n", op.Frame.ID)
-		fs=fs[:3]
-	} else {
-		op.Frame, op.Score=SelectReferenceFrame(fs, op.Mode)
-		if op.Frame==nil { panic("Reference channel for alignment not found.") }
-		fmt.Fprintf(logWriter, "Using channel %d with score %.4g as reference for alignment and normalization.\n\n", op.Frame.ID, op.Score)
-	}
-	return fs, nil
-}
-
-func (op *OpSelectReference) ApplyToFiles(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fsOut []*FITSImage, err error) {
-	return nil, errors.New("Not implemented: func (op *OpSelectReference) ApplyToFITS()")
 }
 
 

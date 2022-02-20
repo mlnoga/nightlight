@@ -17,7 +17,6 @@
 package internal
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -26,24 +25,28 @@ import (
 
 
 type OpStackSingleBatch struct {
-	PreProcess  *OpPreProcess   `json:"preProcess"`
-	PostProcess *OpPostProcess  `json:"postProcess"`
-	Stack       *OpStack        `json:"stack"`
-	StarDetect  *OpStarDetect   `json:"starDetect"` 
-	Save        *OpSave         `json:"save"`
-	MaxThreads   int64          `json:"-"`
+	PreProcess      *OpPreProcess      `json:"preProcess"`
+	SelectReference *OpSelectReference `json:"selectReference"`
+	PostProcess     *OpPostProcess     `json:"postProcess"`
+	Stack           *OpStack           `json:"stack"`
+	StarDetect      *OpStarDetect      `json:"starDetect"` 
+	Save            *OpSave            `json:"save"`
+	MaxThreads       int64             `json:"-"`
 }
 var _ OperatorJoinFiles = (*OpStackSingleBatch)(nil) // Compile time assertion: type implements the interface
 
 
-func NewOpStackSingleBatch(opPreProc *OpPreProcess, opPostProc *OpPostProcess, opStack *OpStack, opStarDetect *OpStarDetect, save string) *OpStackSingleBatch {
+func NewOpStackSingleBatch(opPreProc *OpPreProcess, opSelectReference *OpSelectReference, 
+	                       opPostProc *OpPostProcess, opStack *OpStack, opStarDetect *OpStarDetect, 
+	                       opSave *OpSave) *OpStackSingleBatch {
 	return &OpStackSingleBatch{
-		PreProcess:  opPreProc, 
-		PostProcess: opPostProc,
-		Stack:       opStack, 
-		StarDetect:  opStarDetect,
-		Save:        NewOpSave(save), 
-		MaxThreads:  0,
+		PreProcess:      opPreProc, 
+		SelectReference: opSelectReference,
+		PostProcess:     opPostProc,
+		Stack:           opStack, 
+		StarDetect:      opStarDetect,
+		Save:            opSave, 
+		MaxThreads:      0,
 	}
 }
 
@@ -68,12 +71,11 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writ
 	fmt.Fprintf(logWriter, "Average input frame noise is %.4g\n", avgNoise)
 
 	// Select reference frame, unless one was provided from prior batches
-	if (op.PostProcess.Normalize.Active || op.PostProcess.Align.Active) && op.PostProcess.Align.Reference==nil {
-		refFrameScore:=float32(0)
-		op.PostProcess.Align.Reference, refFrameScore=SelectReferenceFrame(lights, RefSelMode(op.PostProcess.Align.RefSelMode))
-		op.PostProcess.Normalize.Reference=op.PostProcess.Align.Reference
-		if op.PostProcess.Align.Reference==nil { return nil, errors.New("Reference frame for alignment and normalization not found.") }
-		fmt.Fprintf(logWriter, "Using frame %d as reference. Score %.4g, %v.\n", op.PostProcess.Align.Reference.ID, refFrameScore, op.PostProcess.Align.Reference.Stats)
+	if op.SelectReference.Frame==nil {
+		lights, err=op.SelectReference.ApplyToFITS(lights, logWriter)
+		if err!=nil { return nil, err }
+		op.PostProcess.Align.Reference    =op.SelectReference.Frame
+	    op.PostProcess.Normalize.Reference=op.SelectReference.Frame
 	}
 
 	// Post-process all light frames (align, normalize)

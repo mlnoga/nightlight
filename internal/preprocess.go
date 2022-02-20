@@ -25,7 +25,7 @@ import (
 )
 
 // Load frame from FITS file and calculate basic stats and noise
-func LoadAndCalcStats(fileName string, id int) (f *FITSImage, err error) {
+func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *FITSImage, err error) {
 	theF:=NewFITSImage()
 	f=&theF
 	f.ID=id
@@ -33,48 +33,14 @@ func LoadAndCalcStats(fileName string, id int) (f *FITSImage, err error) {
 	if err!=nil { return nil, err }
 	f.Stats=CalcBasicStats(f.Data)
 	f.Stats.Noise=EstimateNoise(f.Data, f.Naxisn[0])
+
+	fmt.Fprintf(logWriter, "%d: %s %s %s stats: %v\n", id, role, fileName, f.DimensionsToString(), f.Stats)
+	if f.Stats.StdDev<1e-8 {
+		fmt.Fprintf(logWriter, "Warnining: %s file %d may be degenerate\n", role, id)
+	}
+
 	return f, nil
 }
-
-// Load dark frame from FITS file
-func LoadDark(fileName string) *FITSImage {
-	f, err:=LoadAndCalcStats(fileName, -1)
-	if err!=nil { panic(err.Error()) }
-
-	LogPrintf("%s %s %dx%d stats: %v\n", "dark", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
-	if f.Stats.StdDev<1e-8 {
-		LogPrintf("Warnining: dark file may be degenerate\n")
-	}
-	return f
-}
-
-
-// Load flat frame from FITS file
-func LoadFlat(fileName string) *FITSImage {
-	f, err:=LoadAndCalcStats(fileName, -2)
-	if err!=nil { panic(err.Error()) }
-
-	LogPrintf("%s %s %dx%d stats: %v\n", "flat", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
-	if (f.Stats.Min<=0 && f.Stats.Max>=0) || f.Stats.StdDev<1e-8 {
-		LogPrintf("Warnining: flat file may be degenerate\n")
-	}
-	return f
-}
-
-
-// Load alignment target frame from FITS file
-func LoadAlignTo(fileName string) *FITSImage {
-	f, err:=LoadAndCalcStats(fileName, -3)
-	if err!=nil { panic(err.Error()) }
-
-	LogPrintf("%s %s %dx%d stats: %v\n", "align", fileName, f.Naxisn[0], f.Naxisn[1], f.Stats)
-	if f.Stats.StdDev<1e-8 {
-		LogPrintf("Warnining: alignment target file may be degenerate\n")
-	}
-	return f
-}
-
-
 
 
 type OpPreProcess struct {
@@ -137,37 +103,50 @@ func NewOpCalibrate(dark, flat string) *OpCalibrate {
 }
 
 // Load dark and flat in parallel if flagged
-func (op *OpCalibrate) init() error {
+func (op *OpCalibrate) init(logWriter io.Writer) error {
 	op.mutex.Lock()
 	defer op.mutex.Unlock()
-    if !( (op.ActiveDark && op.Dark!="" && op.DarkFrame==nil) ||
+  if !( (op.ActiveDark && op.Dark!="" && op.DarkFrame==nil) ||
           (op.ActiveFlat && op.Flat!="" && op.FlatFrame==nil)    ) {
         	return nil  
 	}
 
-    sem    :=make(chan bool, 2) // limit parallelism to 2
-    waiting:=0
+  sem    :=make(chan error, 2) // limit parallelism to 2
+  waiting:=0
 
-    op.DarkFrame=nil
-    if op.ActiveDark && op.Dark!="" { 
+  op.DarkFrame=nil
+  if op.ActiveDark && op.Dark!="" { 
 		waiting++ 
 		go func() { 
-			op.DarkFrame=LoadDark(op.Dark) 
-			sem <- true
+			var err error
+			op.DarkFrame, err=LoadAndCalcStats(op.Dark, -1, "dark", logWriter)
+			sem <- err
 		}()
 	}
 
 	op.FlatFrame=nil
-    if op.ActiveFlat && op.Flat!="" { 
+  if op.ActiveFlat && op.Flat!="" { 
 		waiting++ 
-    	go func() { 
-    		op.FlatFrame=LoadFlat(op.Flat) 
-			sem <- true
-		}() 
-	}
+  	go func() { 
+			var err error
+  		op.FlatFrame, err=LoadAndCalcStats(op.Flat, -2, "flat", logWriter) 
+		  sem <- err
+	  }() 
+  }
 
+  var err error
 	for ; waiting>0; waiting-- {
-		<- sem   // wait for goroutines to finish
+		threadErr := <- sem   // wait for goroutines to finish
+		if threadErr!=nil {
+			if err==nil {
+				err=threadErr
+			} else {
+				 err=errors.New("Multiple errors: " + err.Error() + " and " + threadErr.Error())
+			}
+		}
+	}
+	if err!=nil {
+		return err
 	}
 
 	if op.DarkFrame!=nil && op.FlatFrame!=nil && !EqualInt32Slice(op.DarkFrame.Naxisn, op.FlatFrame.Naxisn) {
@@ -180,7 +159,7 @@ func (op *OpCalibrate) init() error {
 
 // Apply calibration frames if active and available. Must have been loaded
 func (op *OpCalibrate) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
-	if err=op.init(); err!=nil { return nil, err }
+	if err=op.init(logWriter); err!=nil { return nil, err }
 
 	if op.ActiveDark && op.DarkFrame!=nil && op.DarkFrame.Pixels>0 {
 		if !EqualInt32Slice(f.Naxisn, op.DarkFrame.Naxisn) {

@@ -30,6 +30,7 @@ type OpStretch struct {
 	PPGamma          *OpPPGamma          `json:"ppGamma"`
 	ScaleBlack       *OpScaleBlack       `json:"scaleBlack"`
 	StarDetect       *OpStarDetect       `json:"starDetect"`
+	SelectReference  *OpSelectReference  `json:"selectReference"`
 	Align            *OpAlign            `json:"align"`
 	UnsharpMask      *OpUnsharpMask      `json:"unsharpMask"`
 	Save             *OpSave             `json:"save"`
@@ -38,7 +39,8 @@ type OpStretch struct {
 var _ OperatorUnary = (*OpStretch)(nil) // Compile time assertion: type implements the interface
 
 func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStretchIterative, opMidtones *OpMidtones, 
-	              opGamma*OpGamma, opPPGamma *OpPPGamma, opScaleBlack*OpScaleBlack, opStarDetect *OpStarDetect, opAlign *OpAlign, 
+	              opGamma*OpGamma, opPPGamma *OpPPGamma, opScaleBlack*OpScaleBlack, opStarDetect *OpStarDetect, 
+	              opSelectReference *OpSelectReference, opAlign *OpAlign, 
 	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *OpSave) *OpStretch {
 	return &OpStretch{
 		NormalizeRange   : opNormalizeRange  ,
@@ -48,6 +50,7 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 		PPGamma          : opPPGamma         ,
 		ScaleBlack       : opScaleBlack      ,
 		StarDetect       : opStarDetect      ,
+		SelectReference  : opSelectReference ,
 		Align            : opAlign           ,
 		UnsharpMask      : opUnsharpMask     ,
 		Save             : opSave            ,
@@ -63,6 +66,12 @@ func (op *OpStretch) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, 
 	if op.PPGamma         !=nil { if f,err=op.PPGamma         .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.ScaleBlack      !=nil { if f,err=op.ScaleBlack      .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.StarDetect      !=nil { if f,err=op.StarDetect      .Apply(f, logWriter); err!=nil { return nil, err } }
+	if op.SelectReference !=nil { 
+		fs:=[]*FITSImage{f}
+		if fs,err=op.SelectReference .ApplyToFITS(fs, logWriter); err!=nil { return nil, err }
+		f=fs[0] 
+        if op.Align!=nil { op.Align.Reference=op.SelectReference.Frame }               
+    }
 	if op.Align           !=nil { if f,err=op.Align           .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.UnsharpMask     !=nil { if f,err=op.UnsharpMask     .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.Save            !=nil { if f,err=op.Save            .Apply(f, logWriter); err!=nil { return nil, err } }
