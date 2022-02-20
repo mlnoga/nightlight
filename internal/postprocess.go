@@ -19,8 +19,36 @@ package internal
 import (
 	"errors"
 	"fmt"
+	"io"
 	"math"
+	"sync"
 )
+
+
+
+type OpPostProcess struct {
+	Normalize   *OpNormalize 	`json:"normalize"`
+	Align       *OpAlign 	    `json:"align"`
+	Save        *OpSave         `json:"save"`
+}
+var _ OperatorUnary = (*OpPostProcess)(nil) // Compile time assertion: type implements the interface
+
+func NewOpPostProcess(normalize HistoNormMode, align, alignK int32, alignThreshold float32, 
+	                  oobMode OutOfBoundsMode, refSelMode RefSelMode, postProcessedPattern string) *OpPostProcess {
+	return &OpPostProcess{
+		Normalize : NewOpNormalize(normalize),
+		Align : 	NewOpAlign(align, alignK, alignThreshold, oobMode, refSelMode),
+		Save :	 	NewOpSave(postProcessedPattern),
+	}
+}
+
+func (op *OpPostProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if f, err=op.Normalize.Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.Align.    Apply(f, logWriter); err!=nil { return nil, err}
+	if f, err=op.Save.     Apply(f, logWriter); err!=nil { return nil, err}
+	return f, nil
+}
+
 
 // Histogram normalization mode for post-processing
 type HistoNormMode int
@@ -32,6 +60,33 @@ const (
 	HNMAuto          // Auto mode. Uses ScaleLoc for stacking, and LocBlack for (L)RGB combination.
 )
 
+type OpNormalize struct {
+	Active      bool          `json:"active"`
+	Mode        HistoNormMode `json:"mode"`
+	Reference  *FITSImage     `json:"-"`}
+
+func NewOpNormalize(mode HistoNormMode) *OpNormalize {
+	return &OpNormalize{mode!=HNMNone, mode, nil}
+}
+
+func (op *OpNormalize) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error)  {
+	if !op.Active || op.Mode==HNMNone { return f, nil }
+	switch op.Mode {
+		case HNMLocation:
+			f.MatchLocation(op.Reference.Stats.Location)
+		case HNMLocScale:
+			f.MatchHistogram(op.Reference.Stats)
+		case HNMLocBlack:
+	    	f.ShiftBlackToMove(f.Stats.Location, op.Reference.Stats.Location)
+	    	var err error
+	    	f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+	    	if err!=nil { return nil, err }
+	}
+	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, f.Stats)
+	return f, nil
+}
+
+
 
 // Replacement mode for out of bounds values when projecting images
 type OutOfBoundsMode int
@@ -41,114 +96,77 @@ const (
 	OOBModeOwnLocation  // Replace with location estimate for the current frame. Good for projecting RGB, where locations can differ
 )
 
-// Postprocess all light frames with given settings, limiting concurrency to the number of available CPUs
-func PostProcessLights(alignRef, histoRef *FITSImage, lights []*FITSImage, align int32, alignK int32, alignThreshold float32, 
-	                   normalize HistoNormMode, oobMode OutOfBoundsMode, usmSigma, usmGain, usmThresh float32, 
-	                   postProcessedPattern string, imageLevelParallelism int32) (numErrors int) {
-	var aligner *Aligner=nil
-	if align!=0 {
-		if alignRef==nil || alignRef.Stars==nil || len(alignRef.Stars)==0 {
-			LogFatal("Unable to align without star detections in reference frame")
-		}
-		aligner=NewAligner(alignRef.Naxisn, alignRef.Stars, alignK)
-	}
-	if usmGain>0 { 
-		kernel:=GaussianKernel1D(usmSigma)
-		LogPrintf("Unsharp masking kernel sigma %.2f size %d: %v\n", usmSigma, len(kernel), kernel)
-	}
-	numErrors=0
-	sem   :=make(chan bool, imageLevelParallelism)
-	for i, lightP := range(lights) {
-		sem <- true 
-		go func(i int, lightP *FITSImage) {
-			defer func() { <-sem }()
-			res, err:=postProcessLight(aligner, histoRef, lightP, alignThreshold, normalize, oobMode, usmSigma, usmGain, usmThresh)
-			if err!=nil {
-				LogPrintf("%d: Error: %s\n", lightP.ID, err.Error())
-				numErrors++
-			} else if postProcessedPattern!="" {
-				// Write image to (temporary) file
-				err=res.WriteFile(fmt.Sprintf(postProcessedPattern, lightP.ID))				
-				if err!=nil { LogFatalf("Error writing file: %s\n", err) }
-			}
-			if res!=lightP {
-				lightP.Data=nil
-				lights[i]=res
-			}
-		}(i, lightP)
-	}
-	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
-		sem <- true
-	}
-	return numErrors
+type OpAlign struct {
+	Active     bool            `json:"active"`
+	K          int32           `json:"k"`
+	Threshold  float32         `json:"threshold"`
+	OobMode    OutOfBoundsMode `json:"oobMode"`
+	RefSelMode RefSelMode      `json:"refSelMode"`
+	Reference *FITSImage       `json:"-"`
+	HistoRef  *FITSImage       `json:"-"`
+	Aligner   *Aligner         `json:"-"`
+	mutex     sync.Mutex       `json:"-"`       
 }
 
-// Postprocess a single light frame with given settings. Processing steps can include:
-// normalization, alignment and resampling in reference frame, and unsharp masking 
-func postProcessLight(aligner *Aligner, histoRef, light *FITSImage, alignThreshold float32, normalize HistoNormMode, 
-					  oobMode OutOfBoundsMode, usmSigma, usmGain, usmThresh float32) (res *FITSImage, err error) {
-	// Match reference frame histogram 
-	switch normalize {
-		case HNMNone: 
-			// do nothing
-		case HNMLocation:
-			light.MatchLocation(histoRef.Stats.Location)
-			LogPrintf("%d: %s\n", light.ID, light.Stats)
-		case HNMLocScale:
-			light.MatchHistogram(histoRef.Stats)
-			LogPrintf("%d: %s\n", light.ID, light.Stats)
-		case HNMLocBlack:
-	    	light.ShiftBlackToMove(light.Stats.Location, histoRef.Stats.Location)
-	    	var err error
-	    	light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
-	    	if err!=nil { return nil, err }
-			LogPrintf("%d: %s\n", light.ID, light.Stats)
+func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode, refSelMode RefSelMode) *OpAlign {
+	return &OpAlign{
+		Active    : align!=0,
+		K         : alignK,
+		Threshold : alignThreshold,	
+		OobMode   : oobMode,
+		RefSelMode: refSelMode,
 	}
+}
+
+func (op *OpAlign) init() error {
+	op.mutex.Lock()
+	defer op.mutex.Unlock()
+	if !op.Active || op.Aligner!=nil { return nil }
+
+	if op.Reference==nil || op.Reference.Stars==nil || len(op.Reference.Stars)==0 {
+		return errors.New("Unable to align without star detections in reference frame")
+	}
+	op.Aligner=NewAligner(op.Reference.Naxisn, op.Reference.Stars, op.K)
+	return nil
+}
+
+func (op *OpAlign) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+	if err=op.init(); err!=nil { return nil, err }
 
 	// Is alignment to the reference frame required?
-	if aligner==nil || aligner.RefStars==nil || len(aligner.RefStars)==0 {
+	if !op.Active || op.Aligner==nil || op.Aligner.RefStars==nil || len(op.Aligner.RefStars)==0 {
 		// Generally not required
-		light.Trans=IdentityTransform2D()		
-	} else if (len(aligner.RefStars)==len(light.Stars) && (&aligner.RefStars[0]==&light.Stars[0])) {
+		f.Trans=IdentityTransform2D()		
+	} else if (len(op.Aligner.RefStars)==len(f.Stars) && (&op.Aligner.RefStars[0]==&f.Stars[0])) {
+		// FIXME: comparison is just a heuristic?
 		// Not required for reference frame itself
-		light.Trans=IdentityTransform2D()		
-	} else if light.Stars==nil || len(light.Stars)==0 {
+		f.Trans=IdentityTransform2D()		
+	} else if f.Stars==nil || len(f.Stars)==0 {
 		// No stars - skip alignment and warn
-		LogPrintf("%d: warning: no stars found, skipping alignment", light.ID)
-		light.Trans=IdentityTransform2D()		
+		msg:=fmt.Sprintf("%d: No alignment stars found, skipping frame\n", f.ID)
+		return nil, errors.New(msg)
 	} else {
 		// Alignment is required
 		// determine out of bounds fill value
 		var outOfBounds float32
-		switch(oobMode) {
+		switch(op.OobMode) {
 			case OOBModeNaN:         outOfBounds=float32(math.NaN())
-			case OOBModeRefLocation: outOfBounds=histoRef.Stats.Location
-			case OOBModeOwnLocation: outOfBounds=light   .Stats.Location
+			case OOBModeRefLocation: outOfBounds=op.HistoRef.Stats.Location
+			case OOBModeOwnLocation: outOfBounds=f          .Stats.Location
 		}
 
 		// Determine alignment of the image to the reference frame
-		trans, residual := aligner.Align(light.Naxisn, light.Stars, light.ID)
-		if residual>alignThreshold {
-			msg:=fmt.Sprintf("%d:Skipping image as residual %g is above limit %g", light.ID, residual, alignThreshold)
+		trans, residual := op.Aligner.Align(f.Naxisn, f.Stars, f.ID)
+		if residual>op.Threshold {
+			msg:=fmt.Sprintf("%d: Alignment residual %g is above threshold %g, skipping frame", f.ID, residual, op.Threshold)
 			return nil, errors.New(msg)
 		} 
-		light.Trans, light.Residual=trans, residual
-		LogPrintf("%d: Transform %v; oob %.3g residual %.3g\n", light.ID, light.Trans, outOfBounds, light.Residual)
+		f.Trans, f.Residual=trans, residual
+		fmt.Fprintf(logWriter, "%d: Transform %v; oob %.3g residual %.3g\n", f.ID, f.Trans, outOfBounds, f.Residual)
 
 		// Project image into reference frame
-		light, err= light.Project(aligner.Naxisn, trans, outOfBounds)
+		f, err= f.Project(op.Aligner.Naxisn, trans, outOfBounds)
 		if err!=nil { return nil, err }
-	}
-
-	// apply unsharp masking, if requested
-	if usmGain>0 {
-		light.Stats, err=CalcExtendedStats(light.Data, light.Naxisn[0])
-		if err!=nil { return nil, err }
-		absThresh:=light.Stats.Location + light.Stats.Scale*usmThresh
-		LogPrintf("%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", light.ID, usmSigma, usmGain, usmThresh, absThresh)
-		light.Data=UnsharpMask(light.Data, int(light.Naxisn[0]), usmSigma, usmGain, light.Stats.Min, light.Stats.Max, absThresh)
-		light.Stats=CalcBasicStats(light.Data)
-	}
-
-	return light, nil
+	}	
+	return f, nil
 }

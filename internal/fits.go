@@ -17,7 +17,9 @@
 package internal
 
 import (
+	"fmt"
 	"math"
+	"strings"
 )
 
 // A FITS image. 
@@ -39,6 +41,8 @@ type FITSImage struct {
 	Exposure float32     // Image exposure in seconds
 
 	Stats  *BasicStats   // Basic image statistics: min, mean, max
+	MedianDiffStats *BasicStats // Local median difference stats, for bad pixel detection, star detection
+	 
 	Stars  []Star        // Star detections
 	HFR    float32       // Half-flux radius of the star detections
 
@@ -83,6 +87,18 @@ func NewFITSHeader() FITSHeader {
 const fitsBlockSize int      = 2880       // Block size of FITS header and data units
 const fitsHeaderLineSize int =   80       // Line size of a FITS header
 
+
+func (f *FITSImage) DimensionsToString() string {
+	b:=strings.Builder{}
+	for i,naxis:=range(f.Naxisn) {
+		if i>0 { 
+			fmt.Fprintf(&b, "x%d", naxis)
+		} else {
+			fmt.Fprintf(&b, "%d", naxis)
+		}
+	} 
+	return b.String()
+}
 
 // Combine single color images into one multi-channel image.
 // All images must have the same dimensions, or undefined results occur. 
@@ -316,4 +332,5 @@ func EqualInt32Slice(a, b []int32) bool {
     }
     return true
 }
+
 
