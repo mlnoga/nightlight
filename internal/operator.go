@@ -140,13 +140,13 @@ func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err
 	if strings.HasSuffix(fnLower,".fits")      || strings.HasSuffix(fnLower,".fit")      || strings.HasSuffix(fnLower,".fts")     ||
 	   strings.HasSuffix(fnLower,".fits.gz")   || strings.HasSuffix(fnLower,".fit.gz")   || strings.HasSuffix(fnLower,".fts.gz")  ||
 	   strings.HasSuffix(fnLower,".fits.gzip") || strings.HasSuffix(fnLower,".fit.gzip") || strings.HasSuffix(fnLower,".fts.gzip") {     
-		fmt.Fprintf(logWriter,"%d: Writing FITS to %s", f.ID, fileName)
+		fmt.Fprintf(logWriter,"%d: Writing %s pixel FITS to %s\n", f.ID, f.DimensionsToString(), fileName)
 		err=f.WriteFile(fileName)
 	} else if strings.HasSuffix(fnLower,".jpeg") || strings.HasSuffix(fnLower,".jpg") {
-		if len(f.Naxisn)==1 {
+		if len(f.Naxisn)==2 {
 			fmt.Fprintf(logWriter, "%d: Writing %s pixel mono JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
 			f.WriteMonoJPGToFile(fileName, 95)
-		} else if len(f.Naxisn)==3 {
+		} else if len(f.Naxisn)==3 && f.Naxisn[2]==3 {
 			fmt.Fprintf(logWriter, "%d: Writing %s pixel color JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
 			f.WriteJPGToFile(fileName, 95)
 		} else {
