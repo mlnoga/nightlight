@@ -51,7 +51,7 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 		Align            : opAlign           ,
 		UnsharpMask      : opUnsharpMask     ,
 		Save             : opSave            ,
-		Save2            : opSave            ,
+		Save2            : opSave2           ,
 	}
 }
 
@@ -80,6 +80,12 @@ func NewOpNormalizeRange(active bool) *OpNormalizeRange {
 
 func (op *OpNormalizeRange) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
 	if !op.Active { return f, nil }
+
+	if f.Stats==nil {
+		f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+		if err!=nil { return nil, err }
+	}
+
 	if f.Stats.Min==f.Stats.Max {
 		fmt.Fprintf(logWriter, "%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", f.ID, f.Stats.Min)
 	} else {
