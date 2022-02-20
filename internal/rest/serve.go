@@ -37,6 +37,7 @@ func Serve() {
 		{
 			v1.GET ("/ping",  getPing)
 			v1.POST("/stats", postStats)
+			v1.POST("/stack", postStack)
 		}
 	}
 	r.Run() // listen and serve on 0.0.0.0:8080	
@@ -96,3 +97,43 @@ func postStats(c *gin.Context)  {
 	return
 }
 
+
+type postStackArgs struct {
+	FilePatterns    []string                `json:"filePatterns"`
+	StackMultiBatch  *nl.OpStackMultiBatch  `json:"stackMultiBatch"`	
+}
+
+func postStack(c *gin.Context) {
+	logWriter := c.Writer
+	var args postStackArgs
+	if err:=c.ShouldBind(&args); err!=nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
+		return
+	}
+
+	header := logWriter.Header()
+	//header.Set("Transfer-Encoding", "chunked")
+	header.Set("Content-Type", "text/plain")
+	logWriter.WriteHeader(http.StatusOK)
+
+	if err:=printArgs(logWriter, "Arguments:\n", "\n", args); err!=nil {
+		fmt.Fprintf(logWriter, "Error printing arguments: %s\n", err.Error())
+		return
+	}
+
+	// glob filename arguments into OpLoadFiles operators
+	var err error
+	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	if err!=nil {
+		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
+		return
+	}
+
+	_, err=args.StackMultiBatch.Apply(opLoadFiles, logWriter)	
+	if(err!=nil) {
+		fmt.Fprintf(logWriter, "error: %s\n", err.Error())	
+	}
+	logWriter.(http.Flusher).Flush()
+
+	return
+}
