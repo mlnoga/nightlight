@@ -179,3 +179,67 @@ func (op *OpSequence) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage,
 	}
 	return f, nil
 }
+
+
+
+
+type OpParallel struct {
+	Operator    OperatorUnary  `json:"operator"`
+	MaxThreads  int64          `json:"MaxThreads"`
+}
+var _ OperatorParallel = (*OpParallel)(nil) // Compile time assertion: type implements the interface
+
+func NewOpParallel(operator OperatorUnary, maxThreads int64) *OpParallel {
+	return &OpParallel{operator, maxThreads} 
+}
+
+// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOuts []*FITSImage, err error) {
+	fOuts =make([]*FITSImage, len(sources))
+	sem  :=make(chan bool, op.MaxThreads)
+	for i, src := range(sources) {
+		sem <- true 
+		go func(i int, source *OpLoadFile) {
+			defer func() { <-sem }()
+			f, err:=source.Apply(logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			f, err=op.Operator.Apply(f, logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			fOuts[i]=f
+		}(i, src)
+	}
+	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
+		sem <- true
+	}
+	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+}
+
+
+// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func (op *OpParallel) ApplyToFITS(sources []*FITSImage, logWriter io.Writer) (fOuts []*FITSImage, err error) {
+	fOuts =make([]*FITSImage, len(sources))
+	sem  :=make(chan bool, op.MaxThreads)
+	for i, src := range(sources) {
+		sem <- true 
+		go func(i int, f *FITSImage) {
+			defer func() { <-sem }()
+			f, err=op.Operator.Apply(f, logWriter)
+			if err!=nil { 
+				fmt.Fprintf(logWriter, err.Error())
+				return
+			}
+			fOuts[i]=f
+		}(i, src)
+	}
+	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
+		sem <- true
+	}
+	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+}
+
