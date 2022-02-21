@@ -14,11 +14,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package qsort
 
 
 import (
-    "math"
+//    "math"
 )
 
 // Sort an array of float32 in ascending order.
@@ -70,12 +70,12 @@ func QSelectMedianFloat32(a []float32) float32 {
 }
 
 
-// Check if NaNs are present
-func CheckNaNs(as []float32) {
-    for i, a:=range as {
-        if math.IsNaN(float64(a)) { LogPrintf("NaN at %d\n", i)}
-    }
-}
+// // Check if NaNs are present
+// func CheckNaNs(as []float32) {
+//     for i, a:=range as {
+//         if math.IsNaN(float64(a)) { LogPrintf("NaN at %d\n", i)}
+//     }
+// }
 
 // Select kth lowest element from an array of float32. Partially reorders the array.
 // Array must not contain IEEE NaN
@@ -112,40 +112,4 @@ func QSelectFloat32(a []float32, k int) float32 {
     }
     return a[left]
 }
-
-
-// Sort an array of stars in descending order, based on mass
-// Array must not contain IEEE NaN
-func QSortStarsDesc(a []Star) {
-    if len(a)>1 {
-        index := QPartitionStarsDesc(a)
-        QSortStarsDesc(a[:index+1])
-        QSortStarsDesc(a[index+1:])
-    }
-}
-
-
-// Partitions an array of stars with the middle pivot element, and returns the pivot index.
-// Values greater than the pivot are moved left of the pivot, those less are moved right.
-// Array must not contain IEEE NaN
-func QPartitionStarsDesc(a []Star) int {
-    left, right:=0, len(a)-1
-    mid   := (left+right)>>1
-    pivot := a[mid].Mass
-    l := left -1
-    r := right+1
-    for {
-        for {
-            l++
-            if a[l].Mass<=pivot { break }
-        }
-        for {
-            r--
-            if a[r].Mass>=pivot { break }
-        }
-        if l >= r { return r }
-        a[l], a[r] = a[r], a[l]
-    }
-}
-
 

@@ -20,6 +20,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/qsort"
 )
 
 
@@ -41,7 +44,7 @@ type OpSelectReference struct {
 	Mode            RefSelMode         `json:"mode"`
 	FileName        string             `json:"fileName"`
 	StarDetect     *OpStarDetect       `json:"starDetect"`
-	Frame          *FITSImage          `json:"-"`
+	Frame          *fits.Image          `json:"-"`
 	Score           float32            `json:"-"`
 }
 var _ OperatorParallel = (*OpSelectReference)(nil) // Compile time assertion: type implements the interface
@@ -56,7 +59,7 @@ func NewOpSelectReference(mode RefSelMode, fileName string, opStarDetect *OpStar
 	}
 }
 
-func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (fsOut []*FITSImage, err error) {
+func (op *OpSelectReference) ApplyToFITS(fs []*fits.Image, logWriter io.Writer) (fsOut []*fits.Image, err error) {
 	if !op.Active { return fs, nil }
 	switch op.Mode {
 	case RFMStarsOverHFR:
@@ -68,7 +71,7 @@ func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (
 	case RFMFileName:
 		op.Frame, err=LoadAndCalcStats(op.FileName,-3,"align", logWriter)
 		if err!=nil { return nil, err }
-		op.Frame.Stats, err=CalcExtendedStats(op.Frame.Data, op.Frame.Naxisn[0])
+		op.Frame.Stats, err=stats.CalcExtendedStats(op.Frame.Data, op.Frame.Naxisn[0])
 		if err!=nil { return nil, err }
 		op.Frame, err=op.StarDetect.Apply(op.Frame, logWriter)
 	
@@ -85,12 +88,12 @@ func (op *OpSelectReference) ApplyToFITS(fs []*FITSImage, logWriter io.Writer) (
 	return fs, nil
 }
 
-func (op *OpSelectReference) ApplyToFiles(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fsOut []*FITSImage, err error) {
+func (op *OpSelectReference) ApplyToFiles(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fsOut []*fits.Image, err error) {
 	return nil, errors.New("Not implemented: func (op *OpSelectReference) ApplyToFITS()")
 }
 
 
-func selectReferenceStarsOverHFR(lights []*FITSImage) (refFrame *FITSImage, refScore float32, err error) {
+func selectReferenceStarsOverHFR(lights []*fits.Image) (refFrame *fits.Image, refScore float32, err error) {
 	refFrame, refScore=nil, -1
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
@@ -103,7 +106,7 @@ func selectReferenceStarsOverHFR(lights []*FITSImage) (refFrame *FITSImage, refS
 	return refFrame, refScore, nil
 }
 
-func selectReferenceMedianLoc(lights []*FITSImage) (refFrame *FITSImage, refScore float32, err error) {
+func selectReferenceMedianLoc(lights []*fits.Image) (refFrame *fits.Image, refScore float32, err error) {
 	refFrame, refScore=nil, -1
 	locs:=make([]float32, len(lights))
 	num:=0
@@ -112,7 +115,7 @@ func selectReferenceMedianLoc(lights []*FITSImage) (refFrame *FITSImage, refScor
 		locs[num]=lightP.Stats.Location
 		num++
 	}	
-	medianLoc:=QSelectMedianFloat32(locs[:num])
+	medianLoc:=qsort.QSelectMedianFloat32(locs[:num])
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
 		if lightP.Stats.Location==medianLoc {

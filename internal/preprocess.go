@@ -22,17 +22,20 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/star"
 )
 
 // Load frame from FITS file and calculate basic stats and noise
-func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *FITSImage, err error) {
-	theF:=NewFITSImage()
+func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *fits.Image, err error) {
+	theF:=fits.NewImage()
 	f=&theF
 	f.ID=id
-	err=f.ReadFile(fileName)
+	err=f.ReadFile(fileName, logWriter)
 	if err!=nil { return nil, err }
-	f.Stats=CalcBasicStats(f.Data)
-	f.Stats.Noise=EstimateNoise(f.Data, f.Naxisn[0])
+	f.Stats=stats.CalcBasicStats(f.Data)
+	f.Stats.Noise=stats.EstimateNoise(f.Data, f.Naxisn[0])
 
 	fmt.Fprintf(logWriter, "%d: %s %s %s stats: %v\n", id, role, fileName, f.DimensionsToString(), f.Stats)
 	if f.Stats.StdDev<1e-8 {
@@ -70,7 +73,7 @@ func NewOpPreProcess(dark, flat string, debayer, cfa string, binning int32,
 	}	
 }
 
-func (op *OpPreProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpPreProcess) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if op.Calibrate  !=nil { if f, err=op.Calibrate  .Apply(f, logWriter); err!=nil { return nil, err} }
 	if op.BadPixel   !=nil { if f, err=op.BadPixel   .Apply(f, logWriter); err!=nil { return nil, err} }
 	if op.Debayer    !=nil { if f, err=op.Debayer    .Apply(f, logWriter); err!=nil { return nil, err} }
@@ -85,10 +88,10 @@ func (op *OpPreProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImag
 type OpCalibrate struct {
 	ActiveDark        bool        `json:"activeDark"`
 	Dark              string      `json:"dark"`
-	DarkFrame         *FITSImage  `json:"-"`
+	DarkFrame         *fits.Image  `json:"-"`
 	ActiveFlat        bool        `json:"activeFlat"`
 	Flat              string      `json:"flat"`
-	FlatFrame         *FITSImage  `json:"-"`
+	FlatFrame         *fits.Image  `json:"-"`
 	mutex             sync.Mutex  `json:"-"`
 }
 var _ OperatorUnary = (*OpCalibrate)(nil) // Compile time assertion: type implements the interface
@@ -149,7 +152,7 @@ func (op *OpCalibrate) init(logWriter io.Writer) error {
 		return err
 	}
 
-	if op.DarkFrame!=nil && op.FlatFrame!=nil && !EqualInt32Slice(op.DarkFrame.Naxisn, op.FlatFrame.Naxisn) {
+	if op.DarkFrame!=nil && op.FlatFrame!=nil && !fits.EqualInt32Slice(op.DarkFrame.Naxisn, op.FlatFrame.Naxisn) {
 		return errors.New(fmt.Sprintf("Error: dark dimensions %v differ from flat dimensions %v.", 
 			                          op.DarkFrame.Naxisn, op.FlatFrame.Naxisn))
 	}
@@ -158,11 +161,11 @@ func (op *OpCalibrate) init(logWriter io.Writer) error {
 
 
 // Apply calibration frames if active and available. Must have been loaded
-func (op *OpCalibrate) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpCalibrate) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if err=op.init(logWriter); err!=nil { return nil, err }
 
 	if op.ActiveDark && op.DarkFrame!=nil && op.DarkFrame.Pixels>0 {
-		if !EqualInt32Slice(f.Naxisn, op.DarkFrame.Naxisn) {
+		if !fits.EqualInt32Slice(f.Naxisn, op.DarkFrame.Naxisn) {
 			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from dark dimensions %v",
 			                      f.ID, f.Naxisn, op.DarkFrame.Naxisn))
 		}
@@ -171,7 +174,7 @@ func (op *OpCalibrate) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage
 	}
 
 	if op.ActiveFlat && op.FlatFrame!=nil && op.FlatFrame.Pixels>0 {
-		if !EqualInt32Slice(f.Naxisn, op.FlatFrame.Naxisn) {
+		if !fits.EqualInt32Slice(f.Naxisn, op.FlatFrame.Naxisn) {
 			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from flat dimensions %v",
 			                      f.ID, f.Naxisn, op.FlatFrame.Naxisn))
 		}
@@ -217,14 +220,14 @@ func (op *OpBadPixel) UnmarshalJSON(data []byte) error {
 
 
 // Apply bad pixel removal if active
-func (op *OpBadPixel) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpBadPixel) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active ||  op.SigmaLow==0 || op.SigmaHigh==0 {
 		return f, nil
 	}
 	if op.Debayer==nil || !op.Debayer.Active {
 		var bpm []int32
 		bpm, f.MedianDiffStats=BadPixelMap(f.Data, f.Naxisn[0], op.SigmaLow, op.SigmaHigh)
-		mask:=CreateMask(f.Naxisn[0], 1.5)
+		mask:=star.CreateMask(f.Naxisn[0], 1.5)
 		MedianFilterSparse(f.Data, bpm, mask)
 		fmt.Fprintf(logWriter, "%d: Removed %d bad pixels (%.2f%%) with sigma low=%.2f high=%.2f\n", 
 			        f.ID, len(bpm), 100.0*float32(len(bpm))/float32(f.Pixels), op.SigmaLow, op.SigmaHigh)
@@ -269,7 +272,7 @@ func (op *OpDebayer) UnmarshalJSON(data []byte) error {
 }
 
 // Apply debayering if active 
-func (op *OpDebayer) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpDebayer) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
 	f.Data, f.Naxisn[0], err=DebayerBilinear(f.Data, f.Naxisn[0], op.Debayer, op.ColorFilterArray)
@@ -309,10 +312,10 @@ func (op *OpBin) UnmarshalJSON(data []byte) error {
 }
 
 // Apply binning if active
-func (op *OpBin) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpBin) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.BinSize<1 { return f, nil }
 
-	newF:=BinNxN(f, op.BinSize)
+	newF:=fits.BinNxN(f, op.BinSize)
 	fmt.Fprintf(logWriter, "%d: Applying %xx%d binning, new image size %dx%d\n", newF.ID, op.BinSize, newF.Naxisn[0], newF.Naxisn[1])
 
 	return f, nil
@@ -355,7 +358,7 @@ func (op *OpBackExtract) UnmarshalJSON(data []byte) error {
 }
 
 // Apply background extraction if active
-func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpBackExtract) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.GridSize<=0 { return f, nil }
 
 	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.NumBlocksToClip)
@@ -366,8 +369,8 @@ func (op *OpBackExtract) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSIma
 		bg.Subtract(f.Data)
 	} else { 
 		bgData:=bg.Render()
-		bgFits:=FITSImage{
-			Header:NewFITSHeader(),
+		bgFits:=fits.Image{
+			Header:fits.NewHeader(),
 			Bitpix:-32,
 			Bzero :0,
 			Naxisn:f.Naxisn,
@@ -423,19 +426,19 @@ func (op *OpStarDetect) UnmarshalJSON(data []byte) error {
 }
 
 // Apply star detection if active. Calculates needed stats on demand if not current
-func (op *OpStarDetect) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStarDetect) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
 	if f.Stats==nil {
-		f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 		if err!=nil { return nil, err }
 	}
 
-	f.Stars, _, f.HFR=FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
+	f.Stars, _, f.HFR=star.FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
 	fmt.Fprintf(logWriter, "%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
 	if op.Save!=nil && op.Save.Active {
-		stars:=ShowStars(f, 2.0)
+		stars:=fits.ShowStars(f, 2.0)
 		_, err=op.Save.Apply(&stars, logWriter)
 		if err!=nil { return nil, err }
 	}	

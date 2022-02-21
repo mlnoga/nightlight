@@ -15,7 +15,7 @@
 
 // +build !amd64
 
-package internal
+package median
 
 
 // Applies 3x3 median filter to input data, assumed to be a 2D array with given line width, and stores results in output.

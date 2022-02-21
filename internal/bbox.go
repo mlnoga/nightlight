@@ -18,10 +18,12 @@ package internal
 
 import (
 	"math"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/star"
 )
 
 // Calculate inner and outer bounding boxes for a set of lights.
-func BoundingBoxes(lights []*FITSImage) (outer, inner Rect2D) {
+func BoundingBoxes(lights []*fits.Image) (outer, inner star.Rect2D) {
 	outer.A.X=float32( math.MaxFloat32)
 	inner.A.X=float32(-math.MaxFloat32)
 	inner.B.X=float32( math.MaxFloat32)
@@ -36,8 +38,8 @@ func BoundingBoxes(lights []*FITSImage) (outer, inner Rect2D) {
 		if lp==nil { continue }
 
 		// Transform image coordiates into reference image coordinates
-		localP1:=Point2D{0,0}
-		localP2:=Point2D{float32(lp.Naxisn[0]), float32(lp.Naxisn[1])}
+		localP1:=star.Point2D{0,0}
+		localP2:=star.Point2D{float32(lp.Naxisn[0]), float32(lp.Naxisn[1])}
 		p1, p2:=lp.Trans.Apply(localP1), lp.Trans.Apply(localP2)
 
 		// Fix mirrors/rotations: ensure p1 has lower X and Y than p2

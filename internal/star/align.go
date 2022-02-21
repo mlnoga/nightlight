@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package star
 
 import (
 	"math"
@@ -235,7 +235,7 @@ func (a *Aligner) findBestMatch(matches []Match, triangles []Triangle, stars []S
 		}
 		result, err := optimize.Minimize(problem, x0, nil, &optimize.NelderMead{})
 		if err!= nil {
-			LogPrintf("optimizer error: %s\n", err.Error())
+			//LogPrintf("optimizer error: %s\n", err.Error())
 			continue
 		}
 

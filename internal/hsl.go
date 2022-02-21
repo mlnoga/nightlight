@@ -20,13 +20,15 @@ import (
 	// "encoding/json"
 	"fmt"
 	"io"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
 	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
 
 type OpHSLApplyLum struct {
 	Active     bool      `json:"active"`
-	Lum 	*FITSImage 		`json:"-"`
+	Lum 	*fits.Image 		`json:"-"`
 }
 var _ OperatorUnary = (*OpHSLApplyLum)(nil) // Compile time assertion: type implements the interface
 
@@ -35,7 +37,7 @@ func NewOpHSLApplyLum(active bool) *OpHSLApplyLum {
 }
 
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func (op *OpHSLApplyLum) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLApplyLum) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.Lum==nil { return f, nil }
     fmt.Fprintf(logWriter, "Converting mono luminance image to HSLuv as well...\n")
     op.Lum.MonoToHSLuvLum()
@@ -59,11 +61,11 @@ func NewOpHSLNeutralizeBackground(sigmaLow, sigmaHigh float32) *OpHSLNeutralizeB
 }
 
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func (op *OpHSLNeutralizeBackground) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLNeutralizeBackground) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", op.SigmaLow, op.SigmaHigh)    	
 
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	low :=loc + scale*float32(op.SigmaLow)
 	high:=loc + scale*float32(op.SigmaHigh)
@@ -88,12 +90,12 @@ func NewOpHSLSaturationGamma(gamma, sigma float32) *OpHSLSaturationGamma {
 	return &OpHSLSaturationGamma{gamma!=1.0, gamma, sigma}
 }
 
-func (op *OpHSLSaturationGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLSaturationGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
    	fmt.Fprintf(logWriter, "Applying gamma %.2f to saturation for values %.4g sigma above background...\n", op.Gamma, op.Sigma)
 
 	// calculate basic image stats as a fast location and scale estimate
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	threshold :=loc + scale*float32(op.Sigma)
 	fmt.Fprintf(logWriter, "Location %.2f%%, scale %.2f%%, threshold %.2f%%\n", loc*100, scale*100, threshold*100)
@@ -116,7 +118,7 @@ func NewOpHSLSelectiveSaturation(from, to, factor float32) *OpHSLSelectiveSatura
 	return &OpHSLSelectiveSaturation{factor!=1, from, to, factor}
 }
 
-func (op *OpHSLSelectiveSaturation) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLSelectiveSaturation) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", op.Factor, op.From, op.To)
 	f.AdjustChromaForHues(op.From, op.To, op.Factor)
@@ -138,10 +140,10 @@ func NewOpHSLRotateHue(from, to, offset, sigma float32) *OpHSLRotateHue {
 	return &OpHSLRotateHue{offset!=0, from, to, offset, sigma}
 }
 
-func (op *OpHSLRotateHue) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLRotateHue) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Rotating LCH hue angles in [%g,%g] by %.4g for lum>=loc+%g*scale...\n", op.From, op.To, op.Offset, op.Sigma)
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	threshold :=loc + scale*float32(op.Sigma)
 	f.RotateColors(op.From, op.To, op.Offset, threshold)
@@ -162,7 +164,7 @@ func NewOpHSLSCNR(factor float32) *OpHSLSCNR {
 	return &OpHSLSCNR{factor!=0, factor}
 }
 
-func (op *OpHSLSCNR) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLSCNR) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying SCNR of %.4g ...\n", op.Factor)
 	f.SCNR(op.Factor)
@@ -188,11 +190,11 @@ func NewOpHSLMidtones(mid, black float32) *OpHSLMidtones {
 	}
 }
 
-func (op *OpHSLMidtones) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLMidtones) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
 	// calculate basic image stats as a fast location and scale estimate
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	absMid:=op.Mid*scale
 	absBlack:=loc - op.Black*scale
@@ -213,7 +215,7 @@ func NewOpHSLGamma(gamma float32) *OpHSLGamma {
 	return &OpHSLGamma{gamma!=1.0, gamma}
 }
 
-func (op *OpHSLGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying gamma %.3g\n", op.Gamma)
 	f.ApplyGammaToChannel(2, op.Gamma)
@@ -234,9 +236,9 @@ func NewOpHSLPPGamma(gamma, sigma float32) *OpHSLPPGamma {
 
 func (op *OpHSLPPGamma) Init() error { return nil }
 
-func (op *OpHSLPPGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLPPGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	from:=loc+op.Sigma*scale
 	to  :=float32(1.0)
@@ -259,10 +261,10 @@ func NewOpHSLScaleBlack(black float32) *OpHSLScaleBlack {
 
 func (op *OpHSLScaleBlack) Init() error { return nil }
 
-func (op *OpHSLScaleBlack) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLScaleBlack) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
-	_, _, loc, scale, err:=HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
+	_, _, loc, scale, err:=stats.HCLLumMinMaxLocScale(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 	_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(op.Black)).Hcl()

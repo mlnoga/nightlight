@@ -15,7 +15,7 @@
 
 // +build amd64
 
-package internal
+package stats
 
 import (
     "math"

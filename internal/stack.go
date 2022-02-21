@@ -23,6 +23,10 @@ import (
 	"math"
 	"runtime"
 	"sync"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/qsort"
+	"github.com/mlnoga/nightlight/internal/star"
 )
 
 
@@ -74,7 +78,7 @@ const (
 )
 
 // Prepare weights for stacking based on selected weighting mode and given images 
-func getWeights(f []*FITSImage, weighting StackWeighting) (weights []float32, err error)  {
+func getWeights(f []*fits.Image, weighting StackWeighting) (weights []float32, err error)  {
 	weights=[]float32(nil)
 	if weighting==StWeightNone {
 		weights=nil
@@ -116,7 +120,7 @@ func getWeights(f []*FITSImage, weighting StackWeighting) (weights []float32, er
 }
 
 // Stack a set of light frames. Limits parallelism to the number of available cores
-func (op *OpStack) Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error) {
+func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Image, err error) {
 	// validate stacking modes and perform automatic mode selection if necesssary
 	mode:=op.Mode
 	if mode<StMedian || mode>StAuto {
@@ -217,8 +221,8 @@ func (op *OpStack) Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage
 	for _,l :=range f { exposureSum+=l.Exposure }
 
 	// Assemble into in-memory FITS
-	stack:=FITSImage{
-		Header: NewFITSHeader(),
+	stack:=fits.Image{
+		Header: fits.NewHeader(),
 		Bitpix: -32,
 		Bzero : 0,
 		Naxisn: append([]int32(nil), f[0].Naxisn...), // clone slice
@@ -226,11 +230,11 @@ func (op *OpStack) Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage
 		Data  : data,
 		Exposure: exposureSum,
 		Stats : nil, 
-		Trans : IdentityTransform2D(),
+		Trans : star.IdentityTransform2D(),
 		Residual: 0,
 	}
 
-	stack.Stats, err=CalcExtendedStats(data, f[0].Naxisn[0])
+	stack.Stats, err=stats.CalcExtendedStats(data, f[0].Naxisn[0])
 	if err!=nil { return nil, err }
 
 	return &stack, nil
@@ -264,7 +268,7 @@ func StackMedian(lightsData [][]float32, RefFrameLoc float32, res []float32) {
 		}
 		gatheredCur:=gatheredFull[:numGathered]
 
-		res[i]=QSelectMedianFloat32(gatheredCur)
+		res[i]=qsort.QSelectMedianFloat32(gatheredCur)
 	}
 	gatheredFull=nil
 }
@@ -368,8 +372,8 @@ func StackSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh float32
 		for {
 
 			// calculate median, mean, standard deviation and variance across gathered data
-			median:=QSelectMedianFloat32(gatheredCur)
-			mean, stdDev:=MeanStdDev(gatheredCur)
+			median:=qsort.QSelectMedianFloat32(gatheredCur)
+			mean, stdDev:=stats.MeanStdDev(gatheredCur)
 
 			// remove out-of-bounds values
 			lowBound :=median - sigmaLow *stdDev
@@ -451,8 +455,8 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, RefFrameLoc, 
 		for {
 
 			// calculate median, mean, standard deviation and variance across gathered data
-			median:=QSelectMedianFloat32(gatheredCur)
-			_, stdDev:=MeanStdDev(gatheredCur)
+			median:=qsort.QSelectMedianFloat32(gatheredCur)
+			_, stdDev:=stats.MeanStdDev(gatheredCur)
 
 			// remove out-of-bounds values
 			lowBound :=median - sigmaLow *stdDev
@@ -532,8 +536,8 @@ func StackWinsorSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh f
 		// repeat until results for this pixel are stable
 		for {
 			// calculate median and standard deviation across all frames
-			median:=QSelectMedianFloat32(gatheredCur)
-			mean, stdDev:=MeanStdDev(gatheredCur)
+			median:=qsort.QSelectMedianFloat32(gatheredCur)
+			mean, stdDev:=stats.MeanStdDev(gatheredCur)
 
 			// calculate winsorized standard deviation (removes outliers/tighter)
 			winsorized:=winsorizedFull[0:len(gatheredCur)]
@@ -554,7 +558,7 @@ func StackWinsorSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh f
 				}
 				// median is invariant to outlier substitution, no need to recompute
 				oldStdDev:=stdDev
-				_, stdDev=MeanStdDev(winsorized) // also keep original mean
+				_, stdDev=stats.MeanStdDev(winsorized) // also keep original mean
 				stdDev=1.134*stdDev
 
 				factor:=float32(math.Abs(float64(stdDev-oldStdDev)))/oldStdDev
@@ -645,8 +649,8 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, RefFram
 		for {
 
 			// calculate median and standard deviation across all frames
-			median:=QSelectMedianFloat32(gatheredCur)
-			_, stdDev:=MeanStdDev(gatheredCur)
+			median:=qsort.QSelectMedianFloat32(gatheredCur)
+			_, stdDev:=stats.MeanStdDev(gatheredCur)
 
 			// calculate winsorized standard deviation (removes outliers/tighter)
 			winsorized:=winsorizedFull[0:len(gatheredCur)]
@@ -667,7 +671,7 @@ func StackWinsorSigmaWeighted(lightsData [][]float32, weights []float32, RefFram
 				}
 				// median is invariant to outlier substitution, no need to recompute
 				oldStdDev:=stdDev
-				_, stdDev=MeanStdDev(winsorized) // also keep original mean
+				_, stdDev=stats.MeanStdDev(winsorized) // also keep original mean
 				stdDev=1.134*stdDev
 
 				factor:=float32(math.Abs(float64(stdDev-oldStdDev)))/oldStdDev
@@ -761,11 +765,11 @@ func StackLinearFit(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh flo
 		mean:=float32(0)
 		for {
 			// sort the data
-			QSortFloat32(gatheredCur)
+			qsort.QSortFloat32(gatheredCur)
 
 			// calculate linear fit
 			var slope, intercept float32
-			slope, intercept, _, _, mean, _=LinearRegression(xs[:len(gatheredCur)], gatheredCur)
+			slope, intercept, _, _, mean, _=stats.LinearRegression(xs[:len(gatheredCur)], gatheredCur)
 
 			// calculate average distance from prediction
 			sigma:=float32(0)
@@ -813,10 +817,10 @@ func StackLinearFit(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh flo
 // Incrementally stacks the light onto the given stack, weighted by the given weight. 
 // Creates a new stack with same dimensions as light if stack is nil. 
 // Returns the modified or created stack. Does not calculate statistics, run star detections etc.
-func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
+func StackIncremental(stack, light *fits.Image, weight float32) *fits.Image {
 	if stack==nil {
-		stack=&FITSImage{
-			Header: NewFITSHeader(),
+		stack=&fits.Image{
+			Header: fits.NewHeader(),
 			Bitpix: -32,
 			Bzero : 0,
 			Naxisn: append([]int32(nil), light.Naxisn...), // clone slice
@@ -824,7 +828,7 @@ func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
 			Data  : make([]float32,len(light.Data)),
 			Exposure : light.Exposure,
 			Stats : nil, 
-			Trans : IdentityTransform2D(),
+			Trans : star.IdentityTransform2D(),
 			Residual: 0,
 		}
 		for i,d:=range light.Data {
@@ -840,9 +844,9 @@ func StackIncremental(stack, light *FITSImage, weight float32) *FITSImage {
 }
 
 // Finalizes an incremental stack. Divides pixel values by weight sum, and calculates extended stats
-func StackIncrementalFinalize(stack *FITSImage, weightSum float32) (err error) {
+func StackIncrementalFinalize(stack *fits.Image, weightSum float32) (err error) {
 	factor:=1.0/weightSum
 	for i,d:=range stack.Data { stack.Data[i]=d*factor }
-	stack.Stats, err=CalcExtendedStats(stack.Data, stack.Naxisn[0])
+	stack.Stats, err=stats.CalcExtendedStats(stack.Data, stack.Naxisn[0])
 	return err
 }

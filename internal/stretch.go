@@ -20,6 +20,8 @@ import (
 	"math"
 	"io"
 	"fmt"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 type OpStretch struct {
@@ -58,7 +60,7 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 	}
 }
 
-func (op *OpStretch) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStretch) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if op.NormalizeRange  !=nil { if f,err=op.NormalizeRange  .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.StretchIterative!=nil { if f,err=op.StretchIterative.Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.Midtones        !=nil { if f,err=op.Midtones        .Apply(f, logWriter); err!=nil { return nil, err } }
@@ -67,7 +69,7 @@ func (op *OpStretch) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, 
 	if op.ScaleBlack      !=nil { if f,err=op.ScaleBlack      .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.StarDetect      !=nil { if f,err=op.StarDetect      .Apply(f, logWriter); err!=nil { return nil, err } }
 	if op.SelectReference !=nil { 
-		fs:=[]*FITSImage{f}
+		fs:=[]*fits.Image{f}
 		if fs,err=op.SelectReference .ApplyToFITS(fs, logWriter); err!=nil { return nil, err }
 		f=fs[0] 
         if op.Align!=nil { op.Align.Reference=op.SelectReference.Frame }               
@@ -87,11 +89,11 @@ func NewOpNormalizeRange(active bool) *OpNormalizeRange {
 	return &OpNormalizeRange{active}
 }
 
-func (op *OpNormalizeRange) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpNormalizeRange) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
 	if f.Stats==nil {
-		f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 		if err!=nil { return nil, err }
 	}
 
@@ -101,7 +103,7 @@ func (op *OpNormalizeRange) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITS
 		fmt.Fprintf(logWriter, "%d: Normalizing from [%.4g,%.4g] to [0,1]\n", f.ID, f.Stats.Min, f.Stats.Max)
     	f.Normalize()
     	var err error
-		f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 		if err!=nil { return nil, err }
 	}
 	return f, nil
@@ -120,7 +122,7 @@ func NewOpStretchIterative(loc float32, scale float32) (*OpStretchIterative) {
 	return &OpStretchIterative{ loc!=0 && scale!=0, loc, scale }
 }
 
-func (op *OpStretchIterative) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "%d: Auto-stretching loc to %.2f%% and scale to %.2f%% ...\n", f.ID, op.Location*100, op.Scale*100)
 
@@ -133,7 +135,7 @@ func (op *OpStretchIterative) Apply(f *FITSImage, logWriter io.Writer) (fOut *FI
 
 		// calculate basic image stats as a fast location and scale estimate
 		var err error
-		f.Stats,err=CalcExtendedStats(f.Data, f.Naxisn[0])
+		f.Stats,err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 		if err!=nil { LogFatal(err) }
 		loc, scale:=f.Stats.Location, f.Stats.Scale
 
@@ -213,11 +215,11 @@ func NewOpMidtones(mid, black float32) *OpMidtones {
 	}
 }
 
-func (op *OpMidtones) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpMidtones) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
 
-	stats,err:=CalcExtendedStats(f.Data, f.Naxisn[0])
+	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	loc, scale:=stats.Location, stats.Scale
 	absMid:=op.Mid*scale
@@ -239,7 +241,7 @@ func NewOpGamma(gamma float32) *OpGamma {
 	return &OpGamma{gamma!=1.0, gamma}
 }
 
-func (op *OpGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying gamma %.3g\n", op.Gamma)
 	f.ApplyGamma(op.Gamma)
@@ -258,9 +260,9 @@ func NewOpPPGamma(gamma, sigma float32) *OpPPGamma {
 	return &OpPPGamma{gamma!=1.0, gamma, sigma}
 }
 
-func (op *OpPPGamma) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpPPGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	stats,err:=CalcExtendedStats(f.Data, f.Naxisn[0])
+	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 	loc, scale:=stats.Location, stats.Scale
 
@@ -284,10 +286,10 @@ func NewOpScaleBlack(black float32) *OpScaleBlack {
 	return &OpScaleBlack{black!=0, black}
 }
 
-func (op *OpScaleBlack) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpScaleBlack) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
-	stats,err:=CalcExtendedStats(f.Data, f.Naxisn[0])
+	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 	if err!=nil { LogFatal(err) }
 	loc, scale:=stats.Location, stats.Scale
 	fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
@@ -313,9 +315,9 @@ func NewOpUnsharpMask(sigma, gain, threshold float32) *OpUnsharpMask {
 	return &OpUnsharpMask{gain>0, sigma, gain, threshold}
 }
 
-func (op *OpUnsharpMask) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpUnsharpMask) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+	f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 	if err!=nil { return nil, err }
 
 	absThresh:=f.Stats.Location + f.Stats.Scale*op.Threshold

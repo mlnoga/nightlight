@@ -26,6 +26,7 @@ import (
 	"runtime/debug"
 	"sort"
 	"github.com/pbnjay/memory"
+	"github.com/mlnoga/nightlight/internal/fits"
 )
 
 
@@ -46,14 +47,14 @@ func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *OpSave)
 }
 
 
-func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
 	// Partition the loaders into optimal batches
 	opLoadFilesPerm, numBatches, batchSize, maxThreads, err := op.partition(opLoadFiles, logWriter)
 	if err!=nil { return nil, err }
 	op.Batch.MaxThreads=maxThreads
 	
 	// Process each batch. The first batch sets the reference image 
-	stack:=(*FITSImage)(nil)
+	stack:=(*fits.Image)(nil)
 	stackFrames:=int64(0)
 	stackNoise:=float32(0)
 	for b:=int64(0); b<numBatches; b++ {

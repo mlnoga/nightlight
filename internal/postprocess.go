@@ -22,6 +22,9 @@ import (
 	"io"
 	"math"
 	"sync"
+	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/star"
+	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 
@@ -42,7 +45,7 @@ func NewOpPostProcess(normalize HistoNormMode, align, alignK int32, alignThresho
 	}
 }
 
-func (op *OpPostProcess) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpPostProcess) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if f, err=op.Normalize.Apply(f, logWriter); err!=nil { return nil, err}
 	if f, err=op.Align.    Apply(f, logWriter); err!=nil { return nil, err}
 	if f, err=op.Save.     Apply(f, logWriter); err!=nil { return nil, err}
@@ -63,13 +66,13 @@ const (
 type OpNormalize struct {
 	Active      bool          `json:"active"`
 	Mode        HistoNormMode `json:"mode"`
-	Reference  *FITSImage     `json:"-"`}
+	Reference  *fits.Image     `json:"-"`}
 
 func NewOpNormalize(mode HistoNormMode) *OpNormalize {
 	return &OpNormalize{mode!=HNMNone, mode, nil}
 }
 
-func (op *OpNormalize) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error)  {
+func (op *OpNormalize) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error)  {
 	if !op.Active || op.Mode==HNMNone { return f, nil }
 	switch op.Mode {
 		case HNMLocation:
@@ -79,7 +82,7 @@ func (op *OpNormalize) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage
 		case HNMLocBlack:
 	    	f.ShiftBlackToMove(f.Stats.Location, op.Reference.Stats.Location)
 	    	var err error
-	    	f.Stats, err=CalcExtendedStats(f.Data, f.Naxisn[0])
+	    	f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
 	    	if err!=nil { return nil, err }
 	}
 	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, f.Stats)
@@ -102,9 +105,9 @@ type OpAlign struct {
 	Threshold  float32         `json:"threshold"`
 	OobMode    OutOfBoundsMode `json:"oobMode"`
 	RefSelMode RefSelMode      `json:"refSelMode"`
-	Reference *FITSImage       `json:"-"`
-	HistoRef  *FITSImage       `json:"-"`
-	Aligner   *Aligner         `json:"-"`
+	Reference *fits.Image      `json:"-"`
+	HistoRef  *fits.Image      `json:"-"`
+	Aligner   *star.Aligner    `json:"-"`
 	mutex     sync.Mutex       `json:"-"`       
 }
 
@@ -126,21 +129,21 @@ func (op *OpAlign) init() error {
 	if op.Reference==nil || op.Reference.Stars==nil || len(op.Reference.Stars)==0 {
 		return errors.New("Unable to align without star detections in reference frame")
 	}
-	op.Aligner=NewAligner(op.Reference.Naxisn, op.Reference.Stars, op.K)
+	op.Aligner=star.NewAligner(op.Reference.Naxisn, op.Reference.Stars, op.K)
 	return nil
 }
 
-func (op *OpAlign) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if err=op.init(); err!=nil { return nil, err }
 
 	// Is alignment to the reference frame required?
 	if !op.Active || op.Aligner==nil || op.Aligner.RefStars==nil || len(op.Aligner.RefStars)==0 {
 		// Generally not required
-		f.Trans=IdentityTransform2D()		
+		f.Trans=star.IdentityTransform2D()		
 	} else if (len(op.Aligner.RefStars)==len(f.Stars) && (&op.Aligner.RefStars[0]==&f.Stars[0])) {
 		// FIXME: comparison is just a heuristic?
 		// Not required for reference frame itself
-		f.Trans=IdentityTransform2D()		
+		f.Trans=star.IdentityTransform2D()		
 	} else if f.Stars==nil || len(f.Stars)==0 {
 		// No stars - skip alignment and warn
 		msg:=fmt.Sprintf("%d: No alignment stars found, skipping frame\n", f.ID)

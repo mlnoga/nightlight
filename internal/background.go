@@ -20,6 +20,8 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"github.com/mlnoga/nightlight/internal/qsort"
+	"github.com/mlnoga/nightlight/internal/median"
 )
 
 // A piecewise linear background, for automated background extraction (ABE)
@@ -123,7 +125,7 @@ func (b *Background) init(src []float32, sigma float32) {
 func (b *Background) clip(n int32) {
 	buffer:=make([]float32, b.GridCells)
 	for i,cell:=range b.Cells { buffer[i]=cell }
-	threshold:=QSelectFloat32(buffer, len(buffer)-int(n)+1)
+	threshold:=qsort.QSelectFloat32(buffer, len(buffer)-int(n)+1)
 	buffer=nil
 
 	ignoredCells:=int32(0)
@@ -234,7 +236,7 @@ var interpolOffsets=[]pairOfint32{
 }
 
 // Interpolate parameter from valid entries in local 1-neighborhood via median
-func MedianInterpolation(params []float32, width, height, x,y int32, temp []float32) (median float32, numGathered int) {
+func MedianInterpolation(params []float32, width, height, x,y int32, temp []float32) (med float32, numGathered int) {
 	numGathered=0
 
 	for _,off:=range interpolOffsets {
@@ -249,8 +251,8 @@ func MedianInterpolation(params []float32, width, height, x,y int32, temp []floa
 		}
 	}
 
-	median=MedianFloat32(temp[:numGathered])
-	return median, numGathered
+	med=median.MedianFloat32(temp[:numGathered])
+	return med, numGathered
 }	
 
 
@@ -433,9 +435,9 @@ func medianAndMAD(src []float32, width int32, xStart, xEnd, yStart, yEnd int32, 
 		}
 	}
 	buffer=buffer[:numSamples]
-	median=QSelectMedianFloat32(buffer)
+	median=qsort.QSelectMedianFloat32(buffer)
 	for i, b:=range buffer { buffer[i]=float32(math.Abs(float64(b - median))) }
-	mad=QSelectMedianFloat32(buffer)*1.4826 // factor normalizes MAD to Gaussian standard deviation
+	mad=qsort.QSelectMedianFloat32(buffer)*1.4826 // factor normalizes MAD to Gaussian standard deviation
 	return median, mad	
 }
 
@@ -451,5 +453,5 @@ func trimmedMedian(src []float32, width int32, upperBound float32, xStart, xEnd,
 			numSamples++
 		}
 	}
-	return QSelectMedianFloat32(buffer[:numSamples])	
+	return qsort.QSelectMedianFloat32(buffer[:numSamples])	
 }

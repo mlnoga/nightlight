@@ -15,7 +15,7 @@
 
 // +build !amd64
 
-package internal
+package stats
 
 
 // Calculate minimum, mean and maximum of given data

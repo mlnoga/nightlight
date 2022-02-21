@@ -27,6 +27,7 @@ import (
 	"strings"
 	"time"
 	nl "github.com/mlnoga/nightlight/internal"
+	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/rest"
 	"github.com/pbnjay/memory"
 )
@@ -119,8 +120,6 @@ var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
-var lights   =[]*nl.FITSImage{}
-
 func main() {
 	logWriter:=os.Stdout
 	debug.SetGCPercent(10)
@@ -189,7 +188,7 @@ Flags:
     }
     if args[0]=="stats" || args[0]=="stack" || args[0]=="stretch" || args[0]=="rgb" || args[0]=="lrgb" {
 	    fmt.Fprintf(logWriter, "Using location and scale estimator %d\n", *lsEst)
-		nl.LSEstimator=nl.LSEstimatorMode(*lsEst)
+		stats.LSEstimator=stats.LSEstimatorMode(*lsEst)
 	}
 
 	// set defaults per command

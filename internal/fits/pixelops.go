@@ -14,12 +14,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package fits
 
 import (
-	colorful "github.com/lucasb-eyer/go-colorful"
+	"fmt"
+	"io"
 	"math"
 	"runtime"
+	"github.com/mlnoga/nightlight/internal/stats"
+	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
 
@@ -35,7 +38,7 @@ type PixelFunction3Chan func(c0,c1,c2 []float32, params interface{})
 
 
 // Apply given pixel function to the image. Uses thead parallelism across all available CPUs. Operates in-place. 
-func (f* FITSImage) ApplyPixelFunction(pf PixelFunction, args interface{}) {
+func (f* Image) ApplyPixelFunction(pf PixelFunction, args interface{}) {
 	data:=f.Data
 
 	// split into 8*NumCPU() work packages, limit parallelism to NumCPUS()
@@ -60,7 +63,7 @@ func (f* FITSImage) ApplyPixelFunction(pf PixelFunction, args interface{}) {
 
 
 // Apply given pixel function to given channel of the image. Uses thead parallelism across all available CPUs. Operates in-place. 
-func (f* FITSImage) ApplyPixelFunction1Chan(chanID int, pf PixelFunction, args interface{}) {
+func (f* Image) ApplyPixelFunction1Chan(chanID int, pf PixelFunction, args interface{}) {
 	l   :=len(f.Data)/3
 	data:=f.Data[chanID*l:(chanID+1)*l]
 
@@ -86,7 +89,7 @@ func (f* FITSImage) ApplyPixelFunction1Chan(chanID int, pf PixelFunction, args i
 
 
 // Apply given pixel function to all channels of the image. Uses thead parallelism across all available CPUs. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) ApplyPixelFunction3Chan(pf PixelFunction3Chan, args interface{}) {
+func (f* Image) ApplyPixelFunction3Chan(pf PixelFunction3Chan, args interface{}) {
 	data:=f.Data
 	l   :=len(data)/3
 
@@ -125,12 +128,12 @@ func pfScaleOffset(data []float32, params interface{}) {
 }
 
 // Applies given scale factor and offset to image.  Operates in-place. 
-func (f* FITSImage) ScaleOffset(scale, offset float32) {
+func (f* Image) ScaleOffset(scale, offset float32) {
 	f.ApplyPixelFunction(pfScaleOffset, pfScaleOffsetArgs{scale, offset})
 }
 
 // Normalize image to [0..1] based on basic stats.  Operates in-place. 
-func (f* FITSImage) Normalize() {
+func (f* Image) Normalize() {
 	scale:=1.0/(f.Stats.Max-f.Stats.Min)
 	offset:=-f.Stats.Min*scale
 	f.ScaleOffset(scale, offset)
@@ -147,12 +150,12 @@ func pfGamma(data []float32, params interface{}) {
 }
 
 // Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
-func (f* FITSImage) ApplyGamma(g float32) {
+func (f* Image) ApplyGamma(g float32) {
 	f.ApplyPixelFunction(pfGamma, g)
 }
 
 // Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
-func (f* FITSImage) ApplyGammaToChannel(chanID int, g float32) {
+func (f* Image) ApplyGammaToChannel(chanID int, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfGamma, g)
 }
 
@@ -179,12 +182,12 @@ func pfPartialGamma(data []float32, params interface{}) {
 }
 
 // Apply gamma correction to image in given range. Image must be normalized to [0,1] before. Operates in-place. 
-func (f* FITSImage) ApplyPartialGamma(from, to, g float32) {
+func (f* Image) ApplyPartialGamma(from, to, g float32) {
 	f.ApplyPixelFunction(pfPartialGamma, pfPartialGammaArgs{from, to, g})
 }
 
 // Apply gamma correction to given channel of the image. Image must be normalized to [0,1] before. Operates in-place. 
-func (f* FITSImage) ApplyPartialGammaToChannel(chanID int, from, to, g float32) {
+func (f* Image) ApplyPartialGammaToChannel(chanID int, from, to, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfPartialGamma, pfPartialGammaArgs{from, to, g})
 }
 
@@ -215,12 +218,12 @@ func pfMidtones(data []float32, params interface{}) {
 }
 
 // Apply midtones correction to given image. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) ApplyMidtones(mid, black float32) {
+func (f* Image) ApplyMidtones(mid, black float32) {
 	f.ApplyPixelFunction(pfMidtones, pfMidtonesArgs{mid, black})
 }
 
 // Apply midtones correction to given channel of given image. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) ApplyMidtonesToChannel(chanID int, mid, black float32) {
+func (f* Image) ApplyMidtonesToChannel(chanID int, mid, black float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfMidtones, pfMidtonesArgs{mid, black})
 }
 
@@ -234,7 +237,7 @@ func pfMonoToHSLuvLum(data []float32, params interface{}) {
 }
 
 // Converts a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) MonoToHSLuvLum() {
+func (f* Image) MonoToHSLuvLum() {
 	f.ApplyPixelFunction(pfMonoToHSLuvLum, nil)
 }
 
@@ -248,7 +251,7 @@ func pfMonoToHSLLum(data []float32, params interface{}) {
 }
 
 // Converts a monochromic image to HSL Luminance. Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) MonoToHSLLum() {
+func (f* Image) MonoToHSLLum() {
 	f.ApplyPixelFunction(pfMonoToHSLLum, nil)
 }
 
@@ -266,7 +269,7 @@ func pf3ChanRGBToHCL(rs,gs,bs []float32, params interface{}) {
 }
 
 // Convert RGB to CIE HCL pixels. Operates in-place.
-func (f* FITSImage) RGBToHCL() {
+func (f* Image) RGBToHCL() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToHCL, nil)
 }
 
@@ -288,7 +291,7 @@ func pf3ChanRGBToCIEHSL(rs,gs,bs []float32, params interface{}) {
 
 // Convert RGB to CIE HSL pixels. Operates in-place.
 // https://en.wikipedia.org/wiki/Colorfulness#Saturation
-func (f* FITSImage) RGBToCIEHSL() {
+func (f* Image) RGBToCIEHSL() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToCIEHSL, nil)
 }
 
@@ -311,7 +314,7 @@ func pf3ChanCIEHSLToRGB(hs,ss,ls []float32, params interface{}) {
 
 // Convert CIE HSL to RGB pixels. Operates in-place.
 // https://en.wikipedia.org/wiki/Colorfulness#Saturation
-func (f* FITSImage) CIEHSLToRGB() {
+func (f* Image) CIEHSLToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanCIEHSLToRGB, nil)
 }
 
@@ -329,7 +332,7 @@ func pf3ChanToXyy(rs,gs,bs []float32, params interface{}) {
 }
 
 // Convert RGB to xyY pixels. Operates in-place.
-func (f* FITSImage) ToXyy() {
+func (f* Image) ToXyy() {
 	f.ApplyPixelFunction3Chan(pf3ChanToXyy, nil)
 }
 
@@ -347,7 +350,7 @@ func pf3ChanXyyToRGB(xs,ys,Ys []float32, params interface{}) {
 }
 
 // Convert Xyy to RGB pixels. Operates in-place.
-func (f* FITSImage) XyyToRGB() {
+func (f* Image) XyyToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanXyyToRGB, nil)
 }
 
@@ -367,7 +370,7 @@ func pf3ChanRGBToHSLuv(rs,gs,bs []float32, params interface{}) {
 
 // Convert RGB to HSLuv pixels. Operates in-place.
 // https://www.hsluv.org/
-func (f* FITSImage) RGBToHSLuv() {
+func (f* Image) RGBToHSLuv() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToHSLuv, nil)
 }
 
@@ -392,7 +395,7 @@ func pf3ChanHSLuvToRGB(rs,gs,bs []float32, params interface{}) {
 
 // Convert HSLuv to RGB pixels. Operates in-place.
 // https://www.hsluv.org/
-func (f* FITSImage) HSLuvToRGB() {
+func (f* Image) HSLuvToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanHSLuvToRGB, nil)
 }
 
@@ -418,7 +421,7 @@ func pf3ChanChroma(hs,cs,ls []float32, params interface{}) {
 
 //  Apply given gamma correction to color saturation (CIE HCL chroma), for luminances above the given threshold. 
 //  Data must be normalized to [0,1]. Operates in-place. 
-func (f* FITSImage) AdjustChroma(gamma, threshold float32) {
+func (f* Image) AdjustChroma(gamma, threshold float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanChroma, pf3ChanChromaArgs{gamma, threshold})
 }
 
@@ -446,7 +449,7 @@ func pf3ChanNeutralizeBackground(hs,cs,ls []float32, params interface{}) {
 
 // Adjust CIE HCL chroma by multiplying with 0 for values below low, with 1 above high, and interpolating linearly in between. 
 // Data must be HCL. Operates in-place. 
-func (f* FITSImage) NeutralizeBackground(low, high float32) {
+func (f* Image) NeutralizeBackground(low, high float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanNeutralizeBackground, pf3ChanNeutralizeBackgroundArgs{low, high})
 }
 
@@ -472,7 +475,7 @@ func pf3ChanChromaForHues(hs,cs,ls []float32, params interface{}) {
 
 // Selectively adjusts CIE HCL chroma for hues in given range by multiplying with given factor. Data must be HCL.
 // Useful for desaturating purple stars
-func (f* FITSImage) AdjustChromaForHues(from, to, factor float32) {
+func (f* Image) AdjustChromaForHues(from, to, factor float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanChromaForHues, pf3ChanChromaForHuesArgs{from, to, factor})
 }
 
@@ -503,7 +506,7 @@ func pf3ChanRotateColors(hs,ss,ls []float32, params interface{}) {
 
 // Selectively rotate hues in a given range. Data must be HSLuv. 
 // Useful to create Hubble palette images from narrowband data, by turning greens to yellows, before applying SCNR
-func (f* FITSImage) RotateColors(from, to, offset, lthres float32) {
+func (f* Image) RotateColors(from, to, offset, lthres float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanRotateColors, pf3ChanRotateColorsArgs{from, to, offset, lthres})
 }
 
@@ -530,7 +533,7 @@ func pf3ChanSCNR(hs,ss,ls []float32, params interface{}) {
 
 // Apply subtractive chroma noise reduction to the green channel. Data must be normalized to [0,1]. 
 // Uses average neutral masking method with luminance protection. Typically used to reduce green cast in narrowband immages when creating Hubble palette images
-func (f* FITSImage) SCNR(factor float32) {
+func (f* Image) SCNR(factor float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanSCNR, factor)
 }
 
@@ -542,7 +545,7 @@ func (f* FITSImage) SCNR(factor float32) {
 
 // Adjust image data to match the histogram peak of refStats.
 // Assumes f.Stats are current; and updates them afterwards.
-func (f *FITSImage) MatchLocation(refLocation float32) {
+func (f *Image) MatchLocation(refLocation float32) {
 	multiplier:=refLocation / f.Stats.Location
 	data:=f.Data
 	for i, d:=range data {
@@ -560,7 +563,7 @@ func (f *FITSImage) MatchLocation(refLocation float32) {
 
 // Adjust image data to match the histogram shape of refStats.
 // Assumes f.Stats are current; and updates them afterwards.
-func (f *FITSImage) MatchHistogram(refStats *BasicStats) {
+func (f *Image) MatchHistogram(refStats *stats.Basic) {
 	multiplier:=refStats.Scale    / f.Stats.Scale
 	offset    :=refStats.Location - f.Stats.Location*multiplier
 	data:=f.Data
@@ -579,7 +582,7 @@ func (f *FITSImage) MatchHistogram(refStats *BasicStats) {
 
 
 // Offsets each color channel by a factor, clamping to  Operates in-place on image data normalized to [0,1]. 
-func (f* FITSImage) OffsetRGB(r, g, b float32) {
+func (f* Image) OffsetRGB(r, g, b float32) {
 	l:=len(f.Data)/3
 	data:=f.Data
 	for i, d:=range data[   :  l] {
@@ -595,7 +598,7 @@ func (f* FITSImage) OffsetRGB(r, g, b float32) {
 
 
 // Scales each color channel by a factor, clamping to  Operates in-place on image data normalized to [0,1]. 
-func (f* FITSImage) ScaleRGB(r, g, b float32) {
+func (f* Image) ScaleRGB(r, g, b float32) {
 	l:=len(f.Data)/3
 	data:=f.Data
 	for i, d:=range data[   :  l] {
@@ -611,7 +614,7 @@ func (f* FITSImage) ScaleRGB(r, g, b float32) {
 
 
 // Shift black point so a defined before value becomes the given after value. Operates in-place on image data normalized to [0,1]. 
-func (f* FITSImage) ShiftBlackToMove(before, after float32) {
+func (f* Image) ShiftBlackToMove(before, after float32) {
     // Plug after and before into the transformation formula:
     //   after = (before - black) / (1 - black)
     // Then solving for black yields the following
@@ -624,7 +627,7 @@ func (f* FITSImage) ShiftBlackToMove(before, after float32) {
 }
 
 // Shift black point so a defined before value becomes the given after value. Operates in-place on image data normalized to [0,1]. 
-func (f* FITSImage) ShiftBlackToMoveChannel(chanID int, before, after float32) {
+func (f* Image) ShiftBlackToMoveChannel(chanID int, before, after float32) {
     // Plug after and before into the transformation formula:
     //   after = (before - black) / (1 - black)
     // Then solving for black yields the following
@@ -639,7 +642,7 @@ func (f* FITSImage) ShiftBlackToMoveChannel(chanID int, before, after float32) {
 
 
 // Linearly transforms each color channel with multiplier alpha and offset beta, then clamps result to [0,1]
-func (f* FITSImage) ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB float32) {
+func (f* Image) ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB float32) {
 	l:=len(f.Data)/3
 	data:=f.Data
 	for i, r:=range data[   :  l] {
@@ -654,7 +657,7 @@ func (f* FITSImage) ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, be
 }
 
 // Sets black point and white point of the image to clip the given percentage of pixels.
-func (f* FITSImage) SetBlackWhite(blackPerc, whitePerc float32) {
+func (f* Image) SetBlackWhite(blackPerc, whitePerc float32, logWriter io.Writer) {
 	data:=f.Data
 	l:=len(data)
 
@@ -665,7 +668,7 @@ func (f* FITSImage) SetBlackWhite(blackPerc, whitePerc float32) {
 		if d>max { max=d }
 	}	
 	hist:=make([]int32,65536)
-	Histogram(data, min, max, hist)
+	stats.Histogram(data, min, max, hist)
 
 	// calculate black level
 	blackPixels, blackIndex:=int32(0), int32(0)
@@ -698,6 +701,8 @@ func (f* FITSImage) SetBlackWhite(blackPerc, whitePerc float32) {
 		d=float32(math.Min(math.Max(0, float64(d)), 1))
 		data[i]=d
 	}
-    LogPrintf("Black point is %.4g (%.4g%% clipped), white point %.4g (%.4g%%)\n",
-                blackX, 100.0*float32(blackPixels)/float32(l), whiteX, 100.0*float32(whitePixels)/float32(l))
+	if logWriter!=nil {
+	    fmt.Fprintf(logWriter, "Black point is %.4g (%.4g%% clipped), white point %.4g (%.4g%%)\n",
+    	            blackX, 100.0*float32(blackPixels)/float32(l), whiteX, 100.0*float32(whitePixels)/float32(l))
+    }
 }

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package fits
 
 import (
 	"compress/gzip"
@@ -29,7 +29,7 @@ import (
 // Writes an in-memory FITS image to a file with given filename.
 // Creates/overwrites the file if necessary.
 // Compresses with gzip if .gz or gzip suffix is present.
-func (fits *FITSImage) WriteFile(fileName string) error {
+func (fits *Image) WriteFile(fileName string) error {
 	//fmt.Println("Reading from " + fileName + "..." )
 	f, err:=os.OpenFile(fileName, os.O_WRONLY |os.O_CREATE, 0644)
 	if err!=nil { return err }
@@ -51,7 +51,7 @@ func (fits *FITSImage) WriteFile(fileName string) error {
 
 
 // Writes an in-memory FITS image to an io.Writer.
-func (fits *FITSImage) Write(f io.Writer) error {
+func (fits *Image) Write(f io.Writer) error {
 	// Build header in string buffer
 	sb:=strings.Builder{}
 	writeBool(&sb, "SIMPLE", true, "    FITS standard 4.0")

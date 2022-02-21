@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package fits
 
 import (
 	"image"
@@ -27,7 +27,7 @@ import (
 )
 
 // Write a FITS image to JPG. Image must be normalized to [0,1]
-func (f *FITSImage) WriteJPGToFile(fileName string, quality int) error {
+func (f *Image) WriteJPGToFile(fileName string, quality int) error {
 	file, err:=os.Create(fileName)
 	if err!=nil { return err }
 	defer file.Close()
@@ -39,7 +39,7 @@ func (f *FITSImage) WriteJPGToFile(fileName string, quality int) error {
 }
 
 // Write a FITS image to JPG. Image must be normalized to [0,1]
-func (f *FITSImage) WriteJPG(writer io.Writer, quality int) error {
+func (f *Image) WriteJPG(writer io.Writer, quality int) error {
 	// convert pixels into Golang Image
 	width, height:=int(f.Naxisn[0]), int(f.Naxisn[1])
 	size:=width*height
@@ -63,7 +63,7 @@ func (f *FITSImage) WriteJPG(writer io.Writer, quality int) error {
 
 
 // Write a grayscale FITS image to JPG. Image must be normalized to [0,1]
-func (f *FITSImage) WriteMonoJPGToFile(fileName string, quality int) error {
+func (f *Image) WriteMonoJPGToFile(fileName string, quality int) error {
 	file, err:=os.Create(fileName)
 	if err!=nil { return err }
 	defer file.Close()
@@ -75,7 +75,7 @@ func (f *FITSImage) WriteMonoJPGToFile(fileName string, quality int) error {
 }
 
 // Write a grayscale FITS image to JPG. Image must be normalized to [0,1]
-func (f *FITSImage) WriteMonoJPG(writer io.Writer, quality int) error {
+func (f *Image) WriteMonoJPG(writer io.Writer, quality int) error {
 	// convert pixels into Golang Image
 	width, height:=int(f.Naxisn[0]), int(f.Naxisn[1])
 	img:=image.NewRGBA(image.Rectangle{image.Point{0,0}, image.Point{width, height}})

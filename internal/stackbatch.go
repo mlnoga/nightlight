@@ -21,6 +21,7 @@ import (
 	"io"
 	"math"
 	"runtime/debug"
+	"github.com/mlnoga/nightlight/internal/fits"
 )
 
 
@@ -53,7 +54,7 @@ func NewOpStackSingleBatch(opPreProc *OpPreProcess, opSelectReference *OpSelectR
 
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and updates reference frame internally
-func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
 
@@ -121,8 +122,8 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writ
 }
 
 
-// Remove nils from an array of FITSImages, editing the underlying array in place
-func RemoveNils(lights []*FITSImage) ([]*FITSImage) {
+// Remove nils from an array of fits.Images, editing the underlying array in place
+func RemoveNils(lights []*fits.Image) ([]*fits.Image) {
 	o:=0
 	for i:=0; i<len(lights); i+=1 {
 		if lights[i]!=nil {

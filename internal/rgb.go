@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"github.com/mlnoga/nightlight/internal/fits"
 )
 
 
@@ -84,10 +85,10 @@ func (op *OpRGBLProcess) init() (err error) {
 	return nil
  }
 
-func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if err=op.init(); err!=nil { return nil, err }
 
-	var fs []*FITSImage
+	var fs []*fits.Image
 	fmt.Fprintf(logWriter, "Reading color channels and detecting stars:\n")
 	if op.parStarDetect  !=nil { if fs,   err=op.parStarDetect  .ApplyToFiles(opLoadFiles, logWriter); err!=nil { return nil, err} }
 
@@ -120,7 +121,7 @@ func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (
 
 type OpRGBCombine struct {
 	Active     bool      `json:"active"`
-	RefFrame       *FITSImage          `json:"-"`
+	RefFrame       *fits.Image          `json:"-"`
 }
 var _ OperatorJoin = (*OpRGBCombine)(nil) // Compile time assertion: type implements the interface
 
@@ -129,14 +130,14 @@ func NewOpRGBCombine(active bool) *OpRGBCombine {
 	return &OpRGBCombine{Active: active}
 }
 
-func (op *OpRGBCombine) Apply(fs []*FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpRGBCombine) Apply(fs []*fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return nil, errors.New("RGB combination inactive, unable to produce image") }
 	if len(fs)!=3 {
 		return nil, errors.New(fmt.Sprintf("Invalid number of channels for color combination: %d", len(fs)))
 	}
 
 	fmt.Fprintf(logWriter, "\nCombining RGB color channels...\n")
-	fOut2:=CombineRGB(fs, op.RefFrame)
+	fOut2:=fits.CombineRGB(fs, op.RefFrame, logWriter)
 	return &fOut2, nil
 }
 
@@ -153,14 +154,14 @@ func NewOpRGBBalance(active bool) *OpRGBBalance {
 }
 
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func (op *OpRGBBalance) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpRGBBalance) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	if f.Stars==nil || len(f.Stars)==0 {
 		return nil, errors.New("Cannot balance colors with zero stars detected")
 	} 
 
 	fmt.Fprintf(logWriter, "Setting black point so histogram peaks align and white point so median star color becomes neutral...")
-	err=f.SetBlackWhitePoints()
+	err=f.SetBlackWhitePoints(logWriter)
 	return f, err
 }
 
@@ -174,7 +175,7 @@ func NewOpRGBToHSLuv(active bool) *OpRGBToHSLuv {
 	return &OpRGBToHSLuv{active}
 }
 
-func (op *OpRGBToHSLuv) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpRGBToHSLuv) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	f.RGBToHSLuv()
 	return f, nil
@@ -191,7 +192,7 @@ func NewOpHSLuvToRGB(active bool) *OpHSLuvToRGB {
 	return &OpHSLuvToRGB{active}
 }
 
-func (op *OpHSLuvToRGB) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpHSLuvToRGB) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	LogPrintln("Converting nonlinear HSLuv to linear RGB")
     f.HSLuvToRGB()

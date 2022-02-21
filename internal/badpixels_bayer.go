@@ -19,6 +19,7 @@ package internal
 import (
 	"errors"
 	"math"
+	"github.com/mlnoga/nightlight/internal/median"
 )
 
 
@@ -93,7 +94,7 @@ func MedianFilterBayerRedOrBlue(res, data []float32, width, xOffset, yOffset int
 					numGathered++
 				}
 			}
-			median:=MedianFloat32(tmp[:numGathered])
+			median:=median.MedianFloat32(tmp[:numGathered])
 			res[y*width + x]=median
 		}
 	}
@@ -165,7 +166,7 @@ func MedianFilterBayerGreen(res, data []float32, width, xOffset, yOffset int32) 
 				tmp[numGathered]=data[index]
 				numGathered++
 			}
-			median:=MedianFloat32(tmp[:numGathered])
+			median:=median.MedianFloat32(tmp[:numGathered])
 			res[y*width + x]=median
 		}
 	}

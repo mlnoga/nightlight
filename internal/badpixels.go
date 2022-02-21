@@ -21,6 +21,8 @@ import (
 	"runtime"  // for NumCPU() on Median()
 //	"sort"
 	"sync"     // for wait group synchronization on Median()
+	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/median"
 )
 
 
@@ -28,12 +30,12 @@ import (
 // from a local Median filter by more than sigma times the standard
 // deviation of the overall differences from the local Median filter.
 // Returns an array of indices into the data.
-func BadPixelMap(data []float32, width int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *BasicStats) {
+func BadPixelMap(data []float32, width int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *stats.Basic) {
 	tmp:=make([]float32,len(data))
-	MedianFilter3x3(tmp, data, width)
+	median.MedianFilter3x3(tmp, data, width)
 	Subtract(tmp, data, tmp)
 
-	medianDiffStats=CalcBasicStats(tmp)
+	medianDiffStats=stats.CalcBasicStats(tmp)
 	thresholdLow := - medianDiffStats.StdDev * sigmaLow
 	thresholdHigh:=   medianDiffStats.StdDev * sigmaHigh
 	// LogPrintf("Mediansub stats: %v  threslow: %.2f thresHigh: %.2f\n", stats, thresholdLow, thresholdHigh)
@@ -67,7 +69,7 @@ func MedianFilter(output, data []float32, mask []int32) {
 			}
 			buffer:=make([]float32, len(mask))
 			for i:=start; i<end; i++ {
-				output[i]=Median(data, int32(i), mask, buffer)
+				output[i]=median.GatherAndMedian(data, int32(i), mask, buffer)
 			}
 		}(step)
 	}
@@ -82,7 +84,7 @@ func MedianFilterSparse(data []float32, indices[]int32, mask []int32) {
 	//LogPrintf("applying sparse Median filter to %d indices with mask %v\n", len(indices), mask)
 	buffer:=make([]float32, len(mask))
 	for _,i := range(indices) {
-		data[i]=Median(data, int32(i), mask, buffer)
+		data[i]=median.GatherAndMedian(data, int32(i), mask, buffer)
 	}
 }
 
@@ -95,32 +97,13 @@ func ValidateMFS(data []float32, indices[]int32, mask []int32) {
 	//LogPrintf("mask %v\n", mask)
 	for _,i := range(indices) {
 		value:=data[i]
-		median :=Median(data, i, mask, buffer)
+		median :=median.GatherAndMedian(data, i, mask, buffer)
 		delta:=value-median
 		if delta< -408 || delta>408 {
 			diffs++
 		}
 	}
 //	LogPrintf("diffs %d\n", diffs)
-}
-
-
-// Applies an element-wise Median filter to the sparse data points provided by the indices,
-// with the local neighborhood defined by the mask, and stores the result in data
-func Median(data []float32, index int32, mask []int32, buffer []float32) float32 {
-	// buffer:=make([]float32, len(mask))
-
-	// gather the neighborhood of each indexed data point into an array
-	num:=0		
-	for _,o :=range(mask) {
-		indexO:=index+o
-		if indexO>=0 && indexO<int32(len(data)) {
-			buffer[num]=data[indexO]
-			num++
-		}
-	}
-
-	return MedianFloat32(buffer)
 }
 
 

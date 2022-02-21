@@ -18,11 +18,12 @@ package internal
 
 import (
 	// "runtime/debug"
+	// "github.com/mlnoga/nightlight/internal/fits"
 )
 
 /*
 // Find lower and upper sigma bounds given desired clipping percentages, and stack using these values
-func FindSigmasAndStack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *FITSImage, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
+func FindSigmasAndStack(lights []*fits.Image, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *fits.Image, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
 	// If desired, auto-select stacking mode based on number of frames    
 	if mode==StAuto { 
 		mode=autoSelectStackingMode(len(lights))
@@ -43,7 +44,7 @@ func FindSigmasAndStack(lights []*FITSImage, mode StackMode, weights []float32, 
 }
 
 // With binary search, find lower and upper sigma bounds given desired clipping percentages, and stack using these values
-func binarySearchAndStack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *FITSImage, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
+func binarySearchAndStack(lights []*fits.Image, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *fits.Image, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
 	// initialize binary search intervals
 	initialLeft, initialRight:=float32(1.0), float32(11.0)
 	lowLeft, lowRight:=initialLeft, initialRight
@@ -96,7 +97,7 @@ func binarySearchAndStack(lights []*FITSImage, mode StackMode, weights []float32
 }
 
 // With Newton's method, find lower and upper sigma bounds given desired clipping percentages, and stack using these values
-func newtonMethodAndStack(lights []*FITSImage, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *FITSImage, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
+func newtonMethodAndStack(lights []*fits.Image, mode StackMode, weights []float32, refMedian, stClipPercLow, stClipPercHigh float32) (result *fits.Image, numClippedLow, numClippedHigh int32, sigmaLow, sigmaHigh float32, err error) {
 	sigLow, sigHigh, epsilon :=float32(6.0), float32(6.0), float32(0.005)
 
 	for i:=0; ; i++ {

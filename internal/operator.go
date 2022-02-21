@@ -22,48 +22,49 @@ import (
 	"io"
 	"path/filepath"
 	"strings"
+	"github.com/mlnoga/nightlight/internal/fits"
 )
 
 
 // An operator sourcing a single FITS image
 type OperatorSource interface {
-	Apply(logWriter io.Writer) (fOut *FITSImage, err error) 
+	Apply(logWriter io.Writer) (fOut *fits.Image, err error) 
 }
 
 // An operator working on a single FITS image, transforming/overwriting it and its data
 type OperatorUnary interface {
-	Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) 
+	Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) 
 }
 
 // An operator working on many FITS images in parallel, transforming/overwriting them
 type OperatorParallel interface {
-	ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOut []*FITSImage, err error) 
-	ApplyToFITS(sources []*FITSImage, logWriter io.Writer) (fOut []*FITSImage, err error) 
+	ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOut []*fits.Image, err error) 
+	ApplyToFITS(sources []*fits.Image, logWriter io.Writer) (fOut []*fits.Image, err error) 
 }
 
 type OperatorJoin interface {
-	Apply(f []*FITSImage, logWriter io.Writer) (result *FITSImage, err error)
+	Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Image, err error)
 }
 
 type OperatorJoinFiles interface {
-	Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (result *FITSImage, err error)
+	Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (result *fits.Image, err error)
 }
 
 
 
 type OpInMemory struct {
-	Fits        *FITSImage    `json:"-"`
+	Fits        *fits.Image    `json:"-"`
 }
 var _ OperatorSource = (*OpInMemory)(nil) // Compile time assertion: type implements the interface
 
-func NewInMemory(fits *FITSImage) *OpInMemory {
+func NewInMemory(fits *fits.Image) *OpInMemory {
 	return &OpInMemory{
 		Fits : fits,
 	}
 }
 
 // Start processing from an in-memory fits
-func (op *OpInMemory) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpInMemory) Apply(logWriter io.Writer) (fOut *fits.Image, err error) {
 	return op.Fits, nil
 }
 
@@ -83,12 +84,12 @@ func NewOpLoadFile(id int, fileName string) *OpLoadFile {
 }
 
 // Load image from a file
-func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *FITSImage, err error) {
-	theF:=NewFITSImage()
+func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *fits.Image, err error) {
+	theF:=fits.NewImage()
 	theF.ID=op.ID
 	f:=&theF
 
-	err=f.ReadFile(op.FileName)
+	err=f.ReadFile(op.FileName, logWriter)
 	if err!=nil { return nil, err }
 	fmt.Fprintf(logWriter, "%d: Loaded %v pixel frame from %s\n", f.ID, f.DimensionsToString(), f.FileName)
 	return f, nil	
@@ -128,7 +129,7 @@ func NewOpSave(filenamePattern string) *OpSave {
 }
 
 // Apply saving if active
-func (op *OpSave) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpSave) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.FilePattern=="" { return f, nil }
 
 	fileName:=op.FilePattern
@@ -170,7 +171,7 @@ func NewOpSequence(steps []OperatorUnary) *OpSequence {
 	return &OpSequence{Active: steps!=nil && len(steps)>0, Steps: steps}
 }
 
-func (op *OpSequence) Apply(f *FITSImage, logWriter io.Writer) (fOut *FITSImage, err error) {
+func (op *OpSequence) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	for _,step:=range op.Steps {
 		var err error
@@ -194,8 +195,8 @@ func NewOpParallel(operator OperatorUnary, maxThreads int64) *OpParallel {
 }
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOuts []*FITSImage, err error) {
-	fOuts =make([]*FITSImage, len(sources))
+func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOuts []*fits.Image, err error) {
+	fOuts =make([]*fits.Image, len(sources))
 	sem  :=make(chan bool, op.MaxThreads)
 	for i, src := range(sources) {
 		sem <- true 
@@ -222,12 +223,12 @@ func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (
 
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func (op *OpParallel) ApplyToFITS(sources []*FITSImage, logWriter io.Writer) (fOuts []*FITSImage, err error) {
-	fOuts =make([]*FITSImage, len(sources))
+func (op *OpParallel) ApplyToFITS(sources []*fits.Image, logWriter io.Writer) (fOuts []*fits.Image, err error) {
+	fOuts =make([]*fits.Image, len(sources))
 	sem  :=make(chan bool, op.MaxThreads)
 	for i, src := range(sources) {
 		sem <- true 
-		go func(i int, f *FITSImage) {
+		go func(i int, f *fits.Image) {
 			defer func() { <-sem }()
 			f, err=op.Operator.Apply(f, logWriter)
 			if err!=nil { 

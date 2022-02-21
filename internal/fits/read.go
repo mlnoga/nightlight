@@ -13,7 +13,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package internal
+package fits
 
 
 import (
@@ -32,7 +32,7 @@ import (
 var reParser *regexp.Regexp=compileRE() // Regexp parser for FITS header lines
 
 // Read FITS data from the file with the given name. Decompresses gzip if .gz or gzip suffix is present
-func (fits *FITSImage) ReadFile(fileName string) error {
+func (fits *Image) ReadFile(fileName string, logWriter io.Writer) error {
 	//LogPrintln("Reading from " + fileName + "..." )
 	f, err:=os.Open(fileName)
 	if err!=nil { return err }
@@ -49,12 +49,12 @@ func (fits *FITSImage) ReadFile(fileName string) error {
 	} 
 
 	fits.FileName=fileName
-	return fits.Read(r)
+	return fits.Read(r, logWriter)
 }
 
 
-func (fits *FITSImage) Read(f io.Reader) error {
-	err:=fits.Header.read(f)
+func (fits *Image) Read(f io.Reader, logWriter io.Writer) error {
+	err:=fits.Header.read(f, logWriter)
 	if err!=nil { return err }
 	if(!fits.Header.Bools["SIMPLE"]) { return errors.New("Not a valid FITS file; SIMPLE=T missing in header.") }
 
@@ -84,14 +84,14 @@ func (fits *FITSImage) Read(f io.Reader) error {
 		fits.Exposure=val
 	}
 
-	//LogPrintf("Found %dbpp image in %dD with dimensions %v, total %d pixels.\n", 
+	//fmt.Fprintf(logWriter, "Found %dbpp image in %dD with dimensions %v, total %d pixels.\n", 
 	//		   fits.Bitpix, len(fits.Naxisn), fits.Naxisn, fits.Pixels)
-	return fits.readData(f)
+	return fits.readData(f, logWriter)
 }
 
 
 // Read image data from file, convert to float32 data type, apply BZero offset and set BZero to 0 afterwards.
-func (fits *FITSImage) readData(f io.Reader) (err error) {
+func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 	switch fits.Bitpix {
 	case 8: 
 		return fits.readInt8Data(f)
@@ -100,18 +100,18 @@ func (fits *FITSImage) readData(f io.Reader) (err error) {
 		return fits.readInt16Data(f)
 
 	case 32:
-		LogPrintf("Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
+		fmt.Fprintf(logWriter, "Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
 		return fits.readInt32Data(f)
 
 	case 64: 
-		LogPrintf("Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
+		fmt.Fprintf(logWriter, "Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
 		return fits.readInt64Data(f)
 
 	case -32:
 		return fits.readFloat32Data(f)
 
 	case -64:
-		LogPrintf("Warning: loss of precision converting float%d to float32 values\n", -fits.Bitpix)
+		fmt.Fprintf(logWriter, "Warning: loss of precision converting float%d to float32 values\n", -fits.Bitpix)
 		return fits.readFloat64Data(f)
 
 	default:
@@ -125,7 +125,7 @@ func (fits *FITSImage) readData(f io.Reader) (err error) {
 const bufLen int=16*1024  // input buffer length for reading from file
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readInt8Data(r io.Reader) error {
+func (fits *Image) readInt8Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf:=make([]byte,bufLen)
 
@@ -148,7 +148,7 @@ func (fits *FITSImage) readInt8Data(r io.Reader) error {
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readInt16Data(r io.Reader) error {
+func (fits *Image) readInt16Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
@@ -181,7 +181,7 @@ func (fits *FITSImage) readInt16Data(r io.Reader) error {
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readInt32Data(r io.Reader) error {
+func (fits *Image) readInt32Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
@@ -214,7 +214,7 @@ func (fits *FITSImage) readInt32Data(r io.Reader) error {
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readInt64Data(r io.Reader) error {
+func (fits *Image) readInt64Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
@@ -248,7 +248,7 @@ func (fits *FITSImage) readInt64Data(r io.Reader) error {
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readFloat32Data(r io.Reader) error {
+func (fits *Image) readFloat32Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
@@ -262,17 +262,17 @@ func (fits *FITSImage) readFloat32Data(r io.Reader) error {
 		if bytesToRead>bufLen {
 			bytesToRead=bufLen
 		}
-		//LogPrintf("dataIndex %d bytesToRead %d\n", dataIndex, bytesToRead)
+		//fmt.Fprintf(logWriter, "dataIndex %d bytesToRead %d\n", dataIndex, bytesToRead)
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		//LogPrintf("bytesRead %d err %d\n", bytesRead, err)
+		//fmt.Fprintf(logWriter, "bytesRead %d err %d\n", bytesRead, err)
 		if err!=nil { return err }
 
 		availableBytes:=leftoverBytes+bytesRead
-		//LogPrintf("availableBytes %d\n", availableBytes)
+		//fmt.Fprintf(logWriter, "availableBytes %d\n", availableBytes)
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
 			bits:=((uint32(buf[i]))<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3]))
 			val:=math.Float32frombits(bits)
-			//LogPrintf("%d: %02x %02x %02x %02x = %08x =%f\n", i, buf[i], buf[i+1], buf[i+2], buf[i+3], bits, val)
+			//fmt.Fprintf(logWriter, "%d: %02x %02x %02x %02x = %08x =%f\n", i, buf[i], buf[i+1], buf[i+2], buf[i+3], bits, val)
 			fits.Data[dataIndex+(i>>bytesPerValueShift)]=float32(val)+fits.Bzero
 		}
 		dataIndex   += availableBytes>>bytesPerValueShift
@@ -286,7 +286,7 @@ func (fits *FITSImage) readFloat32Data(r io.Reader) error {
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
-func (fits *FITSImage) readFloat64Data(r io.Reader) error {
+func (fits *Image) readFloat64Data(r io.Reader) error {
 	fits.Data=make([]float32,int(fits.Pixels))
 	buf     :=make([]byte,bufLen)
 
@@ -321,7 +321,7 @@ func (fits *FITSImage) readFloat64Data(r io.Reader) error {
 }
 
 
-func (h *FITSHeader) read(r io.Reader) error {
+func (h *Header) read(r io.Reader, logWriter io.Writer) error {
 	buf:=make([]byte, fitsBlockSize)
 
 	myParser:=reParser.Copy() // better (thread-)safe for SubexpNames() than sorry
@@ -333,14 +333,14 @@ func (h *FITSHeader) read(r io.Reader) error {
 		h.Length+=int32(bytesRead)
 
 		// parse all lines in this header unit
-		for lineNo:=0; lineNo<fitsBlockSize/fitsHeaderLineSize && !h.End; lineNo++ {
-			line:=buf[lineNo*fitsHeaderLineSize:(lineNo+1)*fitsHeaderLineSize]
+		for lineNo:=0; lineNo<fitsBlockSize/HeaderLineSize && !h.End; lineNo++ {
+			line:=buf[lineNo*HeaderLineSize:(lineNo+1)*HeaderLineSize]
 			subValues:=myParser.FindSubmatch(line)
 			if subValues==nil {
-				LogPrintf("Warning:Cannot parse '%s', ignoring\n",string(line))
+				fmt.Fprintf(logWriter, "Warning:Cannot parse '%s', ignoring\n",string(line))
 			} else {
 				subNames:=myParser.SubexpNames()
-				h.readLine(subNames, subValues, lineNo)
+				h.readLine(subNames, subValues, lineNo, logWriter)
 			}
 		}
 	}
@@ -348,7 +348,7 @@ func (h *FITSHeader) read(r io.Reader) error {
 }
 
 
-func (h *FITSHeader) readLine(subNames []string, subValues [][]byte, lineNo int) {
+func (h *Header) readLine(subNames []string, subValues [][]byte, lineNo int, logWriter io.Writer) {
 	key:=""
 	// ignore index 0 which is the whole line
 	for i:=1; i<len(subNames); i++ {
@@ -384,13 +384,13 @@ func (h *FITSHeader) readLine(subNames []string, subValues [][]byte, lineNo int)
 			case byte('c'): // comment
 				// ignore value comments
 			default:
-				LogPrintf("%d:Warning:Unknown token '%s'\n", lineNo, string(c))
+				fmt.Fprintf(logWriter, "%d:Warning:Unknown token '%s'\n", lineNo, string(c))
 			}
 		}
 	}
 }
 
-func (h *FITSHeader) Print() {
+func (h *Header) Print() {
 	fmt.Printf("Bools   : %v\n", h.Bools)
 	fmt.Printf("Ints    : %v\n", h.Ints)
 	fmt.Printf("Floats  : %v\n", h.Floats)

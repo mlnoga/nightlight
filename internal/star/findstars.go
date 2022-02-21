@@ -14,13 +14,15 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package star
 
 import (
 	"io"
 	"fmt"
 	"math"
 	"github.com/valyala/fastrand"
+	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/median"
 	//"sort"
 )
 
@@ -54,7 +56,7 @@ func PrintStars(w io.Writer, stars []Star) {
 }
 
 // Find stars in the given image with data type int16
-func FindStars(data []float32, width int32, location, scale, starSig, bpSigma, starInOut float32, radius int32, medianDiffStats *BasicStats) (stars []Star, sumOfShifts, avgHFR float32) {
+func FindStars(data []float32, width int32, location, scale, starSig, bpSigma, starInOut float32, radius int32, medianDiffStats *stats.Basic) (stars []Star, sumOfShifts, avgHFR float32) {
 	// Begin star identification based on pixels significantly above the background
 	stars=findBrightPixels(data, width, location+scale*starSig, radius)
 	//LogPrintf("%d (%.4g%%) initial stars \n", len(stars), (100.0*float32(len(stars))/float32(len(data))))
@@ -129,7 +131,7 @@ func findBrightPixels(data []float32, width int32, threshold float32, radius int
 
 // Reject bad pixels which differ from the local median by more than sigma times the estimated standard deviation
 // Modifies the given stars array values, and returns shortened slice
-func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, medianDiffStats *BasicStats) []Star {
+func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, medianDiffStats *stats.Basic) []Star {
 	// Create mask for local 9-neighborhood
 	mask:=CreateMask(width, 1.5)
 	buffer:=make([]float32, len(mask))
@@ -141,10 +143,10 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 		rng:=fastrand.RNG{}
 		for i:=0; i<numSamples; i++ {
 			index:=int32(rng.Uint32n(uint32(len(data))))
-			median :=Median(data, index, mask, buffer)
+			median :=median.GatherAndMedian(data, index, mask, buffer)
 			samples[i]=data[index]-median
 		}
-		medianDiffStats=CalcBasicStats(samples)
+		medianDiffStats=stats.CalcBasicStats(samples)
 		samples=nil
 	}
 
@@ -152,7 +154,7 @@ func rejectBadPixels(stars []Star, data []float32, width int32, sigma float32, m
 	threshold:=medianDiffStats.StdDev*sigma
 	remainingStars:=0
 	for _,s := range(stars) {
-		median:=Median(data, s.Index, mask, buffer)
+		median:=median.GatherAndMedian(data, s.Index, mask, buffer)
 		diff:=data[s.Index]-median
 		if diff<threshold && -diff<threshold {
 			// keep result

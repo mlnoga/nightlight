@@ -15,7 +15,7 @@
 
 // +build !amd64
 
-package internal
+package stats
 
 
 // Estimate the level of gaussian noise on a natural image.

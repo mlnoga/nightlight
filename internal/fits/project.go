@@ -14,15 +14,17 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package fits
 
 import (
 	"math"
+	"github.com/mlnoga/nightlight/internal/star"
+	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 // Projects an image into a new coordinate system with the given transformation.
 // Fills in missing pixels with the given out of bounds value. Uses bilinear interpolation for now.
-func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds float32) (res *FITSImage, err error) {
+func (img *Image) Project(destNaxisn []int32, trans star.Transform2D, outOfBounds float32) (res *Image, err error) {
 	// Invert transformation so we can sample from the target coordinate system PoV
 	invTrans,err:=trans.Invert()
 	if err!=nil { return nil, err }
@@ -30,16 +32,16 @@ func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds
 	// Create new FITS image for the result
 	destWidth:=destNaxisn[0]
 	destPixels:=destNaxisn[0]*destNaxisn[1]
-	res=&FITSImage{
+	res=&Image{
 		ID    : img.ID,
-		Header: NewFITSHeader(),
+		Header: NewHeader(),
 		Bitpix: -32,
 		Bzero : 0,
 		Naxisn: []int32{destNaxisn[0], destNaxisn[1]},
 		Pixels: destPixels,
 		Data:   make([]float32,int(destPixels)),
 		Exposure: img.Exposure,
-		Trans:  IdentityTransform2D(),
+		Trans:  star.IdentityTransform2D(),
 	}
 
 	// Resample image from the target coordinate system PoV
@@ -48,7 +50,7 @@ func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds
 
 	for row:=int32(0); row<destNaxisn[1]; row++ {
 		for col:=int32(0); col<destWidth; col++ {
-			pt:=Point2D{float32(col), float32(row)}
+			pt:=star.Point2D{float32(col), float32(row)}
 			proj:=invTrans.Apply(pt)
 
 			// perform bilinear interpolation
@@ -79,6 +81,6 @@ func (img *FITSImage) Project(destNaxisn []int32, trans Transform2D, outOfBounds
 			res.Data[col + row*destWidth]=v
 		}
 	}
-	res.Stats=CalcBasicStats(res.Data)
+	res.Stats=stats.CalcBasicStats(res.Data)
 	return res, nil
 }

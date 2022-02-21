@@ -14,17 +14,18 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stats
 
 import (
 	"fmt"
 	"math"
+	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/valyala/fastrand"
 	//"time"
 )
 
 // Basic statistics on data arrays
-type BasicStats struct {
+type Basic struct {
 	Min      float32 `json:"min"`      // Minimum
 	Max      float32 `json:"max"`      // Maximum
 	Mean     float32 `json:"mean"`     // Mean (average)
@@ -52,27 +53,27 @@ var LSEstimator LSEstimatorMode = LSESCMedianQn
 
 
 // Pretty print basic stats to string
-func (s *BasicStats) String() string {
+func (s *Basic) String() string {
 	return fmt.Sprintf("Min %.6g Max %.6g Mean %.6g StdDev %.6g Location %.6g Scale %.6g Noise %.4g", 
 	                 	s.Min, s.Max,   s.Mean,   s.StdDev,   s.Location,   s.Scale,   s.Noise)
 }
 
 
 // Pretty print basic stats to CSV header
-func (s *BasicStats) ToCSVHeader() string {
+func (s *Basic) ToCSVHeader() string {
 	return fmt.Sprintf("Min,Max,Mean,StdDev,Location,Scale,Noise")
 }
 
 // Pretty print basic stats to CSV line item 
-func (s *BasicStats) ToCSVLine() string {
+func (s *Basic) ToCSVLine() string {
 	return fmt.Sprintf("%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.4g", 
 		s.Min, s.Max, s.Mean, s.StdDev, s.Location, s.Scale, s.Noise)
 }
 
 
 // Calculate basic statistics for a data array. 
-func CalcBasicStats(data []float32) (s *BasicStats) {
-	s=&BasicStats{}
+func CalcBasicStats(data []float32) (s *Basic) {
+	s=&Basic{}
 	s.Min, s.Mean, s.Max=calcMinMeanMax(data)
 
 	variance:=calcVariance(data, s.Mean)
@@ -83,7 +84,7 @@ func CalcBasicStats(data []float32) (s *BasicStats) {
 
 
 // Calculates extended statistics and stores in f.Stats 
-func CalcExtendedStats(data []float32, width int32) (s *BasicStats, err error) {
+func CalcExtendedStats(data []float32, width int32) (s *Basic, err error) {
 	s=CalcBasicStats(data)
 	numSamples:=128*1024
 
@@ -161,7 +162,7 @@ func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (medi
 	copy(tmp, data)
 	remaining:=tmp
 	for {
-		median:=QSelectMedianFloat32(remaining) // reorders, doesnt matter
+		median:=qsort.QSelectMedianFloat32(remaining) // reorders, doesnt matter
 
 		// calculate std deviation w.r.t. median
 		stdDev:=float32(0)
@@ -191,7 +192,7 @@ func SigmaClippedMedianAndMAD(data []float32, sigmaLow, sigmaHigh float32) (medi
 			for i, d:=range data {
 				tmp[i]=float32(math.Abs(float64(d-median)))
 			}
-			mad=QSelectMedianFloat32(tmp)*1.4826
+			mad=qsort.QSelectMedianFloat32(tmp)*1.4826
 
 			tmp, remaining=nil, nil
 
@@ -210,7 +211,7 @@ func FastApproxMedian(data []float32, samples []float32) float32 {
 		index:=rng.Uint32n(max)
 		samples[i]=data[index]
 	}
-	median:=QSelectMedianFloat32(samples)
+	median:=qsort.QSelectMedianFloat32(samples)
 	return median
 }
 
@@ -227,7 +228,7 @@ func FastApproxBoundedMedian(data []float32, lowBound, highBound float32, sample
 		}
 		samples[i]=d
 	}
-	median:=QSelectMedianFloat32(samples)
+	median:=qsort.QSelectMedianFloat32(samples)
 	return median
 }
 
@@ -275,7 +276,7 @@ func FastApproxMAD(data []float32, location float32, samples []float32) float32 
 		index:=rng.Uint32n(max)
 		samples[i]=float32(math.Abs(float64(data[index]-location)))
 	}
-	mad:=QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
+	mad:=qsort.QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
 	return mad
 }
 
@@ -292,7 +293,7 @@ func FastApproxBoundedMAD(data []float32, location float32, lowBound, highBound 
 		}
 		samples[i]=float32(math.Abs(float64(d-location)))
 	}
-	mad:=QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
+	mad:=qsort.QSelectMedianFloat32(samples)*1.4826  // normalize to Gaussian std dev.
 	samples=nil
 	return mad
 }
@@ -310,7 +311,7 @@ func FastApproxQn(data []float32, samples []float32) float32 {
 		index2:=rng.Uint32n(index1)
 		samples[i]=float32(math.Abs(float64(data[index1]-data[index2])))
 	}
-	qn:=QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000. 
+	qn:=qsort.QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000. 
 	// Original paper had wrong constant, source for constant https://rdrr.io/cran/robustbase/man/Qn.html
 	return qn
 }
@@ -331,7 +332,7 @@ func FastApproxBoundedQn(data []float32, lowBound, highBound float32, samples []
 		}
 		samples[i]=float32(math.Abs(float64(d1-d2)))
 	}
-	qn:=QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000
+	qn:=qsort.QSelectFirstQuartileFloat32(samples)*2.21914  // normalize to Gaussian std dev, for large numSamples >>1000
 	// Original paper had wrong constant, source for constant https://rdrr.io/cran/robustbase/man/Qn.html
 	samples=nil
 	return qn
@@ -373,7 +374,7 @@ func bwmv(xs []float32, median float32, tmp []float32) float32 {
 	for i,x:=range xs {
 		mads[i]=float32(math.Abs(float64(x-median)))
 	}
-	mad:=QSelectMedianFloat32(mads)
+	mad:=qsort.QSelectMedianFloat32(mads)
 	mads=nil
 
 	ys:=tmp[:len(xs)]
@@ -403,7 +404,7 @@ func bwmv(xs []float32, median float32, tmp []float32) float32 {
 func IKSS(data []float32, epsilon float32, e float32) (location, scale float32) {
    	xs :=make([]float32,len(data))
    	copy(xs, data)
-   	QSortFloat32(xs)
+   	qsort.QSortFloat32(xs)
 
    	tmp:=make([]float32,len(data))
 
@@ -453,7 +454,7 @@ func LinearRegression(xs, ys []float32) (slope, intercept, xmean, xstddev, ymean
 func HalfSampleMode(data []float32) float32 {
 	tmp:=make([]float32,len(data))
 	copy(tmp, data)
-	QSortFloat32(tmp)
+	qsort.QSortFloat32(tmp)
 	hsm:=HalfSampleModeSorted(tmp)
 	tmp=nil
 	return hsm
@@ -528,7 +529,7 @@ func HistogramScaleLoc(data []float32, min, max float32, numBins uint32) (loc, s
 	if min==max { return min, 0 }
 
 	// calculate histogram
-	LogPrintf("calculating %d bin histogram for %d data points in [%.2f%% .. %.2f%%]\n", numBins, len(data), min*100, max*100)
+	//LogPrintf("calculating %d bin histogram for %d data points in [%.2f%% .. %.2f%%]\n", numBins, len(data), min*100, max*100)
 
 	bins:=make([]uint32, numBins)
 	valueToBin:=float32(numBins-1)/(max-min)
@@ -545,7 +546,7 @@ func HistogramScaleLoc(data []float32, min, max float32, numBins uint32) (loc, s
     	}
     }
 	loc=min+float32(peakBin)/valueToBin
-	LogPrintf("histogram peak: bin[%d] = %d (%.2f%%) -> value %.2f%%\n", peakBin, peakCount, 100*float32(peakCount)/float32(len(data)), loc*100)
+	// LogPrintf("histogram peak: bin[%d] = %d (%.2f%%) -> value %.2f%%\n", peakBin, peakCount, 100*float32(peakCount)/float32(len(data)), loc*100)
 
 	// Find standard deviation around the histogram peak by cumulating adjacent bins until one sigma threshold of 68.27% is reached
 	// See https://en.wikipedia.org/wiki/68%E2%80%9395%E2%80%9399.7_rule
@@ -567,7 +568,7 @@ func HistogramScaleLoc(data []float32, min, max float32, numBins uint32) (loc, s
 			}
 		}
 	}
-	LogPrintf("bins[%d +/-%d]=%d vs threshold %d; scale %.2f%%\n", peakBin,i, cum, sigmaThreshold, scale*100)
+	// LogPrintf("bins[%d +/-%d]=%d vs threshold %d; scale %.2f%%\n", peakBin,i, cum, sigmaThreshold, scale*100)
 	return loc, scale
 }
 

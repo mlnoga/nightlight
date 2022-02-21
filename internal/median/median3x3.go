@@ -14,10 +14,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package median
 
 import (
 	"math"
+	"github.com/mlnoga/nightlight/internal/qsort"
 )
 
 // Applies 3x3 median filter to input data, assumed to be a 2D array with given line width, and stores results in output.
@@ -114,5 +115,5 @@ func MedianFloat32Slice9(a []float32) float32 {       // 30x min/max
 func MedianFloat32(a []float32) float32 {
 	if len(a)==0 { return float32(math.NaN()) }
 	if len(a)==9 { return MedianFloat32Slice9(a) }
-	return QSelectMedianFloat32(a)
+	return qsort.QSelectMedianFloat32(a)
 }
