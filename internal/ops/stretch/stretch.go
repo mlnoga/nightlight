@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stretch
 
 import (
 	"math"
@@ -22,6 +22,10 @@ import (
 	"fmt"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
+	"github.com/mlnoga/nightlight/internal/ops/ref"
+	"github.com/mlnoga/nightlight/internal/ops/post"
 )
 
 type OpStretch struct {
@@ -31,19 +35,19 @@ type OpStretch struct {
 	Gamma            *OpGamma            `json:"gamma"`
 	PPGamma          *OpPPGamma          `json:"ppGamma"`
 	ScaleBlack       *OpScaleBlack       `json:"scaleBlack"`
-	StarDetect       *OpStarDetect       `json:"starDetect"`
-	SelectReference  *OpSelectReference  `json:"selectReference"`
-	Align            *OpAlign            `json:"align"`
+	StarDetect       *pre.OpStarDetect       `json:"starDetect"`
+	SelectReference  *ref.OpSelectReference  `json:"selectReference"`
+	Align            *post.OpAlign            `json:"align"`
 	UnsharpMask      *OpUnsharpMask      `json:"unsharpMask"`
-	Save             *OpSave             `json:"save"`
-	Save2            *OpSave             `json:"save2"`
+	Save             *ops.OpSave             `json:"save"`
+	Save2            *ops.OpSave             `json:"save2"`
 }
-var _ OperatorUnary = (*OpStretch)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpStretch)(nil) // Compile time assertion: type implements the interface
 
 func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStretchIterative, opMidtones *OpMidtones, 
-	              opGamma*OpGamma, opPPGamma *OpPPGamma, opScaleBlack*OpScaleBlack, opStarDetect *OpStarDetect, 
-	              opSelectReference *OpSelectReference, opAlign *OpAlign, 
-	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *OpSave) *OpStretch {
+	              opGamma*OpGamma, opPPGamma *OpPPGamma, opScaleBlack*OpScaleBlack, opStarDetect *pre.OpStarDetect, 
+	              opSelectReference *ref.OpSelectReference, opAlign *post.OpAlign, 
+	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *ops.OpSave) *OpStretch {
 	return &OpStretch{
 		NormalizeRange   : opNormalizeRange  ,
 		StretchIterative : opStretchIterative,
@@ -136,7 +140,7 @@ func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *f
 		// calculate basic image stats as a fast location and scale estimate
 		var err error
 		f.Stats,err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { LogFatal(err) }
+		if err!=nil { return nil, err }
 		loc, scale:=f.Stats.Location, f.Stats.Scale
 
 		fmt.Fprintf(logWriter, "Linear location %.2f%% and scale %.2f%%, ", loc*100, scale*100)
@@ -290,7 +294,7 @@ func (op *OpScaleBlack) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Im
 	if !op.Active { return f, nil }
 
 	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	if err!=nil { LogFatal(err) }
+	if err!=nil { return nil, err }
 	loc, scale:=stats.Location, stats.Scale
 	fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 

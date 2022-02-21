@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package pre
 
 import (
 	"encoding/json"
@@ -25,25 +25,8 @@ import (
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/star"
+	"github.com/mlnoga/nightlight/internal/ops"
 )
-
-// Load frame from FITS file and calculate basic stats and noise
-func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *fits.Image, err error) {
-	theF:=fits.NewImage()
-	f=&theF
-	f.ID=id
-	err=f.ReadFile(fileName, logWriter)
-	if err!=nil { return nil, err }
-	f.Stats=stats.CalcBasicStats(f.Data)
-	f.Stats.Noise=stats.EstimateNoise(f.Data, f.Naxisn[0])
-
-	fmt.Fprintf(logWriter, "%d: %s %s %s stats: %v\n", id, role, fileName, f.DimensionsToString(), f.Stats)
-	if f.Stats.StdDev<1e-8 {
-		fmt.Fprintf(logWriter, "Warnining: %s file %d may be degenerate\n", role, id)
-	}
-
-	return f, nil
-}
 
 
 type OpPreProcess struct {
@@ -53,25 +36,40 @@ type OpPreProcess struct {
 	Bin         *OpBin          `json:"bin"`
 	BackExtract *OpBackExtract  `json:"backExtract"`
 	StarDetect  *OpStarDetect   `json:"starDetect"` 
-	Save        *OpSave         `json:"save"`
+	Save        *ops.OpSave         `json:"save"`
 }
-var _ OperatorUnary = (*OpPreProcess)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpPreProcess)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpPreProcess(dark, flat string, debayer, cfa string, binning int32, 
-	bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsPattern string, 
-	backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string) *OpPreProcess {
-	opDebayer:=NewOpDebayer(debayer, cfa)
+func NewOpPreProcess(opCalibrate *OpCalibrate, opBadPixel *OpBadPixel, opDebayer *OpDebayer,
+                     opBin *OpBin, opBackExtract *OpBackExtract, opStarDetect *OpStarDetect,
+                     opSave *ops.OpSave) *OpPreProcess {
 	return &OpPreProcess{
-		Calibrate   : NewOpCalibrate(dark, flat),
-		BadPixel    : NewOpBadPixel(bpSigLow, bpSigHigh, opDebayer),
+		Calibrate   : opCalibrate, 
+		BadPixel    : opBadPixel,
 		Debayer     : opDebayer,
-		Bin         : NewOpBin(binning),
-		BackExtract : NewOpBackExtract(backGrid, backSigma, backClip, backPattern),
-		StarDetect  : NewOpStarDetect(starRadius, starSig, starBpSig, starInOut, starsPattern),
-		Save        : NewOpSave(preprocessedPattern),
+		Bin         : opBin,
+		BackExtract : opBackExtract,
+		StarDetect  : opStarDetect,
+		Save        : opSave,
 	}	
 }
+
+
+// func NewOpPreProcess(dark, flat string, debayer, cfa string, binning int32, 
+// 	bpSigLow, bpSigHigh, starSig, starBpSig, starInOut float32, starRadius int32, starsPattern string, 
+// 	backGrid int32, backSigma float32, backClip int32, backPattern, preprocessedPattern string) *OpPreProcess {
+// 	opDebayer:=NewOpDebayer(debayer, cfa)
+// 	return &OpPreProcess{
+// 		Calibrate   : NewOpCalibrate(dark, flat),
+// 		BadPixel    : NewOpBadPixel(bpSigLow, bpSigHigh, opDebayer),
+// 		Debayer     : opDebayer,
+// 		Bin         : NewOpBin(binning),
+// 		BackExtract : NewOpBackExtract(backGrid, backSigma, backClip, backPattern),
+// 		StarDetect  : NewOpStarDetect(starRadius, starSig, starBpSig, starInOut, starsPattern),
+// 		Save        : ops.NewOpSave(preprocessedPattern),
+// 	}	
+// }
 
 func (op *OpPreProcess) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if op.Calibrate  !=nil { if f, err=op.Calibrate  .Apply(f, logWriter); err!=nil { return nil, err} }
@@ -94,7 +92,7 @@ type OpCalibrate struct {
 	FlatFrame         *fits.Image  `json:"-"`
 	mutex             sync.Mutex  `json:"-"`
 }
-var _ OperatorUnary = (*OpCalibrate)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpCalibrate)(nil) // Compile time assertion: type implements the interface
 
 func NewOpCalibrate(dark, flat string) *OpCalibrate {
 	return &OpCalibrate{
@@ -122,7 +120,7 @@ func (op *OpCalibrate) init(logWriter io.Writer) error {
 		waiting++ 
 		go func() { 
 			var err error
-			op.DarkFrame, err=LoadAndCalcStats(op.Dark, -1, "dark", logWriter)
+			op.DarkFrame, err=ops.LoadAndCalcStats(op.Dark, -1, "dark", logWriter)
 			sem <- err
 		}()
 	}
@@ -132,7 +130,7 @@ func (op *OpCalibrate) init(logWriter io.Writer) error {
 		waiting++ 
   	go func() { 
 			var err error
-  		op.FlatFrame, err=LoadAndCalcStats(op.Flat, -2, "flat", logWriter) 
+  		op.FlatFrame, err=ops.LoadAndCalcStats(op.Flat, -2, "flat", logWriter) 
 		  sem <- err
 	  }() 
   }
@@ -191,7 +189,7 @@ type OpBadPixel struct {
 	SigmaHigh         float32     `json:"sigmaHigh"`
 	Debayer           *OpDebayer  `json:"-"`
 }
-var _ OperatorUnary = (*OpBadPixel)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpBadPixel)(nil) // Compile time assertion: type implements the interface
 
 
 func NewOpBadPixel(bpSigLow, bpSigHigh float32, debayer *OpDebayer) *OpBadPixel {
@@ -246,7 +244,7 @@ type OpDebayer struct {
 	Debayer           string      `json:"debayer"`
 	ColorFilterArray  string      `json:"colorFilterArray"`
 }
-var _ OperatorUnary = (*OpDebayer)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpDebayer)(nil) // Compile time assertion: type implements the interface
 
 
 func NewOpDebayer(debayer, cfa string) *OpDebayer {
@@ -289,7 +287,7 @@ type OpBin struct {
 	Active            bool        `json:"active"`
 	BinSize           int32       `json:"binSize"`
 }
-var _ OperatorUnary = (*OpBin)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpBin)(nil) // Compile time assertion: type implements the interface
 
 func NewOpBin(binning int32) *OpBin {
 	return &OpBin{
@@ -327,9 +325,9 @@ type OpBackExtract struct {
     GridSize     	  int32           `json:"gridSize"`
     Sigma 		      float32         `json:"sigma"`
     NumBlocksToClip   int32           `json:"numBlocksToClip"`
-    Save             *OpSave          `json:"save"`
+    Save             *ops.OpSave          `json:"save"`
 } 
-var _ OperatorUnary = (*OpBackExtract)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpBackExtract)(nil) // Compile time assertion: type implements the interface
 
 func NewOpBackExtract(backGrid int32, backSigma float32, backClip int32, savePattern string) *OpBackExtract {
 	return &OpBackExtract{
@@ -337,7 +335,7 @@ func NewOpBackExtract(backGrid int32, backSigma float32, backClip int32, savePat
 	    GridSize     	: backGrid,
 	    Sigma 		    : backSigma,
 	    NumBlocksToClip : backClip,
-	    Save            : NewOpSave(savePattern),
+	    Save            : ops.NewOpSave(savePattern),
 	}
 }
 
@@ -349,7 +347,7 @@ func (op *OpBackExtract) UnmarshalJSON(data []byte) error {
 	    GridSize     	: 256,
 	    Sigma 		    : 1.5,
 	    NumBlocksToClip : 0,
-	    Save            : NewOpSave(""),
+	    Save            : ops.NewOpSave(""),
 	}
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
@@ -361,12 +359,13 @@ func (op *OpBackExtract) UnmarshalJSON(data []byte) error {
 func (op *OpBackExtract) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.GridSize<=0 { return f, nil }
 
-	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.NumBlocksToClip)
+	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.NumBlocksToClip, logWriter)
 	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, bg)
 
 	if op.Save==nil || !op.Save.Active || op.Save.FilePattern=="" {
 		// faster, does not materialize background image explicitly
-		bg.Subtract(f.Data)
+		err=bg.Subtract(f.Data)
+		if err!=nil { return nil, err }
 	} else { 
 		bgData:=bg.Render()
 		bgFits:=fits.Image{
@@ -393,9 +392,9 @@ type OpStarDetect struct {
 	Sigma             float32         `json:"sigma"`
     BadPixelSigma     float32         `json:"badPixelSigma"`
     InOutRatio        float32         `json:"inOutRatio"`
-    Save             *OpSave          `json:"save"`
+    Save             *ops.OpSave          `json:"save"`
 }
-var _ OperatorUnary = (*OpStarDetect)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpStarDetect)(nil) // Compile time assertion: type implements the interface
 
 func NewOpStarDetect(starRadius int32, starSig, starBpSig, starInOut float32, savePattern string) *OpStarDetect {  
 	return &OpStarDetect{
@@ -404,7 +403,7 @@ func NewOpStarDetect(starRadius int32, starSig, starBpSig, starInOut float32, sa
 		Sigma           : starSig,
 	    BadPixelSigma   : starBpSig,
 	    InOutRatio      : starInOut,
-	    Save            : NewOpSave(savePattern),
+	    Save            : ops.NewOpSave(savePattern),
 	}
 }
 
@@ -417,7 +416,7 @@ func (op *OpStarDetect) UnmarshalJSON(data []byte) error {
 		Sigma           : 15,
 	    BadPixelSigma   : -1,   // FIXME: auto-detect??
 	    InOutRatio      : 1.4,  // FIXME: way too low??
-	    Save            : NewOpSave(""),
+	    Save            : ops.NewOpSave(""),
 	}
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }

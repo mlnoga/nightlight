@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stack
 
 import (
 	"errors"
@@ -27,6 +27,7 @@ import (
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/mlnoga/nightlight/internal/star"
+	"github.com/mlnoga/nightlight/internal/ops"
 )
 
 
@@ -37,7 +38,7 @@ type OpStack struct {
 	SigmaHigh    float32         `json:"sigmaHigh"`
 	RefFrameLoc  float32         `json:"-"`
 }
-var _ OperatorJoin = (*OpStack)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorJoin = (*OpStack)(nil) // Compile time assertion: type implements the interface
 
 
 func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh float32) *OpStack {

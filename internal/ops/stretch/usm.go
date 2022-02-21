@@ -14,12 +14,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stretch
 
 import (
     "math"
 )
 
+
+const sqrt2 float32 = float32(math.Sqrt2)
 
 // Check if coordinate is within [0, size-1], and if not, reflect out of bounds coordinates back into the value range
 func reflect(size, x int) int {

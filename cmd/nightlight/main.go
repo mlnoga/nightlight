@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -26,9 +27,16 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
-	nl "github.com/mlnoga/nightlight/internal"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/rest"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
+	"github.com/mlnoga/nightlight/internal/ops/ref"
+	"github.com/mlnoga/nightlight/internal/ops/post"
+	"github.com/mlnoga/nightlight/internal/ops/stack"
+	"github.com/mlnoga/nightlight/internal/ops/stretch"
+	"github.com/mlnoga/nightlight/internal/ops/rgb"
+	"github.com/mlnoga/nightlight/internal/ops/hsl"
 	"github.com/pbnjay/memory"
 )
 
@@ -42,10 +50,10 @@ var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 var out  = flag.String("out", "out.fits", "save output to `file`")
 var jpg  = flag.String("jpg", "%auto",  "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
 var log  = flag.String("log", "%auto",    "save log output to `file`. `%auto` replaces suffix of output file with .log")
-var pre  = flag.String("pre",  "",  "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
+var pPre  = flag.String("pre",  "",  "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
 var stars= flag.String("stars","","save star detections with given filename pattern, e.g. `stars%04d.fits`")
 var back = flag.String("back","","save extracted background with given filename pattern, e.g. `back%04d.fits`")
-var post = flag.String("post", "",  "save post-processed frames with given filename pattern, e.g. `post%04d.fits`")
+var pPost = flag.String("post", "",  "save post-processed frames with given filename pattern, e.g. `post%04d.fits`")
 var batch= flag.String("batch", "", "save stacked batches with given filename pattern, e.g. `batch%04d.fits`")
 
 var dark = flag.String("dark", "", "apply dark frame from `file`")
@@ -121,7 +129,7 @@ var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
 func main() {
-	logWriter:=os.Stdout
+	var logWriter io.Writer = os.Stdout
 	debug.SetGCPercent(10)
 	start:=time.Now()
 	flag.Usage=func(){
@@ -155,8 +163,9 @@ Flags:
 		}
 	}
 	if *log!="" { 
-		err:=nl.LogAlsoToFile(*log)
-		if err!=nil { nl.LogFatalf("Unable to open logfile '%s'\n", *log) }
+		logFile,err:=os.Create(*log)
+		if err!=nil { panic(fmt.Sprintf("Unable to open log file %s\n", *log)) }
+		logWriter=io.MultiWriter(logWriter, logFile)
 	}
 
 	// Also auto-select JPEG output target
@@ -172,11 +181,13 @@ Flags:
     if *cpuprofile != "" {
         f, err := os.Create(*cpuprofile)
         if err != nil {
-            nl.LogFatal("Could not create CPU profile: ", err)
+            fmt.Fprintf(logWriter, "Could not create CPU profile: %s\n", err)
+            os.Exit(-1)
         }
         defer f.Close()
         if err := pprof.StartCPUProfile(f); err != nil {
-            nl.LogFatal("Could not start CPU profile: ", err)
+            fmt.Fprintf(logWriter, "Could not start CPU profile: %s\n", err)
+            os.Exit(-1)
         }
         defer pprof.StopCPUProfile()
     }
@@ -197,17 +208,17 @@ Flags:
     case "stats":
     	*bpSigLow=0
     	*bpSigHigh=0
-		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
+		if *normHist==post.HNMAuto { *normHist=post.HNMNone }
 		if *starBpSig<0 { *starBpSig=0 } // default to no noise elimination
     case "stack":
-		if *normHist==nl.HNMAuto { *normHist=nl.HNMLocScale }
+		if *normHist==post.HNMAuto { *normHist=post.HNMLocScale }
 		if *starBpSig<0 { *starBpSig=5 } // default to noise elimination when working with individual subexposures
     case "stretch":
     case "rgb":
-		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
+		if *normHist==post.HNMAuto { *normHist=post.HNMNone }
 		if *starBpSig<0 { *starBpSig=0 }  // inputs are typically stacked and have undergone noise removal
     case "lrgb":
-		if *normHist==nl.HNMAuto { *normHist=nl.HNMNone }
+		if *normHist==post.HNMAuto { *normHist=post.HNMNone }
 		if *starBpSig<0 { *starBpSig=0 }  // inputs are typically stacked and have undergone noise removal
     case "legal":
     case "version":
@@ -217,16 +228,22 @@ Flags:
 
 	// glob filename arguments into OpLoadFiles operators
 	var err error
-	opLoadFiles, err:=nl.NewOpLoadFiles(args, logWriter)
+	opLoadFiles, err:=ops.NewOpLoadFiles(args, logWriter)
 	if err!=nil {
 		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
 		os.Exit(-1)
 	}
 
 	// parse flags into OperatorUnary objects
-	opPreProc:=nl.NewOpPreProcess(*dark, *flat, *debayer, *cfa, int32(*binning), float32(*bpSigLow), float32(*bpSigHigh), 
-		float32(*starSig), float32(*starBpSig), float32(*starInOut), int32(*starRadius), *stars, 
-		int32(*backGrid), float32(*backSigma), int32(*backClip), *back, *pre,
+	opDebayer:=pre.NewOpDebayer(*debayer, *cfa)
+	opPreProc:=pre.NewOpPreProcess(
+		pre.NewOpCalibrate(*dark, *flat),
+		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
+		opDebayer,
+		pre.NewOpBin(int32(*binning)),
+		pre.NewOpBackExtract(int32(*backGrid), float32(*backSigma), int32(*backClip), *back),
+		pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars),
+		ops.NewOpSave(*pPre),
 	)
 
 	// run actions
@@ -240,34 +257,30 @@ Flags:
 		if err!=nil { break }
 		fmt.Fprintf(logWriter, "\nPreprocessing and statting %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
 
-		opParallel:=nl.NewOpParallel(opPreProc, int64(runtime.NumCPU()))
+		opParallel:=ops.NewOpParallel(opPreProc, int64(runtime.NumCPU()))
 		_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
 
 	case "stack":
-    	opStackMultiBatch :=nl.NewOpStackMultiBatch(
-	    	nl.NewOpStackSingleBatch(
+    	opStackMultiBatch :=stack.NewOpStackMultiBatch(
+	    	stack.NewOpStackSingleBatch(
 	    		opPreProc, 
-	    		nl.NewOpSelectReference(nl.RefSelMode(*refSelMode), *alignTo, opPreProc.StarDetect),
-	    		nl.NewOpPostProcess(
-	    			nl.HistoNormMode(*normHist), 
-	    			int32(*align), 
-	    			int32(*alignK), 
-	    			float32(*alignT), 
-					nl.OOBModeNaN,
-					nl.RefSelMode(*refSelMode), 
-					*post,
+	    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opPreProc.StarDetect),
+	    		post.NewOpPostProcess(
+		            post.NewOpNormalize(post.HistoNormMode(*normHist)),
+		            post.NewOpAlign(int32(*align), int32(*alignK), float32(*alignT), post.OOBModeNaN, ref.RefSelMode(*refSelMode)),
+		            ops.NewOpSave(*pPost),
 				), 
-				nl.NewOpStack(
-					nl.StackMode(*stMode), 
-					nl.StackWeighting(*stWeight), 
+				stack.NewOpStack(
+					stack.StackMode(*stMode), 
+					stack.StackWeighting(*stWeight), 
 					float32(*stSigLow), 
 					float32(*stSigHigh),
 				),
 	    		opPreProc.StarDetect, 
-	    		nl.NewOpSave(*batch),
+	    		ops.NewOpSave(*batch),
 	    	),
 			*stMemory, 
-			nl.NewOpSave(*out),
+			ops.NewOpSave(*out),
 		)
 
 		m, err:=json.MarshalIndent(opStackMultiBatch, "", "  ")
@@ -277,20 +290,20 @@ Flags:
     	_, err=opStackMultiBatch.Apply(opLoadFiles, logWriter)
 
     case "stretch":
-    	opStarDetect:=nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
-    	opStretch:=nl.NewOpStretch(
-			nl.NewOpNormalizeRange  (true),
-			nl.NewOpStretchIterative(float32(*autoLoc / 100), float32(*autoScale / 100)),
-			nl.NewOpMidtones        (float32(*midtone), float32(*midBlack)),
-			nl.NewOpGamma           (float32(*gamma)),
-			nl.NewOpPPGamma         (float32(*ppGamma), float32(*ppSigma)),
-			nl.NewOpScaleBlack      (float32(*scaleBlack / 100)),
+    	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
+    	opStretch:=stretch.NewOpStretch(
+			stretch.NewOpNormalizeRange  (true),
+			stretch.NewOpStretchIterative(float32(*autoLoc / 100), float32(*autoScale / 100)),
+			stretch.NewOpMidtones        (float32(*midtone), float32(*midBlack)),
+			stretch.NewOpGamma           (float32(*gamma)),
+			stretch.NewOpPPGamma         (float32(*ppGamma), float32(*ppSigma)),
+			stretch.NewOpScaleBlack      (float32(*scaleBlack / 100)),
 			opStarDetect,
-			nl.NewOpSelectReference (nl.RFMFileName, *alignTo, opStarDetect),
-			nl.NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), nl.OOBModeOwnLocation, nl.RefSelMode(*refSelMode)),
-			nl.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
-			nl.NewOpSave            (*out),
-			nl.NewOpSave            (*jpg),
+			ref    .NewOpSelectReference (ref.RFMFileName, *alignTo, opStarDetect),
+			post   .NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), post.OOBModeOwnLocation, ref.RefSelMode(*refSelMode)),
+			stretch.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
+			ops    .NewOpSave            (*out),
+			ops    .NewOpSave            (*jpg),
     	)
 
     	var m []byte
@@ -298,33 +311,33 @@ Flags:
 		if err!=nil { break }
 		fmt.Fprintf(logWriter, "\nStretching %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
 
-    	opParallel:=nl.NewOpParallel(opStretch, int64(runtime.GOMAXPROCS(0)))
+    	opParallel:=ops.NewOpParallel(opStretch, int64(runtime.GOMAXPROCS(0)))
     	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)  // FIXME: materializes all files in memory
 
     case "rgb":
-    	opStarDetect:=nl.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
-    	opRGB:=nl.NewOpRGBLProcess(
+    	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
+    	opRGB:=rgb.NewOpRGBLProcess(
     		opStarDetect,
-			nl.NewOpSelectReference(nl.RFMStarsOverHFR, "", opStarDetect),
-			nl.NewOpRGBCombine(true), 
-			nl.NewOpRGBBalance(true),
-			nl.NewOpRGBToHSLuv(true),
-			nl.NewOpHSLApplyLum(true),
-			nl.NewOpSequence([]nl.OperatorUnary{
-				nl.NewOpHSLApplyLum(true),
-				nl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
-				nl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
-				nl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
-				nl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
-				nl.NewOpHSLSCNR(float32(*scnr)),
-				nl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
-				nl.NewOpHSLGamma(float32(*gamma)),
-				nl.NewOpHSLPPGamma(float32(*ppGamma), float32(*ppSigma)),
-				nl.NewOpHSLScaleBlack(float32(*scaleBlack)),
+			ref.NewOpSelectReference(ref.RFMStarsOverHFR, "", opStarDetect),
+			rgb.NewOpRGBCombine(true), 
+			rgb.NewOpRGBBalance(true),
+			rgb.NewOpRGBToHSLuv(true),
+			hsl.NewOpHSLApplyLum(true),
+			ops.NewOpSequence([]ops.OperatorUnary{
+				hsl.NewOpHSLApplyLum(true),
+				hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
+				hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
+				hsl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
+				hsl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
+				hsl.NewOpHSLSCNR(float32(*scnr)),
+				hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
+				hsl.NewOpHSLGamma(float32(*gamma)),
+				hsl.NewOpHSLPPGamma(float32(*ppGamma), float32(*ppSigma)),
+				hsl.NewOpHSLScaleBlack(float32(*scaleBlack)),
 			}), 
-			nl.NewOpHSLuvToRGB(true),
-			nl.NewOpSave(*out),
-			nl.NewOpSave(*jpg),
+			rgb.NewOpHSLuvToRGB(true),
+			ops.NewOpSave(*out),
+			ops.NewOpSave(*jpg),
 		) 
 
     	var m []byte
@@ -357,12 +370,14 @@ Flags:
     if *memprofile != "" {
         f, err := os.Create(*memprofile)
         if err != nil {
-            nl.LogFatal("Could not create memory profile: ", err)
+            fmt.Fprintf(logWriter, "Could not create memory profile: %s\n", err)
+            os.Exit(-1)
         }
         defer f.Close()
         runtime.GC() // get up-to-date statistics
         if err := pprof.Lookup("allocs").WriteTo(f,0); err != nil {
-            nl.LogFatal("Could not write allocation profile: ", err)
+            fmt.Fprintf(logWriter, "Could not write allocation profile: %s\n", err)
+            os.Exit(-1)
         }
     }
 
@@ -370,14 +385,5 @@ Flags:
 		fmt.Fprintf(logWriter, "Error: %s\n", err.Error())
 		os.Exit(-1)
 	}
-    nl.LogSync()
 }
 
-
-
-
-// Helper: convert bool to int
-func btoi(b bool) int {
-	if b { return 1 }
-	return 0
-}

@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package ops
 
 import (
 	"errors"
@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"strings"
 	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 
@@ -112,6 +113,25 @@ func NewOpLoadFiles(args []string, logWriter io.Writer) (loaders []*OpLoadFile, 
 		fmt.Fprintf(logWriter, "%d: %s\n",op.ID, op.FileName)
 	}
 	return ops, nil
+}
+
+
+// Load frame from FITS file and calculate basic stats and noise
+func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *fits.Image, err error) {
+	theF:=fits.NewImage()
+	f=&theF
+	f.ID=id
+	err=f.ReadFile(fileName, logWriter)
+	if err!=nil { return nil, err }
+	f.Stats=stats.CalcBasicStats(f.Data)
+	f.Stats.Noise=stats.EstimateNoise(f.Data, f.Naxisn[0])
+
+	fmt.Fprintf(logWriter, "%d: %s %s %s stats: %v\n", id, role, fileName, f.DimensionsToString(), f.Stats)
+	if f.Stats.StdDev<1e-8 {
+		fmt.Fprintf(logWriter, "Warnining: %s file %d may be degenerate\n", role, id)
+	}
+
+	return f, nil
 }
 
 

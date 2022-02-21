@@ -14,9 +14,11 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package pre
 
 import (
+	"errors"
+	"io"
 	"fmt"
 	"math"
 	"strings"
@@ -61,7 +63,7 @@ func (b *Background) CellsString() string {
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
-func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32) (b *Background) {
+func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32, logWriter io.Writer) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
 
@@ -82,7 +84,7 @@ func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32,
 	//LogPrintln(b.CellsString())
 
 	if backClip>0 {
-		b.clip(backClip)
+		b.clip(backClip, logWriter)
 		//LogPrintf("Clip %d\n", backClip)
 		//LogPrintln(b.CellsString())
 	}
@@ -122,7 +124,7 @@ func (b *Background) init(src []float32, sigma float32) {
 }
 
 // Clips the top n entries from the background gradient
-func (b *Background) clip(n int32) {
+func (b *Background) clip(n int32, logWriter io.Writer) {
 	buffer:=make([]float32, b.GridCells)
 	for i,cell:=range b.Cells { buffer[i]=cell }
 	threshold:=qsort.QSelectFloat32(buffer, len(buffer)-int(n)+1)
@@ -136,7 +138,7 @@ func (b *Background) clip(n int32) {
 		}
 	}
 
-	LogPrintf("n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
+	fmt.Fprintf(logWriter, "n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
 	//LogPrintln(b.CellsString())
 
 	b.OutlierCells=ignoredCells
@@ -335,9 +337,9 @@ func (b Background) Render() (dest []float32) {
 
 
 // Subtract full background from given data array, changing it in place.
-func (b Background) Subtract(dest []float32) {
+func (b Background) Subtract(dest []float32) error {
 	if int(b.Width)*int(b.Height)!=len(dest) { 
-		LogFatalf("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest))
+		return errors.New(fmt.Sprintf("Background size %dx%d does not match destination image size %d\n", b.Width, b.Height, len(dest)))
 	}
 
 	srcYl    :=int32(-1)
@@ -409,6 +411,7 @@ func (b Background) Subtract(dest []float32) {
 			dest[destX + destY*b.Width]-=v
 		}	
 	}	
+	return nil
 }
 
 

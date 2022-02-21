@@ -14,11 +14,12 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stack
 
 import (
 	// "runtime/debug"
 	// "github.com/mlnoga/nightlight/internal/fits"
+	// "github.com/mlnoga/nightlight/internal/ops"
 )
 
 /*

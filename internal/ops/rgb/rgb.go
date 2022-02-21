@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package internal
+package rgb
 
 import (
 	// "encoding/json"
@@ -23,20 +23,24 @@ import (
 	"io"
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
+	"github.com/mlnoga/nightlight/internal/ops/ref"
+	"github.com/mlnoga/nightlight/internal/ops/hsl"
 )
 
 
 
 
 type OpRGBLProcess struct {
-	StarDetect            *OpStarDetect            `json:"starDetect"`
-	SelectReference       *OpSelectReference       `json:"selectReference"`
+	StarDetect            *pre.OpStarDetect            `json:"starDetect"`
+	SelectReference       *ref.OpSelectReference       `json:"selectReference"`
 	RGBCombine            *OpRGBCombine            `json:"RGBCombine"`
 	RGBBalance            *OpRGBBalance            `json:"RGBBalance"`
     RGBToHSLuv            *OpRGBToHSLuv            `json:"RGBToHSLuv"`
-	HSLApplyLum           *OpHSLApplyLum           `json:"hslApplyLum"`
+	HSLApplyLum           *hsl.OpHSLApplyLum           `json:"hslApplyLum"`
 
-	HSLProcess            *OpSequence              `json:"HSLProcess"`         
+	HSLProcess            *ops.OpSequence              `json:"HSLProcess"`         
 	// OpHSLApplyLuminance
 	// OpHSLNeutralizeBackground
 	// OpHSLSaturationGamma
@@ -49,19 +53,19 @@ type OpRGBLProcess struct {
 	// OpHSLScaleBlack
 
     HSLuvToRGB            *OpHSLuvToRGB            `json:"HSLuvToRGB"`
-	Save                  *OpSave                  `json:"save"`
-	Save2                 *OpSave                  `json:"save"`
-	parStarDetect         *OpParallel              `json:"-"`
+	Save                  *ops.OpSave                  `json:"save"`
+	Save2                 *ops.OpSave                  `json:"save"`
+	parStarDetect         *ops.OpParallel              `json:"-"`
 	mutex                 sync.Mutex               `json:"-"`
 }
-var _ OperatorJoinFiles = (*OpRGBLProcess)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorJoinFiles = (*OpRGBLProcess)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpRGBLProcess(opStarDetect *OpStarDetect, opSelectReference *OpSelectReference,
+func NewOpRGBLProcess(opStarDetect *pre.OpStarDetect, opSelectReference *ref.OpSelectReference,
                       opRGBCombine *OpRGBCombine, opRGBBalance *OpRGBBalance,
-                      opRGBToHSLuv *OpRGBToHSLuv, opHSLApplyLum *OpHSLApplyLum,
-                      opHSLProcess *OpSequence, opHSLuvToRGB *OpHSLuvToRGB,
-                      opSave, opSave2 *OpSave) *OpRGBLProcess {
+                      opRGBToHSLuv *OpRGBToHSLuv, opHSLApplyLum *hsl.OpHSLApplyLum,
+                      opHSLProcess *ops.OpSequence, opHSLuvToRGB *OpHSLuvToRGB,
+                      opSave, opSave2 *ops.OpSave) *OpRGBLProcess {
 	return &OpRGBLProcess{
 		StarDetect      : opStarDetect,
 		SelectReference : opSelectReference,
@@ -80,12 +84,12 @@ func (op *OpRGBLProcess) init() (err error) {
 	op.mutex.Lock()
 	defer op.mutex.Unlock()
 	if op.StarDetect!=nil && op.parStarDetect==nil { 
-		op.parStarDetect=NewOpParallel(op.StarDetect, 4) // max 4 channels with separate thread
+		op.parStarDetect=ops.NewOpParallel(op.StarDetect, 4) // max 4 channels with separate thread
 	} 
 	return nil
  }
 
-func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
+func (op *OpRGBLProcess) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if err=op.init(); err!=nil { return nil, err }
 
 	var fs []*fits.Image
@@ -97,7 +101,7 @@ func (op *OpRGBLProcess) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (
 	} else if len(fs)==4 { 
 		op.HSLApplyLum.Lum=fs[3] 
 		op.SelectReference.Frame=fs[3]
-		op.SelectReference.Mode=RFMFrame
+		op.SelectReference.Mode=ref.RFMFrame
 		fs=fs[:3]
 	} 
 
@@ -123,7 +127,7 @@ type OpRGBCombine struct {
 	Active     bool      `json:"active"`
 	RefFrame       *fits.Image          `json:"-"`
 }
-var _ OperatorJoin = (*OpRGBCombine)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorJoin = (*OpRGBCombine)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpRGBCombine(active bool) *OpRGBCombine {
@@ -146,7 +150,7 @@ func (op *OpRGBCombine) Apply(fs []*fits.Image, logWriter io.Writer) (fOut *fits
 type OpRGBBalance struct {
 	Active     bool      `json:"active"`
 }
-var _ OperatorUnary = (*OpRGBBalance)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpRGBBalance)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpRGBBalance(active bool) *OpRGBBalance {
@@ -169,7 +173,7 @@ func (op *OpRGBBalance) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Im
 type OpRGBToHSLuv struct {
 	Active     bool      `json:"active"`
 }
-var _ OperatorUnary = (*OpRGBToHSLuv)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpRGBToHSLuv)(nil) // Compile time assertion: type implements the interface
 
 func NewOpRGBToHSLuv(active bool) *OpRGBToHSLuv {
 	return &OpRGBToHSLuv{active}
@@ -186,7 +190,7 @@ func (op *OpRGBToHSLuv) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Im
 type OpHSLuvToRGB struct {
 	Active     bool      `json:"active"`
 }
-var _ OperatorUnary = (*OpHSLuvToRGB)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLuvToRGB)(nil) // Compile time assertion: type implements the interface
 
 func NewOpHSLuvToRGB(active bool) *OpHSLuvToRGB {
 	return &OpHSLuvToRGB{active}
@@ -194,7 +198,7 @@ func NewOpHSLuvToRGB(active bool) *OpHSLuvToRGB {
 
 func (op *OpHSLuvToRGB) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	LogPrintln("Converting nonlinear HSLuv to linear RGB")
+	fmt.Fprintf(logWriter, "Converting nonlinear HSLuv to linear RGB\n")
     f.HSLuvToRGB()
 	return f, nil
 }

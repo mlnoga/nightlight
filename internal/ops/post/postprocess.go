@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package post
 
 import (
 	"errors"
@@ -25,6 +25,8 @@ import (
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/star"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/ref"
 )
 
 
@@ -32,18 +34,18 @@ import (
 type OpPostProcess struct {
 	Normalize   *OpNormalize 	`json:"normalize"`
 	Align       *OpAlign 	    `json:"align"`
-	Save        *OpSave         `json:"save"`
+	Save        *ops.OpSave     `json:"save"`
 }
-var _ OperatorUnary = (*OpPostProcess)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpPostProcess)(nil) // Compile time assertion: type implements the interface
 
-func NewOpPostProcess(normalize HistoNormMode, align, alignK int32, alignThreshold float32, 
-	                  oobMode OutOfBoundsMode, refSelMode RefSelMode, postProcessedPattern string) *OpPostProcess {
+func NewOpPostProcess(opNormalize *OpNormalize, opAlign *OpAlign, opSave *ops.OpSave) *OpPostProcess {
 	return &OpPostProcess{
-		Normalize : NewOpNormalize(normalize),
-		Align : 	NewOpAlign(align, alignK, alignThreshold, oobMode, refSelMode),
-		Save :	 	NewOpSave(postProcessedPattern),
+		Normalize : opNormalize,
+		Align : 	opAlign,
+		Save :	 	opSave,
 	}
 }
+
 
 func (op *OpPostProcess) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if f, err=op.Normalize.Apply(f, logWriter); err!=nil { return nil, err}
@@ -104,14 +106,14 @@ type OpAlign struct {
 	K          int32           `json:"k"`
 	Threshold  float32         `json:"threshold"`
 	OobMode    OutOfBoundsMode `json:"oobMode"`
-	RefSelMode RefSelMode      `json:"refSelMode"`
+	RefSelMode ref.RefSelMode      `json:"refSelMode"`
 	Reference *fits.Image      `json:"-"`
 	HistoRef  *fits.Image      `json:"-"`
 	Aligner   *star.Aligner    `json:"-"`
 	mutex     sync.Mutex       `json:"-"`       
 }
 
-func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode, refSelMode RefSelMode) *OpAlign {
+func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode, refSelMode ref.RefSelMode) *OpAlign {
 	return &OpAlign{
 		Active    : align!=0,
 		K         : alignK,

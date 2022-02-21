@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package stack
 
 import (
 	"errors"
@@ -27,6 +27,7 @@ import (
 	"sort"
 	"github.com/pbnjay/memory"
 	"github.com/mlnoga/nightlight/internal/fits"
+	"github.com/mlnoga/nightlight/internal/ops"
 )
 
 
@@ -35,10 +36,10 @@ import (
 type OpStackMultiBatch struct {
 	Batch            *OpStackSingleBatch   `json:"batch"`
 	Memory            int64           `json:"memory"`
-	Save             *OpSave          `json:"save"`
+	Save             *ops.OpSave          `json:"save"`
 }
 
-func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *OpSave) (op *OpStackMultiBatch) {
+func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *ops.OpSave) (op *OpStackMultiBatch) {
 	return &OpStackMultiBatch{
 		Batch       : batch,
 		Memory      : memory,
@@ -47,7 +48,7 @@ func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *OpSave)
 }
 
 
-func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
+func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
 	// Partition the loaders into optimal batches
 	opLoadFilesPerm, numBatches, batchSize, maxThreads, err := op.partition(opLoadFiles, logWriter)
 	if err!=nil { return nil, err }
@@ -113,7 +114,7 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*OpLoadFile, logWriter io.Write
 }
 
 
-func (op *OpStackMultiBatch) partition(opLoadFiles []*OpLoadFile, logWriter io.Writer) (opLoadFilesPerm []*OpLoadFile, 
+func (op *OpStackMultiBatch) partition(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (opLoadFilesPerm []*ops.OpLoadFile, 
 	                                                                               numBatches, batchSize, maxThreads int64, err error) {
 	numFrames:=int64(len(opLoadFiles))
 	width, height:=int64(0), int64(0)
@@ -160,7 +161,7 @@ func (op *OpStackMultiBatch) partition(opLoadFiles []*OpLoadFile, logWriter io.W
 		if batchSize<int64(maxThreads) { continue }
 		break
 	}
-	if maxThreads<1 || batchSize<2 { LogFatal("Cannot find a stacking execution path within the given memory constraints.") }
+	if maxThreads<1 || batchSize<2 { return nil, 0,0,0, errors.New("Cannot find a stacking execution path within the given memory constraints.") }
 	// even out size of the last frame
 	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
 	fmt.Fprintf(logWriter, "Using %d batches of batch size %d with %d images in parallel.\n", numBatches, batchSize, maxThreads)
@@ -179,7 +180,7 @@ func (op *OpStackMultiBatch) partition(opLoadFiles []*OpLoadFile, logWriter io.W
 			if to>len(perm) { to=len(perm) }
 			sort.Ints(perm[from:to])
 		}
-		opLoadFilesPerm:=make([]*OpLoadFile, len(opLoadFiles))
+		opLoadFilesPerm:=make([]*ops.OpLoadFile, len(opLoadFiles))
 		for i,_:=range opLoadFiles {
 			opLoadFilesPerm[i]=opLoadFiles[perm[i]]
 		}

@@ -14,7 +14,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-package internal
+package hsl
 
 import (
 	// "encoding/json"
@@ -22,6 +22,7 @@ import (
 	"io"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/ops"
 	colorful "github.com/lucasb-eyer/go-colorful"
 )
 
@@ -30,7 +31,7 @@ type OpHSLApplyLum struct {
 	Active     bool      `json:"active"`
 	Lum 	*fits.Image 		`json:"-"`
 }
-var _ OperatorUnary = (*OpHSLApplyLum)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLApplyLum)(nil) // Compile time assertion: type implements the interface
 
 func NewOpHSLApplyLum(active bool) *OpHSLApplyLum {
 	return &OpHSLApplyLum{Active: active}
@@ -54,7 +55,7 @@ type OpHSLNeutralizeBackground struct {
 	SigmaLow   float32    `json:"sigmaLow"`
 	SigmaHigh  float32    `json:"sigmaHigh"`
 }
-var _ OperatorUnary = (*OpHSLNeutralizeBackground)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLNeutralizeBackground)(nil) // Compile time assertion: type implements the interface
 
 func NewOpHSLNeutralizeBackground(sigmaLow, sigmaHigh float32) *OpHSLNeutralizeBackground {
 	return &OpHSLNeutralizeBackground{sigmaLow!=0 || sigmaHigh!=0, sigmaLow, sigmaHigh}
@@ -83,7 +84,7 @@ type OpHSLSaturationGamma struct {
 	Gamma   float32   `json:"gamma"`
 	Sigma  float32    `json:"sigma"`
 }
-var _ OperatorUnary = (*OpHSLSaturationGamma)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLSaturationGamma)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpHSLSaturationGamma(gamma, sigma float32) *OpHSLSaturationGamma {
@@ -111,7 +112,7 @@ type OpHSLSelectiveSaturation struct {
 	To      float32   `json:"to"`
 	Factor  float32   `json:"factor"`
 }
-var _ OperatorUnary = (*OpHSLSelectiveSaturation)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLSelectiveSaturation)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpHSLSelectiveSaturation(from, to, factor float32) *OpHSLSelectiveSaturation {
@@ -133,7 +134,7 @@ type OpHSLRotateHue struct {
 	Offset  float32   `json:"offset"`
 	Sigma   float32   `json:"sigma"`
 }
-var _ OperatorUnary = (*OpHSLRotateHue)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLRotateHue)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpHSLRotateHue(from, to, offset, sigma float32) *OpHSLRotateHue {
@@ -157,7 +158,7 @@ type OpHSLSCNR struct {
 	Active  bool      `json:"active"`   
 	Factor  float32   `json:"factor"`
 }
-var _ OperatorUnary = (*OpHSLSCNR)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorUnary = (*OpHSLSCNR)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpHSLSCNR(factor float32) *OpHSLSCNR {

@@ -24,8 +24,11 @@ import (
 	"runtime"
 	"github.com/gin-gonic/gin"
 
-	nl "github.com/mlnoga/nightlight/internal"
-	// "github.com/mlnoga/nightlight/internal/state"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
+	"github.com/mlnoga/nightlight/internal/ops/stack"	
+	"github.com/mlnoga/nightlight/internal/ops/stretch"
+	"github.com/mlnoga/nightlight/internal/ops/rgb"
 )
 
 
@@ -60,7 +63,7 @@ func printArgs(logWriter io.Writer, prefix, suffix string, args interface{}) err
 
 type postStatsArgs struct {
 	FilePatterns []string             `json:"filePatterns"`
-	StarDetect    *nl.OpStarDetect    `json:"starDetect"`
+	StarDetect    *pre.OpStarDetect    `json:"starDetect"`
 }
 
 func postStats(c *gin.Context)  {
@@ -83,13 +86,13 @@ func postStats(c *gin.Context)  {
 
 	// glob filename arguments into OpLoadFiles operators
 	var err error
-	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	opLoadFiles, err:=ops.NewOpLoadFiles(args.FilePatterns, logWriter)
 	if err!=nil {
 		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
 		return
 	}
 
-	opParallel:=nl.NewOpParallel(args.StarDetect, int64(runtime.NumCPU()))
+	opParallel:=ops.NewOpParallel(args.StarDetect, int64(runtime.NumCPU()))
 	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
 	if(err!=nil) {
 		fmt.Fprintf(logWriter, "error: %s\n", err.Error())		
@@ -102,7 +105,7 @@ func postStats(c *gin.Context)  {
 
 type postStackArgs struct {
 	FilePatterns    []string                `json:"filePatterns"`
-	StackMultiBatch  *nl.OpStackMultiBatch  `json:"stackMultiBatch"`	
+	StackMultiBatch  *stack.OpStackMultiBatch  `json:"stackMultiBatch"`	
 }
 
 func postStack(c *gin.Context) {
@@ -125,7 +128,7 @@ func postStack(c *gin.Context) {
 
 	// glob filename arguments into OpLoadFiles operators
 	var err error
-	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	opLoadFiles, err:=ops.NewOpLoadFiles(args.FilePatterns, logWriter)
 	if err!=nil {
 		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
 		return
@@ -143,7 +146,7 @@ func postStack(c *gin.Context) {
 
 type postStretchArgs struct {
 	FilePatterns []string        `json:"filePatterns"`
-	Stretch       *nl.OpStretch  `json:"stretch"`	
+	Stretch       *stretch.OpStretch  `json:"stretch"`	
 }
 
 func postStretch(c *gin.Context) {
@@ -166,13 +169,13 @@ func postStretch(c *gin.Context) {
 
 	// glob filename arguments into OpLoadFiles operators
 	var err error
-	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	opLoadFiles, err:=ops.NewOpLoadFiles(args.FilePatterns, logWriter)
 	if err!=nil {
 		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
 		return
 	}
 
-   	opParallel:=nl.NewOpParallel(args.Stretch, int64(runtime.GOMAXPROCS(0)))
+   	opParallel:=ops.NewOpParallel(args.Stretch, int64(runtime.GOMAXPROCS(0)))
 	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)	
 	if(err!=nil) {
 		fmt.Fprintf(logWriter, "error: %s\n", err.Error())	
@@ -186,7 +189,7 @@ func postStretch(c *gin.Context) {
 
 type postRGBLArgs struct {
 	FilePatterns []string            `json:"filePatterns"`
-	RGBLProcess   *nl.OpRGBLProcess  `json:"rgblProcess"`	
+	RGBLProcess   *rgb.OpRGBLProcess  `json:"rgblProcess"`	
 }
 
 func postRGBL(c *gin.Context) {
@@ -209,7 +212,7 @@ func postRGBL(c *gin.Context) {
 
 	// glob filename arguments into OpLoadFiles operators
 	var err error
-	opLoadFiles, err:=nl.NewOpLoadFiles(args.FilePatterns, logWriter)
+	opLoadFiles, err:=ops.NewOpLoadFiles(args.FilePatterns, logWriter)
 	if err!=nil {
 		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
 		return

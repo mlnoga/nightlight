@@ -14,7 +14,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-package internal
+package ref
 
 import (
 	"errors"
@@ -23,6 +23,8 @@ import (
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/qsort"
+	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
 )
 
 
@@ -43,14 +45,14 @@ type OpSelectReference struct {
 	Active          bool               `json:"active"`
 	Mode            RefSelMode         `json:"mode"`
 	FileName        string             `json:"fileName"`
-	StarDetect     *OpStarDetect       `json:"starDetect"`
-	Frame          *fits.Image          `json:"-"`
+	StarDetect     *pre.OpStarDetect   `json:"starDetect"`
+	Frame          *fits.Image         `json:"-"`
 	Score           float32            `json:"-"`
 }
-var _ OperatorParallel = (*OpSelectReference)(nil) // Compile time assertion: type implements the interface
+var _ ops.OperatorParallel = (*OpSelectReference)(nil) // Compile time assertion: type implements the interface
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpSelectReference(mode RefSelMode, fileName string, opStarDetect *OpStarDetect) *OpSelectReference {
+func NewOpSelectReference(mode RefSelMode, fileName string, opStarDetect *pre.OpStarDetect) *OpSelectReference {
 	return &OpSelectReference{
 		Active:     true, 
 		Mode:       mode,
@@ -69,7 +71,7 @@ func (op *OpSelectReference) ApplyToFITS(fs []*fits.Image, logWriter io.Writer) 
 		op.Frame, op.Score, err=selectReferenceMedianLoc(fs)
 
 	case RFMFileName:
-		op.Frame, err=LoadAndCalcStats(op.FileName,-3,"align", logWriter)
+		op.Frame, err=ops.LoadAndCalcStats(op.FileName,-3,"align", logWriter)
 		if err!=nil { return nil, err }
 		op.Frame.Stats, err=stats.CalcExtendedStats(op.Frame.Data, op.Frame.Naxisn[0])
 		if err!=nil { return nil, err }
@@ -88,7 +90,7 @@ func (op *OpSelectReference) ApplyToFITS(fs []*fits.Image, logWriter io.Writer) 
 	return fs, nil
 }
 
-func (op *OpSelectReference) ApplyToFiles(opLoadFiles []*OpLoadFile, logWriter io.Writer) (fsOut []*fits.Image, err error) {
+func (op *OpSelectReference) ApplyToFiles(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fsOut []*fits.Image, err error) {
 	return nil, errors.New("Not implemented: func (op *OpSelectReference) ApplyToFITS()")
 }
 
