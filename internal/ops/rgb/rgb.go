@@ -54,7 +54,7 @@ type OpRGBLProcess struct {
 
     HSLuvToRGB            *OpHSLuvToRGB            `json:"HSLuvToRGB"`
 	Save                  *ops.OpSave                  `json:"save"`
-	Save2                 *ops.OpSave                  `json:"save"`
+	Save2                 *ops.OpSave                  `json:"save2"`
 	parStarDetect         *ops.OpParallel              `json:"-"`
 	mutex                 sync.Mutex               `json:"-"`
 }
