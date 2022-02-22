@@ -19,7 +19,6 @@ package fits
 import (
 	"math"
 	"github.com/mlnoga/nightlight/internal/star"
-	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 // Projects an image into a new coordinate system with the given transformation.
@@ -31,18 +30,8 @@ func (img *Image) Project(destNaxisn []int32, trans star.Transform2D, outOfBound
 
 	// Create new FITS image for the result
 	destWidth:=destNaxisn[0]
-	destPixels:=destNaxisn[0]*destNaxisn[1]
-	res=&Image{
-		ID    : img.ID,
-		Header: NewHeader(),
-		Bitpix: -32,
-		Bzero : 0,
-		Naxisn: []int32{destNaxisn[0], destNaxisn[1]},
-		Pixels: destPixels,
-		Data:   make([]float32,int(destPixels)),
-		Exposure: img.Exposure,
-		Trans:  star.IdentityTransform2D(),
-	}
+	res=NewImageFromNaxisn(destNaxisn, nil)
+	res.ID, res.Exposure = img.ID, img.Exposure
 
 	// Resample image from the target coordinate system PoV
 	d:=img.Data
@@ -81,6 +70,5 @@ func (img *Image) Project(destNaxisn []int32, trans star.Transform2D, outOfBound
 			res.Data[col + row*destWidth]=v
 		}
 	}
-	res.Stats=stats.CalcBasicStats(res.Data)
 	return res, nil
 }

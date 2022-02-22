@@ -19,23 +19,11 @@ package stats
 import (
 	"fmt"
 	"math"
+	"strings"
 	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/valyala/fastrand"
 	//"time"
 )
-
-// Basic statistics on data arrays
-type Basic struct {
-	Min      float32 `json:"min"`      // Minimum
-	Max      float32 `json:"max"`      // Maximum
-	Mean     float32 `json:"mean"`     // Mean (average)
-	StdDev   float32 `json:"stddev"`   // Standard deviation (norm 2, sigma)
-
-	Location float32 `json:"location"` // Selected location indicator (standard: randomized sigma-clipped median using randomized Qn)
-	Scale    float32 `json:"scale"`    // Selected scale indicator (standard: randomized Qn)
-
-	Noise    float32 `json:"noise"`    // Noise estimation, not calculated by default (expensive)
-}
 
 
 // Enumerated type for location and scale estimator modes
@@ -49,64 +37,196 @@ const (
 )
 
 // Global mode selection for location and scale estimation
+// FIXME: Need to still remove this global
 var LSEstimator LSEstimatorMode = LSESCMedianQn
 
 
-// Pretty print basic stats to string
-func (s *Basic) String() string {
+// Statistics on data arrays, calculated on demand
+type Stats struct {
+    data         []float32  // The underlying data array
+    width        int32      // Width of a line in the underlying data array (for noise)
+
+	min          float32    // Minimum
+	max          float32    // Maximum
+	mean         float32    // Mean (average)
+	stdDev       float32    // Standard deviation (norm 2, sigma)
+	location     float32    // Selected location indicator (standard: randomized sigma-clipped median using randomized Qn)
+	scale        float32    // Selected scale indicator (standard: randomized Qn)
+	noise        float32    // Noise estimation, not calculated by default (expensive)
+
+	haveMMM      bool       // Indicates min/mean/max are fresh
+    haveStdDev   bool       // Indicates std deviation is fresh
+    haveLocScale bool       // Indicates location and scale are
+    haveNoise    bool       // Indicates noise is fresh
+}
+
+
+func NewStats(d []float32, w int32) *Stats { 
+	return &Stats{data: d, width : w} 
+}
+
+func NewStatsWithMMM(d []float32, w int32, min, max, mean float32) *Stats { 
+	return &Stats{data: d, width : w, min: min, max: max, mean: mean, haveMMM: true} 
+}
+
+
+func NewStatsForChannel(hcl []float32, w int32, ch, numCh int) *Stats {
+	if ch>=numCh || ch<0 || numCh<=0 { panic(fmt.Sprintf("invalid channel %d with %d total channels", ch, numCh)) }
+	chLen:=len(hcl)/numCh 
+	return &Stats{data: hcl[ch*chLen : (ch+1)*chLen], width : w}
+} 
+
+func (s *Stats) FreeData() {
+	s.data=nil
+}
+
+func (s *Stats) SetData(d []float32) {
+	s.data=d
+	s.Clear()
+}
+
+func (s *Stats) Clear() {
+	s.haveMMM, s.haveStdDev, s.haveLocScale, s.haveNoise=false, false, false, false
+}
+
+func (s *Stats) UpdateCachedWith(multiplier, offset float32) {
+	s.min     =s.min     *multiplier + offset
+	s.max     =s.max     *multiplier + offset
+	s.mean    =s.mean    *multiplier + offset
+	s.location=s.location*multiplier + offset
+	s.scale   =s.scale   *multiplier + offset
+	s.noise   =s.noise   *multiplier + offset
+}
+
+func (s *Stats) Min() float32 {
+	if !s.haveMMM {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.min, s.mean, s.max=calcMinMeanMax(s.data)
+		s.haveMMM=true		
+	}
+	return s.min
+}
+
+func (s *Stats) Max() float32 {
+	if !s.haveMMM {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.min, s.mean, s.max=calcMinMeanMax(s.data)
+		s.haveMMM=true		
+	}
+	return s.max
+}
+
+func (s *Stats) Mean() float32 {
+	if !s.haveMMM {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.min, s.mean, s.max=calcMinMeanMax(s.data)
+		s.haveMMM=true		
+	}
+	return s.mean
+}
+
+func (s *Stats) StdDev() float32 {
+	if !s.haveStdDev {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		variance:=calcVariance(s.data, s.Mean())
+		s.stdDev=float32(math.Sqrt(float64(variance)))
+		s.haveStdDev=true		
+	}
+	return s.stdDev
+}
+
+func (s *Stats) Location() float32 {
+	if !s.haveLocScale {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.updateLocationScale()
+	}
+	return s.location
+}
+
+func (s *Stats) Scale() float32 {
+	if !s.haveLocScale {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.updateLocationScale()
+	}
+	return s.scale
+}
+
+func (s *Stats) Noise() float32 {
+	if !s.haveNoise {
+		if s.data==nil { panic("Cannot calculate stats on nil data")}
+		s.noise=EstimateNoise(s.data, s.width)
+		s.haveNoise=true
+	}
+	return s.noise
+}
+
+// Pretty print Stats stats to string. Lazily prints only values available
+func (s *Stats) String() string {
+	precision:=6
+	if s.haveMMM {
+		if m:=s.Max(); m>=1000000 {
+		    precision=0 
+		} else if m>=100000 { 
+			precision=1
+		} else if m>=10000 {
+			precision=2
+		} else if m>=1000 {
+			precision=3
+		} else if m>100 {
+			precision=4
+		} else if m>10 {
+			precision=5
+		} 
+	}
+	b:=strings.Builder{}
+	space:=""
+	if(s.haveMMM) { 
+		fmt.Fprintf(&b, "Min %.*f Max %.*f Mean %.*f", precision, s.Min(), precision, s.Max(), precision, s.Mean()) 
+		space=" "
+	}
+	if(s.haveStdDev) { 
+		fmt.Fprintf(&b, "%sStdDev %.*f", space, precision, s.StdDev()) 
+		space=" "
+	}
+	if(s.haveLocScale) { 
+		fmt.Fprintf(&b, "%sLocation %.*f Scale %.*f", space, precision, s.Location(), precision, s.Scale()) 
+		space=" "
+	}
+	if(s.haveNoise) { 
+		fmt.Fprintf(&b, "%sNoise %.*f", space, precision, s.Noise()) 
+		space=" "
+	}
+	if b.Len()==0 {
+		return "(no stats yet)"
+	}
+	return b.String()
+}
+
+func (s *Stats) StringEager() string {
 	return fmt.Sprintf("Min %.6g Max %.6g Mean %.6g StdDev %.6g Location %.6g Scale %.6g Noise %.4g", 
-	                 	s.Min, s.Max,   s.Mean,   s.StdDev,   s.Location,   s.Scale,   s.Noise)
+	                 	s.Min(), s.Max(),   s.Mean(),   s.StdDev(),   s.Location(),   s.Scale(),   s.Noise())
 }
-
-
-// Pretty print basic stats to CSV header
-func (s *Basic) ToCSVHeader() string {
-	return fmt.Sprintf("Min,Max,Mean,StdDev,Location,Scale,Noise")
-}
-
-// Pretty print basic stats to CSV line item 
-func (s *Basic) ToCSVLine() string {
-	return fmt.Sprintf("%.6g,%.6g,%.6g,%.6g,%.6g,%.6g,%.4g", 
-		s.Min, s.Max, s.Mean, s.StdDev, s.Location, s.Scale, s.Noise)
-}
-
-
-// Calculate basic statistics for a data array. 
-func CalcBasicStats(data []float32) (s *Basic) {
-	s=&Basic{}
-	s.Min, s.Mean, s.Max=calcMinMeanMax(data)
-
-	variance:=calcVariance(data, s.Mean)
-	s.StdDev=float32(math.Sqrt(float64(variance)))
-
-	return s
-}
-
 
 // Calculates extended statistics and stores in f.Stats 
-func CalcExtendedStats(data []float32, width int32) (s *Basic, err error) {
-	s=CalcBasicStats(data)
+func (s *Stats) updateLocationScale() {
 	numSamples:=128*1024
 
 	switch LSEstimator {
 	case LSEMeanStdDev:
-		s.Location, s.Scale=s.Mean, s.StdDev
+		s.location, s.scale=s.Mean(), s.StdDev()
 	case LSEMedianMAD:
 		samples:=make([]float32, numSamples)
-		s.Location=FastApproxMedian(data, samples)
-		s.Scale   =FastApproxMAD(data, s.Location, samples)
+		s.location=FastApproxMedian(s.data, samples)
+		s.scale   =FastApproxMAD(s.data, s.location, samples)
 		samples=nil
 	case LSEIKSS:
-		s.Location, s.Scale=IKSS(data, 1e-6, float32(math.Pow(2,-23)))
+		s.location, s.scale=IKSS(s.data, 1e-6, float32(math.Pow(2,-23)))
 	case LSESCMedianQn:
-		s.Location,   s.Scale=FastApproxSigmaClippedMedianAndQn(data, 2, 2, (s.Max-s.Min)/(65535.0), numSamples)
+		s.location,   s.scale=FastApproxSigmaClippedMedianAndQn(s.data, 2, 2, (s.Max()-s.Min())/(65535.0), numSamples)
 	case LSEHistogram:
-		s.Location, s.Scale=HistogramScaleLoc(data, s.Min, s.Max, 4096)
+		s.location, s.scale=HistogramScaleLoc(s.data, s.Min(), s.Max(), 4096)
 	}
-
-	s.Noise=EstimateNoise(data, width)
-
-	return s, nil
+	s.haveLocScale=true
 }	
 
 
@@ -498,29 +618,6 @@ func HalfSampleModeSorted(data []float32) float32 {
 			return HalfSampleModeSorted(data[minIndex:minIndex+halfLen])
 		}
 	}
-}
-
-// Returns greyscale location and scale for given RGB image
-func RGBGreyLocScale(data []float32, width int32) (loc, scale float32, err error) {
-	l:=len(data)/3
-	rStats,err:=CalcExtendedStats(data[0*l:1*l], width)
-   	if err!=nil { return 0,0, err }
-	gStats,err:=CalcExtendedStats(data[1*l:2*l], width)
-   	if err!=nil { return 0,0, err }
-	bStats,err:=CalcExtendedStats(data[2*l:3*l], width)
-   	if err!=nil { return 0,0, err }
-	loc  =0.299*rStats.Location +0.587*gStats.Location +0.114*bStats.Location
-	scale=0.299*rStats.Scale    +0.587*gStats.Scale    +0.114*bStats.Scale
-	return loc, scale, nil
-}
-
-
-// Returns greyscale location and scale for given HCL image
-func HCLLumMinMaxLocScale(data []float32, width int32) (min, max, loc, scale float32, err error) {
-	l:=len(data)/3
-	lumStats,err:=CalcExtendedStats(data[2*l:3*l], width)
-   	if err!=nil { return 0,0,0,0, err }
-	return lumStats.Min, lumStats.Max, lumStats.Location, lumStats.Scale,  nil
 }
 
 // Calculate scale and location based on histogram

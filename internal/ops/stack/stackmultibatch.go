@@ -75,7 +75,7 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 		if numBatches>1 {
 			stack=StackIncremental(stack, batch, float32(batchFrames))
 			stackFrames+=batchFrames
-			stackNoise +=batch.Stats.Noise*float32(batchFrames)
+			stackNoise +=batch.Stats.Noise()*float32(batchFrames)
 		} else {
 			stack=batch
 		}
@@ -93,8 +93,7 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 
 	if numBatches>1 {
 		// Finalize stack of stacks
-		err:=StackIncrementalFinalize(stack, float32(stackFrames))
-		if err!=nil { fmt.Fprintf(logWriter, "Error calculating extended stats: %s\n", err) }
+		StackIncrementalFinalize(stack, float32(stackFrames))
 
 		// Find stars in newly stacked image and report out on them
 		stack, err=op.Batch.PreProcess.StarDetect.Apply(stack, logWriter)

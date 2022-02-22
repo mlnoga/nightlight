@@ -30,14 +30,15 @@ import (
 // from a local Median filter by more than sigma times the standard
 // deviation of the overall differences from the local Median filter.
 // Returns an array of indices into the data.
-func BadPixelMap(data []float32, width int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *stats.Basic) {
+func BadPixelMap(data []float32, width int32, sigmaLow, sigmaHigh float32) (bpm []int32, medianDiffStats *stats.Stats) {
 	tmp:=make([]float32,len(data))
 	median.MedianFilter3x3(tmp, data, width)
 	Subtract(tmp, data, tmp)
 
-	medianDiffStats=stats.CalcBasicStats(tmp)
-	thresholdLow := - medianDiffStats.StdDev * sigmaLow
-	thresholdHigh:=   medianDiffStats.StdDev * sigmaHigh
+	medianDiffStats=stats.NewStats(tmp, 0)
+	thresholdLow := - medianDiffStats.StdDev() * sigmaLow
+	thresholdHigh:=   medianDiffStats.StdDev() * sigmaHigh
+	medianDiffStats.FreeData()
 	// LogPrintf("Mediansub stats: %v  threslow: %.2f thresHigh: %.2f\n", stats, thresholdLow, thresholdHigh)
 
 	bpm=make([]int32,len(data)/100)[:0] // []int32{}

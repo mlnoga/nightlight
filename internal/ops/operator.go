@@ -23,7 +23,6 @@ import (
 	"path/filepath"
 	"strings"
 	"github.com/mlnoga/nightlight/internal/fits"
-	"github.com/mlnoga/nightlight/internal/stats"
 )
 
 
@@ -86,13 +85,9 @@ func NewOpLoadFile(id int, fileName string) *OpLoadFile {
 
 // Load image from a file
 func (op *OpLoadFile) Apply(logWriter io.Writer) (fOut *fits.Image, err error) {
-	theF:=fits.NewImage()
-	theF.ID=op.ID
-	f:=&theF
-
-	err=f.ReadFile(op.FileName, logWriter)
+	f, err:=fits.NewImageFromFile(op.FileName, op.ID, logWriter)
 	if err!=nil { return nil, err }
-	fmt.Fprintf(logWriter, "%d: Loaded %v pixel frame from %s\n", f.ID, f.DimensionsToString(), f.FileName)
+	fmt.Fprintf(logWriter, "%d: Loaded %s pixel light frame with %v from %s\n", f.ID, f.DimensionsToString(), f.Stats, f.FileName)
 	return f, nil	
 }
 
@@ -118,16 +113,11 @@ func NewOpLoadFiles(args []string, logWriter io.Writer) (loaders []*OpLoadFile, 
 
 // Load frame from FITS file and calculate basic stats and noise
 func LoadAndCalcStats(fileName string, id int, role string, logWriter io.Writer) (f *fits.Image, err error) {
-	theF:=fits.NewImage()
-	f=&theF
-	f.ID=id
-	err=f.ReadFile(fileName, logWriter)
+	f, err=fits.NewImageFromFile(fileName, id, logWriter)
 	if err!=nil { return nil, err }
-	f.Stats=stats.CalcBasicStats(f.Data)
-	f.Stats.Noise=stats.EstimateNoise(f.Data, f.Naxisn[0])
 
-	fmt.Fprintf(logWriter, "%d: %s %s %s stats: %v\n", id, role, fileName, f.DimensionsToString(), f.Stats)
-	if f.Stats.StdDev<1e-8 {
+	fmt.Fprintf(logWriter, "%d: Loaded %s pixel %s frame with %v from %s\n", id, f.DimensionsToString(), role, f.Stats, fileName)
+	if f.Stats.Max()-f.Stats.Min()<1e-8 {
 		fmt.Fprintf(logWriter, "Warnining: %s file %d may be degenerate\n", role, id)
 	}
 
@@ -218,27 +208,41 @@ func NewOpParallel(operator OperatorUnary, maxThreads int64) *OpParallel {
 func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (fOuts []*fits.Image, err error) {
 	fOuts =make([]*fits.Image, len(sources))
 	sem  :=make(chan bool, op.MaxThreads)
+	res  :=make(chan error, len(sources))
 	for i, src := range(sources) {
 		sem <- true 
 		go func(i int, source *OpLoadFile) {
 			defer func() { <-sem }()
 			f, err:=source.Apply(logWriter)
-			if err!=nil { 
-				fmt.Fprintf(logWriter, err.Error())
+			if err!=nil {
+				fOuts[i]=nil
+				res <- err 
 				return
 			}
 			f, err=op.Operator.Apply(f, logWriter)
 			if err!=nil { 
-				fmt.Fprintf(logWriter, err.Error())
+				fOuts[i]=nil
+				res <- err 
 				return
 			}
 			fOuts[i]=f
+			res <- nil
 		}(i, src)
 	}
 	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
 		sem <- true
 	}
-	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+	for i:=0; i<len(sources); i++ {
+		r := <- res
+		if r!=nil {
+			if err==nil { 
+				err = r
+			} else {
+				err = errors.New(fmt.Sprintf("Multiple errors: %s, %s", err.Error(), r.Error()))
+			}
+		}
+	}
+	return fOuts, err 
 }
 
 
@@ -246,21 +250,34 @@ func (op *OpParallel) ApplyToFiles(sources []*OpLoadFile, logWriter io.Writer) (
 func (op *OpParallel) ApplyToFITS(sources []*fits.Image, logWriter io.Writer) (fOuts []*fits.Image, err error) {
 	fOuts =make([]*fits.Image, len(sources))
 	sem  :=make(chan bool, op.MaxThreads)
+	res  :=make(chan error, len(sources))
 	for i, src := range(sources) {
 		sem <- true 
 		go func(i int, f *fits.Image) {
 			defer func() { <-sem }()
 			f, err=op.Operator.Apply(f, logWriter)
-			if err!=nil { 
-				fmt.Fprintf(logWriter, err.Error())
+			if err!=nil {
+				fOuts[i]=nil
+				res <- err 
 				return
 			}
 			fOuts[i]=f
+			res <- nil
 		}(i, src)
 	}
 	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
 		sem <- true
 	}
-	return fOuts, nil  // FIXME: not collecting and aggregating errors from the workers!!
+	for i:=0; i<len(sources); i++ {
+		r := <- res
+		if r!=nil {
+			if err==nil { 
+				err = r
+			} else {
+				err = errors.New(fmt.Sprintf("Multiple errors: %s, %s", err.Error(), r.Error()))
+			}
+		}
+	}
+	return fOuts, err
 }
 

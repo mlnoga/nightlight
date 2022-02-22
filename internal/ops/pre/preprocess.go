@@ -23,7 +23,6 @@ import (
 	"io"
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
-	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/star"
 	"github.com/mlnoga/nightlight/internal/ops"
 )
@@ -168,7 +167,7 @@ func (op *OpCalibrate) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Ima
 			                      f.ID, f.Naxisn, op.DarkFrame.Naxisn))
 		}
 		Subtract(f.Data, f.Data, op.DarkFrame.Data)
-		f.Stats=nil // invalidate stats
+		f.Stats.Clear()
 	}
 
 	if op.ActiveFlat && op.FlatFrame!=nil && op.FlatFrame.Pixels>0 {
@@ -176,8 +175,8 @@ func (op *OpCalibrate) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Ima
 			return nil, errors.New(fmt.Sprintf("%d: Light dimensions %v differ from flat dimensions %v",
 			                      f.ID, f.Naxisn, op.FlatFrame.Naxisn))
 		}
-		Divide(f.Data, f.Data, op.FlatFrame.Data, op.FlatFrame.Stats.Max)
-		f.Stats=nil // invalidate stats
+		Divide(f.Data, f.Data, op.FlatFrame.Data, op.FlatFrame.Stats.Max())
+		f.Stats.Clear()
 	}
 	return f, nil
 }
@@ -313,8 +312,8 @@ func (op *OpBin) UnmarshalJSON(data []byte) error {
 func (op *OpBin) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active || op.BinSize<1 { return f, nil }
 
-	newF:=fits.BinNxN(f, op.BinSize)
-	fmt.Fprintf(logWriter, "%d: Applying %xx%d binning, new image size %dx%d\n", newF.ID, op.BinSize, newF.Naxisn[0], newF.Naxisn[1])
+	newF:=fits.NewImageBinNxN(f, op.BinSize)
+	fmt.Fprintf(logWriter, "%d: Applying %xx%d binning, new image size %dx%d\n", newF.ID, op.BinSize, op.BinSize, newF.Naxisn[0], newF.Naxisn[1])
 
 	return f, nil
 }
@@ -368,20 +367,13 @@ func (op *OpBackExtract) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.I
 		if err!=nil { return nil, err }
 	} else { 
 		bgData:=bg.Render()
-		bgFits:=fits.Image{
-			Header:fits.NewHeader(),
-			Bitpix:-32,
-			Bzero :0,
-			Naxisn:f.Naxisn,
-			Pixels:f.Pixels,
-			Data  :bgData,
-		}
-		_,err:=op.Save.Apply(&bgFits, logWriter)
+		bgFits:=fits.NewImageFromNaxisn(f.Naxisn, bgData)
+		_,err:=op.Save.Apply(bgFits, logWriter)
 		if err!=nil { return nil, err }
 		Subtract(f.Data, f.Data, bgData)
 		bgFits.Data, bgData=nil, nil
 	}
-	f.Stats=nil // invalidate stats
+	f.Stats.Clear()
 	return f, nil
 }
 
@@ -429,16 +421,15 @@ func (op *OpStarDetect) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Im
 	if !op.Active { return f, nil }
 
 	if f.Stats==nil {
-		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { return nil, err }
+		panic("nil stats")
 	}
 
-	f.Stars, _, f.HFR=star.FindStars(f.Data, f.Naxisn[0], f.Stats.Location, f.Stats.Scale, op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
+	f.Stars, _, f.HFR=star.FindStars(f.Data, f.Naxisn[0], f.Stats.Location(), f.Stats.Scale(), op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
 	fmt.Fprintf(logWriter, "%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
 	if op.Save!=nil && op.Save.Active {
-		stars:=fits.ShowStars(f, 2.0)
-		_, err=op.Save.Apply(&stars, logWriter)
+		stars:=fits.NewImageFromStars(f, 2.0)
+		_, err=op.Save.Apply(stars, logWriter)
 		if err!=nil { return nil, err }
 	}	
 

@@ -56,15 +56,20 @@ func (fits *Image) Write(f io.Writer) error {
 	sb:=strings.Builder{}
 	writeBool(&sb, "SIMPLE", true, "    FITS standard 4.0")
 	writeInt32(&sb, "BITPIX", -32, "    32-bit floating point")
-	writeInt32(&sb, "NAXIS",  int32(len(fits.Naxisn)), "[1] Number of axis")
+	writeInt32(&sb, "NAXIS",  int32(len(fits.Naxisn)), "[1] Number of array dimensions")
 	for i:=0; i<len(fits.Naxisn); i++ {
-		writeInt32(&sb, fmt.Sprintf("NAXIS%d",i+1), fits.Naxisn[i], "[1] Axis size")
+		writeInt32(&sb, fmt.Sprintf("NAXIS%d",i+1), fits.Naxisn[i], "[1] Array dimension")
 	}
 	writeFloat32(&sb, "BZERO", fits.Bzero, "[1] Zero offset")
+	writeFloat32(&sb, "BSCALE", fits.Bscale, "[1] Data scale")
 	if fits.Exposure!=0 {
 		writeFloat32(&sb, "EXPOSURE", fits.Exposure, "[s] Exposure duration")
 	}
-	// FIXME: currently omitting all other FITS header entries
+	writeString(&sb, "PROGRAM", "nightlight", "    https://github.com/mlnoga/nightlight")
+
+	delete(fits.Header.Strings,"PROGRAM")
+	delete(fits.Header.Strings,"CREATOR")
+	fits.Header.Write(&sb)
 	writeEnd(&sb)
 
 	// Pad current header block with spaces if necessary
@@ -83,6 +88,16 @@ func (fits *Image) Write(f io.Writer) error {
 	return writeFloat32Array(f, fits.Data, true)
 }
 
+// Write additional header key/value pairs, if any
+func (h *Header) Write(w io.Writer) {
+	for k,v:=range(h.Bools  ) { writeBool   (w, k, v, "") }
+	for k,v:=range(h.Ints   ) { writeInt32  (w, k, v, "") }
+	for k,v:=range(h.Floats ) { writeFloat32(w, k, v, "") }
+	for k,v:=range(h.Strings) { writeString (w, k, v, "") }
+	for k,v:=range(h.Strings) { writeString (w, k, v, "") }
+	for k,v:=range(h.Dates  ) { writeString (w, k, v, "") }
+	// FIXME: ignoring h.Comments and h.History for now
+}
 
 // Writes a FITS header boolean value 
 func writeBool(w io.Writer, key string, value bool, comment string) {

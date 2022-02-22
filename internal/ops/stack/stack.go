@@ -26,7 +26,6 @@ import (
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/qsort"
-	"github.com/mlnoga/nightlight/internal/star"
 	"github.com/mlnoga/nightlight/internal/ops"
 )
 
@@ -93,14 +92,14 @@ func getWeights(f []*fits.Image, weighting StackWeighting) (weights []float32, e
 		minNoise, maxNoise:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
 		for i:=0; i<len(f); i+=1 {
 			if f[i].Stats==nil { return nil, errors.New(fmt.Sprintf("%d: Missing stats information for noise-weighted stacking", f[i].ID)) }
-			n:=f[i].Stats.Noise
+			n:=f[i].Stats.Noise()
 			if n<minNoise { minNoise=n }
 			if n>maxNoise { maxNoise=n }
 		}		
 		weights =make([]float32, len(f))
 		for i:=0; i<len(f); i+=1 {
 			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
-			weights[i]=1/(1+4*(f[i].Stats.Noise-minNoise)/(maxNoise-minNoise))
+			weights[i]=1/(1+4*(f[i].Stats.Noise()-minNoise)/(maxNoise-minNoise))
 		}
 	} else if weighting==StWeightInverseHFR { // HFR weighted stacking, smaller HFR gets bigger weight
 		minHFR, maxHFR:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
@@ -222,23 +221,9 @@ func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Ima
 	for _,l :=range f { exposureSum+=l.Exposure }
 
 	// Assemble into in-memory FITS
-	stack:=fits.Image{
-		Header: fits.NewHeader(),
-		Bitpix: -32,
-		Bzero : 0,
-		Naxisn: append([]int32(nil), f[0].Naxisn...), // clone slice
-		Pixels: f[0].Pixels,
-		Data  : data,
-		Exposure: exposureSum,
-		Stats : nil, 
-		Trans : star.IdentityTransform2D(),
-		Residual: 0,
-	}
-
-	stack.Stats, err=stats.CalcExtendedStats(data, f[0].Naxisn[0])
-	if err!=nil { return nil, err }
-
-	return &stack, nil
+	stack:=fits.NewImageFromNaxisn(f[0].Naxisn, data)
+	stack.Exposure = exposureSum
+	return stack, nil
 }
 
 
@@ -820,22 +805,11 @@ func StackLinearFit(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh flo
 // Returns the modified or created stack. Does not calculate statistics, run star detections etc.
 func StackIncremental(stack, light *fits.Image, weight float32) *fits.Image {
 	if stack==nil {
-		stack=&fits.Image{
-			Header: fits.NewHeader(),
-			Bitpix: -32,
-			Bzero : 0,
-			Naxisn: append([]int32(nil), light.Naxisn...), // clone slice
-			Pixels: light.Pixels,
-			Data  : make([]float32,len(light.Data)),
-			Exposure : light.Exposure,
-			Stats : nil, 
-			Trans : star.IdentityTransform2D(),
-			Residual: 0,
-		}
+		stack=fits.NewImageFromImage(light)
 		for i,d:=range light.Data {
 			stack.Data[i]=d*weight
 		}
-	}	else {
+	} else {
 		stack.Exposure+=light.Exposure
 		for i,d:=range light.Data {
 			stack.Data[i]+=d*weight
@@ -845,9 +819,8 @@ func StackIncremental(stack, light *fits.Image, weight float32) *fits.Image {
 }
 
 // Finalizes an incremental stack. Divides pixel values by weight sum, and calculates extended stats
-func StackIncrementalFinalize(stack *fits.Image, weightSum float32) (err error) {
+func StackIncrementalFinalize(stack *fits.Image, weightSum float32) {
 	factor:=1.0/weightSum
 	for i,d:=range stack.Data { stack.Data[i]=d*factor }
-	stack.Stats, err=stats.CalcExtendedStats(stack.Data, stack.Naxisn[0])
-	return err
+	stack.Stats=stats.NewStats(stack.Data, stack.Naxisn[0])
 }

@@ -333,7 +333,7 @@ Flags:
 				hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
 				hsl.NewOpHSLGamma(float32(*gamma)),
 				hsl.NewOpHSLPPGamma(float32(*ppGamma), float32(*ppSigma)),
-				hsl.NewOpHSLScaleBlack(float32(*scaleBlack)),
+				hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
 			}), 
 			rgb.NewOpHSLuvToRGB(true),
 			ops.NewOpSave(*out),
@@ -363,8 +363,8 @@ Flags:
     }
 
 	now:=time.Now()
-	elapsed:=now.Sub(start)
-	fmt.Fprintf(logWriter, "\nDone after %v\n", elapsed)
+	elapsed:=now.Sub(start).Round(time.Millisecond*10)
+	fmt.Fprintf(logWriter, "\nDone after %s\n", elapsed)
 
 	// Store memory profile if flagged
     if *memprofile != "" {

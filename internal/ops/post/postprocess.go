@@ -24,7 +24,6 @@ import (
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/star"
-	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/ops/ref"
 )
@@ -78,14 +77,11 @@ func (op *OpNormalize) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Ima
 	if !op.Active || op.Mode==HNMNone { return f, nil }
 	switch op.Mode {
 		case HNMLocation:
-			f.MatchLocation(op.Reference.Stats.Location)
+			f.MatchLocation(op.Reference.Stats.Location())
 		case HNMLocScale:
 			f.MatchHistogram(op.Reference.Stats)
 		case HNMLocBlack:
-	    	f.ShiftBlackToMove(f.Stats.Location, op.Reference.Stats.Location)
-	    	var err error
-	    	f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	    	if err!=nil { return nil, err }
+	    	f.ShiftBlackToMove(f.Stats.Location(), op.Reference.Stats.Location())
 	}
 	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, f.Stats)
 	return f, nil
@@ -156,8 +152,8 @@ func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, 
 		var outOfBounds float32
 		switch(op.OobMode) {
 			case OOBModeNaN:         outOfBounds=float32(math.NaN())
-			case OOBModeRefLocation: outOfBounds=op.HistoRef.Stats.Location
-			case OOBModeOwnLocation: outOfBounds=f          .Stats.Location
+			case OOBModeRefLocation: outOfBounds=op.HistoRef.Stats.Location()
+			case OOBModeOwnLocation: outOfBounds=f          .Stats.Location()
 		}
 
 		// Determine alignment of the image to the reference frame

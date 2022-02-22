@@ -130,12 +130,13 @@ func pfScaleOffset(data []float32, params interface{}) {
 // Applies given scale factor and offset to image.  Operates in-place. 
 func (f* Image) ScaleOffset(scale, offset float32) {
 	f.ApplyPixelFunction(pfScaleOffset, pfScaleOffsetArgs{scale, offset})
+	f.Stats.UpdateCachedWith(scale, offset)
 }
 
 // Normalize image to [0..1] based on basic stats.  Operates in-place. 
 func (f* Image) Normalize() {
-	scale:=1.0/(f.Stats.Max-f.Stats.Min)
-	offset:=-f.Stats.Min*scale
+	scale:=1.0/(f.Stats.Max()-f.Stats.Min())
+	offset:=-f.Stats.Min()*scale
 	f.ScaleOffset(scale, offset)
 }
 
@@ -152,11 +153,13 @@ func pfGamma(data []float32, params interface{}) {
 // Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* Image) ApplyGamma(g float32) {
 	f.ApplyPixelFunction(pfGamma, g)
+	f.Stats.Clear()
 }
 
 // Apply gamma correction to image. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* Image) ApplyGammaToChannel(chanID int, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfGamma, g)
+	f.Stats.Clear()
 }
 
 // Arguments for the RGB pixel function to adjust gamma for a range of intensities
@@ -184,11 +187,13 @@ func pfPartialGamma(data []float32, params interface{}) {
 // Apply gamma correction to image in given range. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* Image) ApplyPartialGamma(from, to, g float32) {
 	f.ApplyPixelFunction(pfPartialGamma, pfPartialGammaArgs{from, to, g})
+	f.Stats.Clear()
 }
 
 // Apply gamma correction to given channel of the image. Image must be normalized to [0,1] before. Operates in-place. 
 func (f* Image) ApplyPartialGammaToChannel(chanID int, from, to, g float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfPartialGamma, pfPartialGammaArgs{from, to, g})
+	f.Stats.Clear()
 }
 
 
@@ -220,11 +225,13 @@ func pfMidtones(data []float32, params interface{}) {
 // Apply midtones correction to given image. Data must be normalized to [0,1]. Operates in-place. 
 func (f* Image) ApplyMidtones(mid, black float32) {
 	f.ApplyPixelFunction(pfMidtones, pfMidtonesArgs{mid, black})
+	f.Stats.Clear()
 }
 
 // Apply midtones correction to given channel of given image. Data must be normalized to [0,1]. Operates in-place. 
 func (f* Image) ApplyMidtonesToChannel(chanID int, mid, black float32) {
 	f.ApplyPixelFunction1Chan(chanID, pfMidtones, pfMidtonesArgs{mid, black})
+	f.Stats.Clear()
 }
 
 
@@ -239,6 +246,7 @@ func pfMonoToHSLuvLum(data []float32, params interface{}) {
 // Converts a monochromic image to HSLuv Luminance. Data must be normalized to [0,1]. Operates in-place. 
 func (f* Image) MonoToHSLuvLum() {
 	f.ApplyPixelFunction(pfMonoToHSLuvLum, nil)
+	f.Stats.Clear()
 }
 
 
@@ -253,6 +261,7 @@ func pfMonoToHSLLum(data []float32, params interface{}) {
 // Converts a monochromic image to HSL Luminance. Data must be normalized to [0,1]. Operates in-place. 
 func (f* Image) MonoToHSLLum() {
 	f.ApplyPixelFunction(pfMonoToHSLLum, nil)
+	f.Stats.Clear()
 }
 
 
@@ -271,6 +280,7 @@ func pf3ChanRGBToHCL(rs,gs,bs []float32, params interface{}) {
 // Convert RGB to CIE HCL pixels. Operates in-place.
 func (f* Image) RGBToHCL() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToHCL, nil)
+	f.Stats.Clear()
 }
 
 
@@ -293,6 +303,7 @@ func pf3ChanRGBToCIEHSL(rs,gs,bs []float32, params interface{}) {
 // https://en.wikipedia.org/wiki/Colorfulness#Saturation
 func (f* Image) RGBToCIEHSL() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToCIEHSL, nil)
+	f.Stats.Clear()
 }
 
 
@@ -316,6 +327,7 @@ func pf3ChanCIEHSLToRGB(hs,ss,ls []float32, params interface{}) {
 // https://en.wikipedia.org/wiki/Colorfulness#Saturation
 func (f* Image) CIEHSLToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanCIEHSLToRGB, nil)
+	f.Stats.Clear()
 }
 
 
@@ -334,6 +346,7 @@ func pf3ChanToXyy(rs,gs,bs []float32, params interface{}) {
 // Convert RGB to xyY pixels. Operates in-place.
 func (f* Image) ToXyy() {
 	f.ApplyPixelFunction3Chan(pf3ChanToXyy, nil)
+	f.Stats.Clear()
 }
 
 
@@ -352,6 +365,7 @@ func pf3ChanXyyToRGB(xs,ys,Ys []float32, params interface{}) {
 // Convert Xyy to RGB pixels. Operates in-place.
 func (f* Image) XyyToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanXyyToRGB, nil)
+	f.Stats.Clear()
 }
 
 
@@ -372,6 +386,7 @@ func pf3ChanRGBToHSLuv(rs,gs,bs []float32, params interface{}) {
 // https://www.hsluv.org/
 func (f* Image) RGBToHSLuv() {
 	f.ApplyPixelFunction3Chan(pf3ChanRGBToHSLuv, nil)
+	f.Stats.Clear()
 }
 
 
@@ -397,6 +412,7 @@ func pf3ChanHSLuvToRGB(rs,gs,bs []float32, params interface{}) {
 // https://www.hsluv.org/
 func (f* Image) HSLuvToRGB() {
 	f.ApplyPixelFunction3Chan(pf3ChanHSLuvToRGB, nil)
+	f.Stats.Clear()
 }
 
 
@@ -423,6 +439,7 @@ func pf3ChanChroma(hs,cs,ls []float32, params interface{}) {
 //  Data must be normalized to [0,1]. Operates in-place. 
 func (f* Image) AdjustChroma(gamma, threshold float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanChroma, pf3ChanChromaArgs{gamma, threshold})
+	f.Stats.Clear()
 }
 
 
@@ -451,6 +468,7 @@ func pf3ChanNeutralizeBackground(hs,cs,ls []float32, params interface{}) {
 // Data must be HCL. Operates in-place. 
 func (f* Image) NeutralizeBackground(low, high float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanNeutralizeBackground, pf3ChanNeutralizeBackgroundArgs{low, high})
+	f.Stats.Clear()
 }
 
 
@@ -477,6 +495,7 @@ func pf3ChanChromaForHues(hs,cs,ls []float32, params interface{}) {
 // Useful for desaturating purple stars
 func (f* Image) AdjustChromaForHues(from, to, factor float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanChromaForHues, pf3ChanChromaForHuesArgs{from, to, factor})
+	f.Stats.Clear()
 }
 
 
@@ -508,6 +527,7 @@ func pf3ChanRotateColors(hs,ss,ls []float32, params interface{}) {
 // Useful to create Hubble palette images from narrowband data, by turning greens to yellows, before applying SCNR
 func (f* Image) RotateColors(from, to, offset, lthres float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanRotateColors, pf3ChanRotateColorsArgs{from, to, offset, lthres})
+	f.Stats.Clear()
 }
 
 
@@ -535,6 +555,7 @@ func pf3ChanSCNR(hs,ss,ls []float32, params interface{}) {
 // Uses average neutral masking method with luminance protection. Typically used to reduce green cast in narrowband immages when creating Hubble palette images
 func (f* Image) SCNR(factor float32) {
 	f.ApplyPixelFunction3Chan(pf3ChanSCNR, factor)
+	f.Stats.Clear()
 }
 
 
@@ -546,38 +567,28 @@ func (f* Image) SCNR(factor float32) {
 // Adjust image data to match the histogram peak of refStats.
 // Assumes f.Stats are current; and updates them afterwards.
 func (f *Image) MatchLocation(refLocation float32) {
-	multiplier:=refLocation / f.Stats.Location
+	multiplier:=refLocation / f.Stats.Location()
 	data:=f.Data
 	for i, d:=range data {
 		data[i]=d*multiplier
 	}
 
 	// optimization, so we don't have to recompute f.Stats=CalcExtendedStats(f.Data, f.Naxisn[0])
-	f.Stats.Min     =f.Stats.Min     *multiplier
-	f.Stats.Max     =f.Stats.Max     *multiplier
-	f.Stats.Mean    =f.Stats.Mean    *multiplier
-	f.Stats.StdDev  =f.Stats.Mean    *multiplier
-	f.Stats.Location=f.Stats.Location*multiplier
-	f.Stats.Scale   =f.Stats.Scale   *multiplier
+	f.Stats.UpdateCachedWith(multiplier, 0)
 }
 
 // Adjust image data to match the histogram shape of refStats.
 // Assumes f.Stats are current; and updates them afterwards.
-func (f *Image) MatchHistogram(refStats *stats.Basic) {
-	multiplier:=refStats.Scale    / f.Stats.Scale
-	offset    :=refStats.Location - f.Stats.Location*multiplier
+func (f *Image) MatchHistogram(refStats *stats.Stats) {
+	multiplier:=refStats.Scale()    / f.Stats.Scale()
+	offset    :=refStats.Location() - f.Stats.Location()*multiplier
 	data:=f.Data
 	for i, d:=range data {
 		data[i]=d*multiplier + offset
 	}
 
 	// optimization, so we don't have to recompute f.Stats=CalcExtendedStats(f.Data, f.Naxisn[0])
-	f.Stats.Min     =f.Stats.Min     *multiplier+offset
-	f.Stats.Max     =f.Stats.Max     *multiplier+offset
-	f.Stats.Mean    =f.Stats.Mean    *multiplier+offset
-	f.Stats.StdDev  =f.Stats.Mean    *multiplier
-	f.Stats.Location=f.Stats.Location*multiplier+offset
-	f.Stats.Scale   =f.Stats.Scale   *multiplier
+	f.Stats.UpdateCachedWith(multiplier, offset)
 }
 
 
@@ -594,6 +605,7 @@ func (f* Image) OffsetRGB(r, g, b float32) {
 	for i, d:=range data[2*l:   ] {
 		data[i+2*l]=d+b
 	}
+	f.Stats.Clear()
 }
 
 
@@ -610,6 +622,7 @@ func (f* Image) ScaleRGB(r, g, b float32) {
 	for i, d:=range data[2*l:   ] {
 		data[i+2*l]=float32(math.Min(1, float64(d*b)))
 	}
+	f.Stats.Clear()
 }
 
 
@@ -624,6 +637,7 @@ func (f* Image) ShiftBlackToMove(before, after float32) {
 	for i, d:=range data {
 		data[i]=float32(math.Max(0, float64((d-black)*scale)))
 	}
+	f.Stats.Clear()
 }
 
 // Shift black point so a defined before value becomes the given after value. Operates in-place on image data normalized to [0,1]. 
@@ -638,6 +652,7 @@ func (f* Image) ShiftBlackToMoveChannel(chanID int, before, after float32) {
 	for i, d:=range data {
 		data[i]=float32(math.Max(0, float64((d-black)*scale)))
 	}
+	f.Stats.Clear()
 }
 
 
@@ -654,6 +669,7 @@ func (f* Image) ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB 
 	for i, b:=range data[2*l:   ] {
 		data[i+2*l]=float32(math.Max(math.Min(1, float64(alphaB*b+betaB)),0))
 	}
+	f.Stats.Clear()
 }
 
 // Sets black point and white point of the image to clip the given percentage of pixels.
@@ -705,4 +721,5 @@ func (f* Image) SetBlackWhite(blackPerc, whitePerc float32, logWriter io.Writer)
 	    fmt.Fprintf(logWriter, "Black point is %.4g (%.4g%% clipped), white point %.4g (%.4g%%)\n",
     	            blackX, 100.0*float32(blackPixels)/float32(l), whiteX, 100.0*float32(whitePixels)/float32(l))
     }
+	f.Stats.Clear()
 }

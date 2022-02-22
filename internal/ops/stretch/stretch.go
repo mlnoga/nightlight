@@ -21,7 +21,6 @@ import (
 	"io"
 	"fmt"
 	"github.com/mlnoga/nightlight/internal/fits"
-	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/ops/pre"
 	"github.com/mlnoga/nightlight/internal/ops/ref"
@@ -96,19 +95,13 @@ func NewOpNormalizeRange(active bool) *OpNormalizeRange {
 func (op *OpNormalizeRange) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
-	if f.Stats==nil {
-		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { return nil, err }
-	}
+	if f.Stats==nil { panic("nil stats") }
 
-	if f.Stats.Min==f.Stats.Max {
-		fmt.Fprintf(logWriter, "%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", f.ID, f.Stats.Min)
+	if f.Stats.Max()-f.Stats.Min()<1e-8 {
+		fmt.Fprintf(logWriter, "%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", f.ID, f.Stats.Min())
 	} else {
-		fmt.Fprintf(logWriter, "%d: Normalizing from [%.4g,%.4g] to [0,1]\n", f.ID, f.Stats.Min, f.Stats.Max)
+		fmt.Fprintf(logWriter, "%d: Normalizing from [%.4g,%.4g] to [0,1]\n", f.ID, f.Stats.Min(), f.Stats.Max())
     	f.Normalize()
-    	var err error
-		f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { return nil, err }
 	}
 	return f, nil
 }
@@ -137,11 +130,7 @@ func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *f
 			break
 		}
 
-		// calculate basic image stats as a fast location and scale estimate
-		var err error
-		f.Stats,err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-		if err!=nil { return nil, err }
-		loc, scale:=f.Stats.Location, f.Stats.Scale
+		loc, scale:=f.Stats.Location(), f.Stats.Scale()
 
 		fmt.Fprintf(logWriter, "Linear location %.2f%% and scale %.2f%%, ", loc*100, scale*100)
 
@@ -223,12 +212,11 @@ func (op *OpMidtones) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Imag
 	if !op.Active { return f, nil }
 	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
 
-	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	if err!=nil { return nil, err }
-	loc, scale:=stats.Location, stats.Scale
+	loc, scale:=f.Stats.Location(), f.Stats.Scale()
 	absMid:=op.Mid*scale
 	absBlack:=loc - op.Black*scale
 	fmt.Fprintf(logWriter, "loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*loc, 100*scale, 100*absMid, 100*absBlack)
+
 	f.ApplyMidtones(absMid, absBlack)
 	return f, nil
 }
@@ -266,12 +254,11 @@ func NewOpPPGamma(gamma, sigma float32) *OpPPGamma {
 
 func (op *OpPPGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	if err!=nil { return nil, err }
-	loc, scale:=stats.Location, stats.Scale
 
+	loc, scale:=f.Stats.Location(), f.Stats.Scale()
 	from:=loc+float32(op.Sigma)*scale
 	to  :=float32(1.0)
+
 	fmt.Fprintf(logWriter, "Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", 
 		op.Sigma, from*100, to*100, op.Gamma)
 	f.ApplyPartialGamma(from, to, float32(op.Gamma))
@@ -293,9 +280,7 @@ func NewOpScaleBlack(black float32) *OpScaleBlack {
 func (op *OpScaleBlack) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
-	stats,err:=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	if err!=nil { return nil, err }
-	loc, scale:=stats.Location, stats.Scale
+	loc, scale:=f.Stats.Location(), f.Stats.Scale()
 	fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
 
 	if loc>op.Black {
@@ -321,14 +306,12 @@ func NewOpUnsharpMask(sigma, gain, threshold float32) *OpUnsharpMask {
 
 func (op *OpUnsharpMask) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	f.Stats, err=stats.CalcExtendedStats(f.Data, f.Naxisn[0])
-	if err!=nil { return nil, err }
 
-	absThresh:=f.Stats.Location + f.Stats.Scale*op.Threshold
+	absThresh:=f.Stats.Location() + f.Stats.Scale()*op.Threshold
 	fmt.Fprintf(logWriter, "%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", f.ID, op.Sigma, op.Gain, op.Threshold, absThresh)
 	kernel:=GaussianKernel1D(op.Sigma)
 	fmt.Fprintf(logWriter, "Unsharp masking kernel sigma %.2f size %d: %v\n", op.Sigma, len(kernel), kernel)
-	f.Data=UnsharpMask(f.Data, int(f.Naxisn[0]), op.Sigma, op.Gain, f.Stats.Min, f.Stats.Max, absThresh)
+	f.Data=UnsharpMask(f.Data, int(f.Naxisn[0]), op.Sigma, op.Gain, f.Stats.Min(), f.Stats.Max(), absThresh)
 	return f, nil
 }
 

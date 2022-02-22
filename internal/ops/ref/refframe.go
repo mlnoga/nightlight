@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"github.com/mlnoga/nightlight/internal/fits"
-	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/ops/pre"
@@ -73,8 +72,6 @@ func (op *OpSelectReference) ApplyToFITS(fs []*fits.Image, logWriter io.Writer) 
 	case RFMFileName:
 		op.Frame, err=ops.LoadAndCalcStats(op.FileName,-3,"align", logWriter)
 		if err!=nil { return nil, err }
-		op.Frame.Stats, err=stats.CalcExtendedStats(op.Frame.Data, op.Frame.Naxisn[0])
-		if err!=nil { return nil, err }
 		op.Frame, err=op.StarDetect.Apply(op.Frame, logWriter)
 	
 	case RFMFrame:
@@ -114,13 +111,13 @@ func selectReferenceMedianLoc(lights []*fits.Image) (refFrame *fits.Image, refSc
 	num:=0
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
-		locs[num]=lightP.Stats.Location
+		locs[num]=lightP.Stats.Location()
 		num++
 	}	
 	medianLoc:=qsort.QSelectMedianFloat32(locs[:num])
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
-		if lightP.Stats.Location==medianLoc {
+		if lightP.Stats.Location()==medianLoc {
 			return lightP, medianLoc, nil
 		}
 	}	

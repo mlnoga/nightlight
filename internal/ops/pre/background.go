@@ -138,9 +138,8 @@ func (b *Background) clip(n int32, logWriter io.Writer) {
 		}
 	}
 
-	fmt.Fprintf(logWriter, "n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
+	//fmt.Fprintf(logWriter, "n=%d: %d ignored cells based on threshold %f\n", n, ignoredCells, threshold)
 	//LogPrintln(b.CellsString())
-
 	b.OutlierCells=ignoredCells
 
 	// Then replace cells with interpolations

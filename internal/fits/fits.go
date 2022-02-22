@@ -35,7 +35,8 @@ type Image struct {
 
 	Header Header 	     // The header with all keys, values, comments, history entries etc.
 	Bitpix int32         // Bits per pixel value from the header. Positive values are integral, negative floating.
-	Bzero  float32 		 // Zero offset. True pixel value is Bzero + Data[i]. 
+	Bzero  float32 		 // Zero offset. True pixel value is Bzero + Bscale * Data[i]. 
+	Bscale float32 		 // Value scaler. True pixel value is Bzero + Bscale * Data[i]. 
 						 // Helps implement unsigned values with signed data types.
 	Naxisn []int32 		 // Axis dimensions. Most quickly varying dimension first (i.e. X,Y)
 	Pixels int32 		 // Number of pixels in the image. Product of Naxisn[]
@@ -44,8 +45,8 @@ type Image struct {
 
 	Exposure float32     // Image exposure in seconds
 
-	Stats  *stats.Basic   // Basic image statistics: min, mean, max
-	MedianDiffStats *stats.Basic // Local median difference stats, for bad pixel detection, star detection
+	Stats  *stats.Stats   // Basic image statistics: min, mean, max
+	MedianDiffStats *stats.Stats // Local median difference stats, for bad pixel detection, star detection
 	 
 	Stars  []star.Star        // Star detections
 	HFR    float32       // Half-flux radius of the star detections
@@ -55,11 +56,66 @@ type Image struct {
 }
 
 // Creates a FITS image initialized with empty header
-func NewImage() Image {
-	return Image{
+func NewImage() *Image {
+	return &Image{
 		Header:  NewHeader(),
+		Bscale:  1,
 	}
 }
+
+// Creates a FITS image from given naxisn. Data is not copied, allocated if nil. naxisn is deep copied
+func NewImageFromNaxisn(naxisn []int32, data []float32) *Image {
+	numPixels:=int32(1)
+	for _,naxis:=range(naxisn) {
+		numPixels*=naxis
+	}
+	if data==nil {
+		data=make([]float32, numPixels)
+	}
+	return &Image{
+		ID:       0,
+		FileName: "",
+		Header:   NewHeader(),
+		Bitpix:   -32,
+		Bzero:    0,
+		Bscale:   1,
+		Naxisn:   append([]int32(nil), naxisn...), // clone slice
+		Pixels:   numPixels,
+		Data:     data,
+		Exposure: 0,
+		Stats:    stats.NewStats(data, naxisn[0]),
+		MedianDiffStats: nil,
+		Stars:    nil,
+		HFR:      0,
+		Trans:    star.IdentityTransform2D(),
+		Residual: 0,
+	}
+}
+
+
+// Creates a FITS image from given image. New data array will be allocated
+func NewImageFromImage(img *Image) *Image {
+	data:=make([]float32, img.Pixels)
+	return &Image{
+		ID:       img.ID,
+		FileName: img.FileName,
+		Header:   img.Header,
+		Bitpix:   img.Bitpix,
+		Bzero:    img.Bzero,
+		Bscale:   img.Bscale,
+		Naxisn:   append([]int32(nil), img.Naxisn...), // clone slice
+		Pixels:   img.Pixels,
+		Data:     data,
+		Exposure: img.Exposure,
+		Stats:    stats.NewStats(data, img.Naxisn[0]),
+		MedianDiffStats: nil,
+		Stars:    img.Stars,
+		HFR:      img.HFR,
+		Trans:    star.IdentityTransform2D(),
+		Residual: 0,
+	}
+}
+
 
 // FITS header data
 type Header struct {
@@ -106,25 +162,16 @@ func (f *Image) DimensionsToString() string {
 
 // Combine single color images into one multi-channel image.
 // All images must have the same dimensions, or undefined results occur. 
-func CombineRGB(chans []*Image, ref *Image, logWriter io.Writer) Image {
-	pixelsOrig:=chans[0].Pixels
-	pixelsComb:=pixelsOrig*int32(len(chans))
-	rgb:=Image{
-		Header:NewHeader(),
-		Bitpix:-32,
-		Bzero :0,
-		Naxisn:make([]int32, len(chans[0].Naxisn)+1),
-		Pixels:pixelsComb,
-		Data  :make([]float32,int(pixelsComb)),
-		Exposure: chans[0].Exposure+chans[1].Exposure+chans[2].Exposure,
-		Stars :[]star.Star{},
-		HFR   :0,
-	}
+func NewRGBFromChannels(chans []*Image, ref *Image, logWriter io.Writer) *Image {
+	naxisn:=make([]int32, len(chans[0].Naxisn)+1)
+	copy(naxisn, chans[0].Naxisn)
+	naxisn[len(chans[0].Naxisn)]=int32(len(chans))
+
+	rgb:=NewImageFromNaxisn(naxisn, nil)
+	rgb.Exposure=chans[0].Exposure+chans[1].Exposure+chans[2].Exposure
 	if ref!=nil { rgb.Stars, rgb.HFR=ref.Stars, ref.HFR }
 
-	copy(rgb.Naxisn, chans[0].Naxisn)
-	rgb.Naxisn[len(chans[0].Naxisn)]=int32(len(chans))
-
+	pixelsOrig:=chans[0].Pixels
 	min, mult:=getCommonNormalizationFactors(chans)
 	fmt.Fprintf(logWriter, "common normalization factors min=%f mult=%f\n", min, mult)
 	for id, ch:=range chans {
@@ -133,20 +180,19 @@ func CombineRGB(chans []*Image, ref *Image, logWriter io.Writer) Image {
 			dest[j]=(val-min)*mult
 		}
 	}
-
 	return rgb
 } 
 
 // calculate common normalization factors to [0..1] across all channels
 func getCommonNormalizationFactors(chans []*Image) (min, mult float32) {
-	min =chans[0].Stats.Min
-	max:=chans[0].Stats.Max
+	min =chans[0].Stats.Min()
+	max:=chans[0].Stats.Max()
 	for _, ch :=range chans[1:] {
-		if ch.Stats.Min<min {
-			min=ch.Stats.Min
+		if ch.Stats.Min()<min {
+			min=ch.Stats.Min()
 		}
-		if ch.Stats.Max>max {
-			max=ch.Stats.Max
+		if ch.Stats.Max()>max {
+			max=ch.Stats.Max()
 		}
 	}
 	mult=1 / (max - min)
@@ -167,14 +213,9 @@ func (hsl *Image) ApplyLuminanceToCIExyY(lum *Image) {
 // and median star colors are of a neutral tone. 
 func (f *Image) SetBlackWhitePoints(logWriter io.Writer) error {
 	// Estimate location (=histogram peak, background black point) per color channel
-	l:=len(f.Data)/3
-	statsR,err:=stats.CalcExtendedStats(f.Data[   :  l], f.Naxisn[0])
-	if err!=nil {return err}
-	statsG,err:=stats.CalcExtendedStats(f.Data[l  :2*l], f.Naxisn[0])
-	if err!=nil {return err}
-	statsB,err:=stats.CalcExtendedStats(f.Data[2*l:   ], f.Naxisn[0])
-	if err!=nil {return err}
-	locR, locG, locB:=statsR.Location, statsG.Location, statsB.Location
+	locR:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 0, 3).Location()
+	locG:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 1, 3).Location()
+	locB:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3).Location()
 
 	// Pick rightmost histogram peak as new background peak location (do not clip blacks)
 	locNew:=locR
@@ -182,6 +223,7 @@ func (f *Image) SetBlackWhitePoints(logWriter io.Writer) error {
 	if locB>locNew { locNew=locB }
 
 	// Estimate median star color
+	l:=len(f.Data)/3
 	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], f.Stars)
 	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], f.Stars)
 	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], f.Stars)
@@ -242,7 +284,7 @@ func medianStarIntensity(data []float32, width int32, stars []star.Star) float32
 }
 
 // Apply NxN binning to source image and return new resulting image
-func BinNxN(src *Image, n int32) Image {
+func NewImageBinNxN(src *Image, n int32) *Image {
 	// calculate binned image size
 	binnedPixels:=int32(1)
 	binnedNaxisn:=make([]int32, len(src.Naxisn))
@@ -252,17 +294,8 @@ func BinNxN(src *Image, n int32) Image {
 		binnedPixels*=binnedN
 	}
 
-	// created binned image header
-	binned:=Image{
-		Header:NewHeader(),
-		Bitpix:-32,
-		Bzero :0,
-		Naxisn:binnedNaxisn,
-		Pixels:binnedPixels,
-		Data  :make([]float32,int(binnedPixels)),
-		Exposure: src.Exposure,
-		ID    :src.ID,
-	}
+	binned:=NewImageFromNaxisn(binnedNaxisn, nil)
+	binned.ID, binned.FileName, binned.Exposure = src.ID, src.FileName, src.Exposure
 
 	// calculate binned image pixel values
 	// FIXME: pretty inefficient?
@@ -303,17 +336,8 @@ func (f* Image) FillCircle(xc,yc,r,color float32) {
 
 
 // Show stars detected on the source image as circles in a new resulting image
-func ShowStars(src *Image, hfrMultiple float32) Image {
-	// created new image header
-	res:=Image{
-		Header:NewHeader(),
-		Bitpix:-32,
-		Bzero :0,
-		Naxisn:src.Naxisn,
-		Pixels:src.Pixels,
-		Data  :make([]float32,int(src.Pixels)),
-	}
-
+func NewImageFromStars(src *Image, hfrMultiple float32) *Image {
+	res:=NewImageFromImage(src)
 	for _,s:=range(src.Stars) {
 		radius:=s.HFR*hfrMultiple
 		res.FillCircle(s.X, s.Y, radius, s.Mass/(radius*radius*float32(math.Pi)) )

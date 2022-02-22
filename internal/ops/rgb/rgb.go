@@ -141,8 +141,8 @@ func (op *OpRGBCombine) Apply(fs []*fits.Image, logWriter io.Writer) (fOut *fits
 	}
 
 	fmt.Fprintf(logWriter, "\nCombining RGB color channels...\n")
-	fOut2:=fits.CombineRGB(fs, op.RefFrame, logWriter)
-	return &fOut2, nil
+	fOut=fits.NewRGBFromChannels(fs, op.RefFrame, logWriter)
+	return fOut, nil
 }
 
 
@@ -164,7 +164,7 @@ func (op *OpRGBBalance) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Im
 		return nil, errors.New("Cannot balance colors with zero stars detected")
 	} 
 
-	fmt.Fprintf(logWriter, "Setting black point so histogram peaks align and white point so median star color becomes neutral...")
+	fmt.Fprintf(logWriter, "Setting black point so histogram peaks align and white point so median star color becomes neutral...\n")
 	err=f.SetBlackWhitePoints(logWriter)
 	return f, err
 }

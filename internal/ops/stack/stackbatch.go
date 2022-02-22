@@ -17,6 +17,7 @@
 package stack
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -59,6 +60,10 @@ func NewOpStackSingleBatch(opPreProc *pre.OpPreProcess, opSelectReference *ref.O
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and updates reference frame internally
 func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
+	if len(opLoadFiles)==0 {
+		return nil, errors.New("No frames to preprocess, postprocess and stack")
+	}
+
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
 
@@ -67,10 +72,13 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	if err!=nil { return nil, err }
 	lights=RemoveNils(lights) // Remove nils from lights, in case of read errors
 	debug.FreeOSMemory()					
+	if len(lights)==0 {
+		return nil, errors.New("No frames left to postprocess and stack")
+	}
 
 	avgNoise:=float32(0)
 	for _,l:=range lights {
-		avgNoise+=l.Stats.Noise
+		avgNoise+=l.Stats.Noise()
 	}
 	avgNoise/=float32(len(lights))
 	fmt.Fprintf(logWriter, "Average input frame noise is %.4g\n", avgNoise)
@@ -91,13 +99,15 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	if err!=nil { return nil, err }
 	lights=RemoveNils(lights) // Remove nils from lights, in case of alignment errors
 	debug.FreeOSMemory()					
+	if len(lights)==0 {
+		return nil, errors.New("No frames left to stack")
+	}
 
 	// Tell the stacker the location of the reference frame. Used to fill in NaN pixels when stacking
 	op.Stack.RefFrameLoc=0
 	if op.PostProcess.Align.Reference!=nil && op.PostProcess.Align.Reference.Stats!=nil {
-		op.Stack.RefFrameLoc=op.PostProcess.Align.Reference.Stats.Location
+		op.Stack.RefFrameLoc=op.PostProcess.Align.Reference.Stats.Location()
 	}
-	numFrames:=len(lights)
 
 	// Perform the stack
 	fmt.Fprintf(logWriter, "\nStacking %d frames...\n", len(lights))
@@ -105,6 +115,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	if err!=nil { return nil, err }
 
 	// Free memory
+	numFrames:=len(lights)
 	lights=nil
 	debug.FreeOSMemory()
 
