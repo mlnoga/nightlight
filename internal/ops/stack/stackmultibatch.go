@@ -49,6 +49,9 @@ func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *ops.OpS
 
 
 func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
+	if len(opLoadFiles)==0 {
+		return nil, errors.New("No frames to batch process")
+	}
 	// Partition the loaders into optimal batches
 	opLoadFilesPerm, numBatches, batchSize, maxThreads, err := op.partition(opLoadFiles, logWriter)
 	if err!=nil { return nil, err }
@@ -68,6 +71,7 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 		fmt.Fprintf(logWriter, "\nStarting batch %d of %d with %d frames...\n", b+1, numBatches, len(opLoadFilesBatch))
 
 		// Stack the files in this batch
+		if op.Batch==nil { return nil, errors.New("Missing batch parameters")}
 		batch, err:=op.Batch.Apply(opLoadFilesBatch, logWriter)
 		if err!=nil { return nil, err }
 

@@ -67,6 +67,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
 	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
 
+	if op.PreProcess==nil { return nil, errors.New("Missing preprocessing parameters") }
 	opParallelPre:=ops.NewOpParallel(op.PreProcess, op.MaxThreads)
 	lights, err:=opParallelPre.ApplyToFiles(opLoadFiles, logWriter)
 	if err!=nil { return nil, err }
@@ -84,6 +85,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	fmt.Fprintf(logWriter, "Average input frame noise is %.4g\n", avgNoise)
 
 	// Select reference frame, unless one was provided from prior batches
+	if op.SelectReference==nil { return nil, errors.New("Missing reference frame parameters") }
 	if op.SelectReference.Frame==nil {
 		lights, err=op.SelectReference.ApplyToFITS(lights, logWriter)
 		if err!=nil { return nil, err }
@@ -94,6 +96,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	// Post-process all light frames (align, normalize)
 	fmt.Fprintf(logWriter, "\nPostprocessing %d frames...\n", len(lights))
 
+	if op.PostProcess==nil { return nil, errors.New("Missing postprocessing parameters") }
 	opParallelPost:=ops.NewOpParallel(op.PostProcess, op.MaxThreads)
 	lights, err=opParallelPost.ApplyToFITS(lights, logWriter)
 	if err!=nil { return nil, err }
@@ -110,6 +113,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	}
 
 	// Perform the stack
+	if op.Stack==nil { return nil, errors.New("Missing stacking parameters") }
 	fmt.Fprintf(logWriter, "\nStacking %d frames...\n", len(lights))
 	fOut, err=op.Stack.Apply(lights, logWriter)
 	if err!=nil { return nil, err }
@@ -121,6 +125,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 
 
 	// Find stars in the newly stacked batch and report out on them
+	if op.StarDetect==nil { return nil, errors.New("Missing star detection parameters") }
 	fOut, err=op.StarDetect.Apply(fOut, logWriter)
 	fmt.Fprintf(logWriter, "Batch %d stack: Stars %d HFR %.2f Exposure %gs %v\n", 0, len(fOut.Stars), fOut.HFR, fOut.Exposure, fOut.Stats)
 	// FIXME: Batch ID
