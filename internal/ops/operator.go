@@ -52,23 +52,6 @@ type OperatorJoinFiles interface {
 
 
 
-type OpInMemory struct {
-	Fits        *fits.Image    `json:"-"`
-}
-var _ OperatorSource = (*OpInMemory)(nil) // Compile time assertion: type implements the interface
-
-func NewInMemory(fits *fits.Image) *OpInMemory {
-	return &OpInMemory{
-		Fits : fits,
-	}
-}
-
-// Start processing from an in-memory fits
-func (op *OpInMemory) Apply(logWriter io.Writer) (fOut *fits.Image, err error) {
-	return op.Fits, nil
-}
-
-
 type OpLoadFile struct {
 	ID 		    int     `json:"id"`
 	FileName    string  `json:"fileName"`
