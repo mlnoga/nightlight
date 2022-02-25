@@ -17,9 +17,9 @@
 package stack
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"runtime"
 	"sync"
@@ -30,22 +30,7 @@ import (
 )
 
 
-type OpStack struct {
-	Mode         StackMode       `json:"mode"`
-	Weighting    StackWeighting  `json:"weighting"`
-	SigmaLow     float32         `json:"sigmaLow"`
-	SigmaHigh    float32         `json:"sigmaHigh"`
-	RefFrameLoc  float32         `json:"-"`
-}
-var _ ops.OperatorJoin = (*OpStack)(nil) // Compile time assertion: type implements the interface
-
-
-func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh float32) *OpStack {
-	return &OpStack{mode, weighting, sigmaLow, sigmaHigh, 0}
-}
-
 type StackMode int
-
 const (
 	StMedian StackMode = iota
 	StMean 
@@ -69,7 +54,6 @@ func autoSelectStackingMode(l int) StackMode {
 }
 
 type StackWeighting int
-
 const (
 	StWeightNone StackWeighting = iota
 	StWeightExposure
@@ -77,50 +61,66 @@ const (
 	StWeightInverseHFR
 )
 
-// Prepare weights for stacking based on selected weighting mode and given images 
-func getWeights(f []*fits.Image, weighting StackWeighting) (weights []float32, err error)  {
-	weights=[]float32(nil)
-	if weighting==StWeightNone {
-		weights=nil
-	} else if weighting==StWeightExposure { // exposure weighted stacking, longer exposure gets bigger weight
-		weights =make([]float32, len(f))
-		for i:=0; i<len(f); i+=1 {
-			if f[i].Exposure==0 { return nil, errors.New(fmt.Sprintf("%d: Missing exposure information for exposure-weighted stacking", f[i].ID)) }
-			weights[i]=f[i].Exposure
-		}
-	} else if weighting==StWeightInverseNoise { // noise weighted stacking, smaller noise gets bigger weight
-		minNoise, maxNoise:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
-		for i:=0; i<len(f); i+=1 {
-			if f[i].Stats==nil { return nil, errors.New(fmt.Sprintf("%d: Missing stats information for noise-weighted stacking", f[i].ID)) }
-			n:=f[i].Stats.Noise()
-			if n<minNoise { minNoise=n }
-			if n>maxNoise { maxNoise=n }
-		}		
-		weights =make([]float32, len(f))
-		for i:=0; i<len(f); i+=1 {
-			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
-			weights[i]=1/(1+4*(f[i].Stats.Noise()-minNoise)/(maxNoise-minNoise))
-		}
-	} else if weighting==StWeightInverseHFR { // HFR weighted stacking, smaller HFR gets bigger weight
-		minHFR, maxHFR:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
-		for i:=0; i<len(f); i+=1 {
-			h:=f[i].HFR
-			if h<minHFR { minHFR=h }
-			if h>maxHFR { maxHFR=h }
-		}		
-		weights =make([]float32, len(f))
-		for i:=0; i<len(f); i+=1 {
-			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
-			weights[i]=1/(1+4*(f[i].HFR-minHFR)/(maxHFR-minHFR))
-		}
-	} else {
-		return nil, errors.New(fmt.Sprintf("Invalid weighting mode %d\n", weighting))
-	}
-	return weights, nil
+
+type OpStack struct {
+	ops.OpBase
+	Mode         StackMode       `json:"mode"`
+	Weighting    StackWeighting  `json:"weighting"`
+	SigmaLow     float32         `json:"sigmaLow"`
+	SigmaHigh    float32         `json:"sigmaHigh"`
+	RefFrameLoc  float32         `json:"-"`
 }
 
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpStackDefault() })} // register the operator for JSON decoding
+
+func NewOpStackDefault() *OpStack { return NewOpStack(StAuto, StWeightNone, 2.75, 2.75) }
+
+func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh float32) *OpStack {
+	return &OpStack{
+	  	OpBase      : ops.OpBase{Type: "stack", Active: true},
+		Mode        : mode, 
+		Weighting   : weighting, 
+		SigmaLow    : sigmaLow, 
+		SigmaHigh   : sigmaHigh, 
+		RefFrameLoc : 0,
+	}
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpStack) UnmarshalJSON(data []byte) error {
+	type defaults OpStack
+	def:=defaults( *NewOpStackDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpStack(def)
+	return nil
+}
+
+
+func (op *OpStack) MakePromises(ins []ops.Promise, c *ops.Context) (outs []ops.Promise, err error) {
+	if len(ins)==0 { return nil, errors.New(fmt.Sprintf("%s operator needs inputs", op.Type)) }
+
+	out:=func() (f *fits.Image, err error) {
+		if !op.Active { return f, nil }
+		fs, err:=ops.MaterializeAll(ins, c.MaxThreads, false) // materialize all input promises
+		if err!=nil { return nil, err }
+
+		if !op.Active { 
+			if len(fs)==1 { 
+				return f, nil 
+			} else {
+				return nil, errors.New(fmt.Sprintf("%s operator inactive with %d inputs", op.Type, len(fs)))
+			}
+		}
+
+		return op.Apply(fs, c)
+	}
+	return []ops.Promise{out}, nil
+}
+
+
 // Stack a set of light frames. Limits parallelism to the number of available cores
-func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Image, err error) {
+func (op *OpStack) Apply(f []*fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	// validate stacking modes and perform automatic mode selection if necesssary
 	mode:=op.Mode
 	if mode<StMedian || mode>StAuto {
@@ -128,8 +128,8 @@ func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Ima
 	}
 	if mode==StAuto { 
 		mode=autoSelectStackingMode(len(f))
-		fmt.Fprintf(logWriter, "Auto-selected stacking mode %d based on %d frames\n", mode, len(f))
 	}
+	fmt.Fprintf(c.Log, "Stacking %d frames with stacking mode %d:\n", len(f), mode)
 
 	// select weights if applicable
 	weights, err:=getWeights(f, op.Weighting)
@@ -200,7 +200,7 @@ func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Ima
 			// display progress indicator
 			progressLock.Lock()
 			progress+=float32(batchSize)/float32(len(data))
-			fmt.Fprintf(logWriter, "\r%d%%", int(progress*100))
+			fmt.Fprintf(c.Log, "\r%d%%", int(progress*100))
 			progressLock.Unlock()
 
 		}(lower, upper)
@@ -208,11 +208,11 @@ func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Ima
 	for i:=0; i<cap(sem); i++ {  // wait for goroutines to finish
 		sem <- true
 	}
-	fmt.Fprintf(logWriter, "\r")
+	fmt.Fprintf(c.Log, "\r")
 
 	// report back on clipping for modes that apply clipping
 	if mode>=StSigma {
-		fmt.Fprintf(logWriter, "Clipped low %d (%.2f%%) high %d (%.2f%%)\n", 
+		fmt.Fprintf(c.Log, "Clipped low %d (%.2f%%) high %d (%.2f%%)\n", 
 			numClippedLow,  float32(numClippedLow )*100.0/(float32(len(data)*len(f))),
 			numClippedHigh, float32(numClippedHigh)*100.0/(float32(len(data)*len(f))) )
 	}
@@ -224,6 +224,49 @@ func (op *OpStack) Apply(f []*fits.Image, logWriter io.Writer) (result *fits.Ima
 	stack:=fits.NewImageFromNaxisn(f[0].Naxisn, data)
 	stack.Exposure = exposureSum
 	return stack, nil
+}
+
+
+// Prepare weights for stacking based on selected weighting mode and given images 
+func getWeights(f []*fits.Image, weighting StackWeighting) (weights []float32, err error)  {
+	weights=[]float32(nil)
+	if weighting==StWeightNone {
+		weights=nil
+	} else if weighting==StWeightExposure { // exposure weighted stacking, longer exposure gets bigger weight
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			if f[i].Exposure==0 { return nil, errors.New(fmt.Sprintf("%d: Missing exposure information for exposure-weighted stacking", f[i].ID)) }
+			weights[i]=f[i].Exposure
+		}
+	} else if weighting==StWeightInverseNoise { // noise weighted stacking, smaller noise gets bigger weight
+		minNoise, maxNoise:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
+		for i:=0; i<len(f); i+=1 {
+			if f[i].Stats==nil { return nil, errors.New(fmt.Sprintf("%d: Missing stats information for noise-weighted stacking", f[i].ID)) }
+			n:=f[i].Stats.Noise()
+			if n<minNoise { minNoise=n }
+			if n>maxNoise { maxNoise=n }
+		}		
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
+			weights[i]=1/(1+4*(f[i].Stats.Noise()-minNoise)/(maxNoise-minNoise))
+		}
+	} else if weighting==StWeightInverseHFR { // HFR weighted stacking, smaller HFR gets bigger weight
+		minHFR, maxHFR:=float32(math.MaxFloat32), float32(-math.MaxFloat32)
+		for i:=0; i<len(f); i+=1 {
+			h:=f[i].HFR
+			if h<minHFR { minHFR=h }
+			if h>maxHFR { maxHFR=h }
+		}		
+		weights =make([]float32, len(f))
+		for i:=0; i<len(f); i+=1 {
+			//f[i].Stats.Noise=nl.EstimateNoise(f[i].Data, f[i].Naxisn[0])
+			weights[i]=1/(1+4*(f[i].HFR-minHFR)/(maxHFR-minHFR))
+		}
+	} else {
+		return nil, errors.New(fmt.Sprintf("Invalid weighting mode %d\n", weighting))
+	}
+	return weights, nil
 }
 
 

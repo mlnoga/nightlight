@@ -17,8 +17,9 @@
 package stretch
 
 import (
+	"encoding/json"
+	"errors"
 	"math"
-	"io"
 	"fmt"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
@@ -27,121 +28,109 @@ import (
 	"github.com/mlnoga/nightlight/internal/ops/post"
 )
 
-type OpStretch struct {
-	NormalizeRange   *OpNormalizeRange   `json:"normalizeRange"`
-	StretchIterative *OpStretchIterative `json:"stretchIterative"`
-	Midtones         *OpMidtones         `json:"midtones"`
-	Gamma            *OpGamma            `json:"gamma"`
-	PPGamma          *OpPPGamma          `json:"ppGamma"`
-	ScaleBlack       *OpScaleBlack       `json:"scaleBlack"`
-	StarDetect       *pre.OpStarDetect       `json:"starDetect"`
-	SelectReference  *ref.OpSelectReference  `json:"selectReference"`
-	Align            *post.OpAlign            `json:"align"`
-	UnsharpMask      *OpUnsharpMask      `json:"unsharpMask"`
-	Save             *ops.OpSave             `json:"save"`
-	Save2            *ops.OpSave             `json:"save2"`
-}
-var _ ops.OperatorUnary = (*OpStretch)(nil) // Compile time assertion: type implements the interface
-
 func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStretchIterative, opMidtones *OpMidtones, 
-	              opGamma*OpGamma, opPPGamma *OpPPGamma, opScaleBlack*OpScaleBlack, opStarDetect *pre.OpStarDetect, 
+	              opGamma *OpGamma, opGammaPP *OpGammaPP, opScaleBlack*OpScaleBlack, opStarDetect *pre.OpStarDetect, 
 	              opSelectReference *ref.OpSelectReference, opAlign *post.OpAlign, 
-	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *ops.OpSave) *OpStretch {
-	return &OpStretch{
-		NormalizeRange   : opNormalizeRange  ,
-		StretchIterative : opStretchIterative,
-		Midtones         : opMidtones        ,
-		Gamma            : opGamma           ,
-		PPGamma          : opPPGamma         ,
-		ScaleBlack       : opScaleBlack      ,
-		StarDetect       : opStarDetect      ,
-		SelectReference  : opSelectReference ,
-		Align            : opAlign           ,
-		UnsharpMask      : opUnsharpMask     ,
-		Save             : opSave            ,
-		Save2            : opSave2           ,
-	}
+	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *ops.OpSave) *ops.OpSequence {
+	return ops.NewOpSequence([]ops.Operator{
+		opNormalizeRange, opStretchIterative, opMidtones, opGamma, opGammaPP, opScaleBlack, 
+		opStarDetect, opSelectReference, opAlign, opUnsharpMask, opSave, opSave2,
+	})
 }
 
-func (op *OpStretch) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if op.NormalizeRange  !=nil { if f,err=op.NormalizeRange  .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.StretchIterative!=nil { if f,err=op.StretchIterative.Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.Midtones        !=nil { if f,err=op.Midtones        .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.Gamma           !=nil { if f,err=op.Gamma           .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.PPGamma         !=nil { if f,err=op.PPGamma         .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.ScaleBlack      !=nil { if f,err=op.ScaleBlack      .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.StarDetect      !=nil { if f,err=op.StarDetect      .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.SelectReference !=nil { 
-		fs:=[]*fits.Image{f}
-		if fs,err=op.SelectReference .ApplyToFITS(fs, logWriter); err!=nil { return nil, err }
-		f=fs[0] 
-        if op.Align!=nil { op.Align.Reference=op.SelectReference.Frame }               
-    }
-	if op.Align           !=nil { if f,err=op.Align           .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.UnsharpMask     !=nil { if f,err=op.UnsharpMask     .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.Save            !=nil { if f,err=op.Save            .Apply(f, logWriter); err!=nil { return nil, err } }
-	if op.Save2           !=nil { if f,err=op.Save2           .Apply(f, logWriter); err!=nil { return nil, err } }
-	return f, nil
-}
-
+// Normalizes the image range to [0, 1]. Takes one input, produces one output
 type OpNormalizeRange struct {
-	Active bool `json:"active"`
+	ops.OpUnaryBase
 }
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpNormalizeRangeDefault() })} // register the operator for JSON decoding
+
+func NewOpNormalizeRangeDefault() *OpNormalizeRange { return NewOpNormalizeRange(true) }
 
 func NewOpNormalizeRange(active bool) *OpNormalizeRange {
-	return &OpNormalizeRange{active}
+	op:=OpNormalizeRange{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "normRange", Active: active}},
+  	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpNormalizeRange) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpNormalizeRange) UnmarshalJSON(data []byte) error {
+	type defaults OpNormalizeRange
+	def:=defaults( *NewOpNormalizeRangeDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpNormalizeRange(def)
+	return nil
+}
 
-	if f.Stats==nil { panic("nil stats") }
+func (op *OpNormalizeRange) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if !op.Active { return f, nil }
+	if f.Stats==nil { return nil, errors.New("missing stats") }
 
 	if f.Stats.Max()-f.Stats.Min()<1e-8 {
-		fmt.Fprintf(logWriter, "%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", f.ID, f.Stats.Min())
+		fmt.Fprintf(c.Log, "%d: Warning: Image is of uniform intensity %.4g, skipping normalization\n", f.ID, f.Stats.Min())
 	} else {
-		fmt.Fprintf(logWriter, "%d: Normalizing from [%.4g,%.4g] to [0,1]\n", f.ID, f.Stats.Min(), f.Stats.Max())
+		fmt.Fprintf(c.Log, "%d: Normalizing from [%.4g,%.4g] to [0,1]\n", f.ID, f.Stats.Min(), f.Stats.Max())
     	f.Normalize()
 	}
 	return f, nil
 }
 
 
-
 type OpStretchIterative struct {
-	Active      bool      `json:"active"`
+	ops.OpUnaryBase
 	Location    float32   `json:"location"`
 	Scale       float32   `json:"scale"`
 }
 
+var _ ops.Operator = (*OpStretchIterative)(nil) // this type is an Operator
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpStretchIterativeDefault() })} // register the operator for JSON decoding
+
+func NewOpStretchIterativeDefault() *OpStretchIterative { return NewOpStretchIterative(0.1, 0.004) }
+
 // must be called /100
 func NewOpStretchIterative(loc float32, scale float32) (*OpStretchIterative) {
-	return &OpStretchIterative{ loc!=0 && scale!=0, loc, scale }
+	active:=loc!=0 && scale!=0
+	op:=OpStretchIterative{ 
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "stretch", Active: active}},
+		Location    : loc, 
+		Scale       : scale,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
-	fmt.Fprintf(logWriter, "%d: Auto-stretching loc to %.2f%% and scale to %.2f%% ...\n", f.ID, op.Location*100, op.Scale*100)
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpStretchIterative) UnmarshalJSON(data []byte) error {
+	type defaults OpStretchIterative
+	def:=defaults( *NewOpStretchIterativeDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpStretchIterative(def)
+	return nil
+}
 
-	//gammaLimit:=float32(5.0)
+func (op *OpStretchIterative) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if !op.Active { return f, nil }
+	fmt.Fprintf(c.Log, "%d: Auto-stretching loc to %.2f%% and scale to %.2f%% ...\n", f.ID, op.Location*100, op.Scale*100)
+
 	for i:=0; ; i++ {
 		if i==50 { 
-			fmt.Fprintf(logWriter, "Warning: did not converge after %d iterations\n",i)
+			fmt.Fprintf(c.Log, "%d: Warning: did not converge after %d iterations\n", f.ID, i)
 			break
 		}
 
 		loc, scale:=f.Stats.Location(), f.Stats.Scale()
 
-		fmt.Fprintf(logWriter, "Linear location %.2f%% and scale %.2f%%, ", loc*100, scale*100)
+		fmt.Fprintf(c.Log, "%d: Linear location %.2f%% and scale %.2f%%, ", f.ID, loc*100, scale*100)
 
 		if loc<=op.Location*1.01 && scale<op.Scale {
 			idealGamma:=float32(1)
 			idealGammaDelta:=float32(math.Abs(float64(op.Scale)-float64(scale)))
 
-			//gammaMin:=float32(1)
-			//gammaMax:=float32(25)
 			for gamma:=float32(1.0); gamma<=8; gamma+=0.01 {
-				//gammaMid:=0.5*(gammaMin+gammaMax)
 				exponent:=1.0/float64(gamma)
 				newLocLower:=float32(math.Pow(float64(loc-scale), exponent))
 				newLoc     :=float32(math.Pow(float64(loc        ), exponent))
@@ -151,40 +140,28 @@ func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *f
     			scale:=1/(1-black)
 
 				scaledNewLocLower:=float32(math.Max(0, float64((newLocLower - black) * scale)))
-				//scaledNewLoc     :=float32(math.Max(0, float64((newLoc      - black) * scale)))
 				scaledNewLocUpper:=float32(math.Max(0, float64((newLocUpper - black) * scale)))
 
 				newScale:=float32(scaledNewLocUpper-scaledNewLocLower)/2
 				delta:=float32(math.Abs(float64(op.Scale)-float64(newScale)))
 				if delta<idealGammaDelta {
-				   // fmt.Fprintf(logWriter, "gamma %.2f lower %.2f%% upper %.2f%% newScale %.2f%% op.Scale %.2f%% delta %.2f%% \n", gamma, scaledNewLocLower*100, scaledNewLocUpper*100, newScale*100, op.Scale*100, delta*100)
 					idealGamma=gamma
 					idealGammaDelta=delta
 				}
-/*				if newScale>op.Scale*1.01 {
-					gammaMax=gammaMid
-				} else if newScale<op.Scale*1.01 {
-					gammaMin=gammaMid
-				} else {
-					idealGamma=gammaMid
-					break
-				} */
 			}
 
-			//idealGamma:=float32(math.Log((float64(op.Location)/float64(op.Scale))*float64(scale))/math.Log(float64(op.Location)))
-			//if idealGamma>gammaLimit { idealGamma=gammaLimit }
 			if idealGamma<=1.01 { 
-				fmt.Fprintf(logWriter, "done\n")
+				fmt.Fprintf(c.Log, "done\n")
 				break
 			}
 
-			fmt.Fprintf(logWriter, "applying gamma %.3g\n", idealGamma)
+			fmt.Fprintf(c.Log, "applying gamma %.3g\n", idealGamma)
 			f.ApplyGamma(idealGamma)
 		} else if loc>op.Location*0.99 && scale<op.Scale {
-			fmt.Fprintf(logWriter, "scaling black to move location to %.2f%%...\n", op.Location*100)
+			fmt.Fprintf(c.Log, "scaling black to move location to %.2f%%...\n", op.Location*100)
 			f.ShiftBlackToMove(loc, op.Location)
 		} else {
-			fmt.Fprintf(logWriter, "done\n")
+			fmt.Fprintf(c.Log, "done\n")
 			break
 		}
 	}
@@ -193,29 +170,46 @@ func (op *OpStretchIterative) Apply(f *fits.Image, logWriter io.Writer) (fOut *f
 
 
 
-
 type OpMidtones struct {
-	Active bool    `json:"active"`
+	ops.OpUnaryBase
 	Mid    float32 `json:"mid"`
 	Black  float32 `json:"black"`
 }
 
+var _ ops.Operator = (*OpMidtones)(nil) // this type is an Operator
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpMidtonesDefault() })} // register the operator for JSON decoding
+
+func NewOpMidtonesDefault() *OpMidtones { return NewOpMidtones(0, 1) }
+
 func NewOpMidtones(mid, black float32) *OpMidtones {
-	return &OpMidtones{
-		Active: mid!=0,
-		Mid:    mid,
-		Black:  black,
+	active:=mid!=0
+	op:=OpMidtones{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "midtones", Active: active}},
+		Mid         : mid,
+		Black       : black,
 	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpMidtones) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpMidtones) UnmarshalJSON(data []byte) error {
+	type defaults OpMidtones
+	def:=defaults( *NewOpMidtonesDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpMidtones(def)
+	return nil
+}
+
+func (op *OpMidtones) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	fmt.Fprintf(logWriter, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
+	fmt.Fprintf(c.Log, "%d: Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", f.ID, op.Mid, op.Black)
 
 	loc, scale:=f.Stats.Location(), f.Stats.Scale()
 	absMid:=op.Mid*scale
 	absBlack:=loc - op.Black*scale
-	fmt.Fprintf(logWriter, "loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", 100*loc, 100*scale, 100*absMid, 100*absBlack)
+	fmt.Fprintf(c.Log, "%d: loc %.2f%% scale %.2f%% absMid %.2f%% absBlack %.2f%%\n", f.ID, 100*loc, 100*scale, 100*absMid, 100*absBlack)
 
 	f.ApplyMidtones(absMid, absBlack)
 	return f, nil
@@ -223,95 +217,176 @@ func (op *OpMidtones) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Imag
 
 
 
-
 type OpGamma struct {
-	Active bool    `json:"active"`
+	ops.OpUnaryBase
 	Gamma  float32 `json:"gamma"`
 }
 
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpGammaDefault() })} // register the operator for JSON decoding
+
+func NewOpGammaDefault() *OpGamma { return NewOpGamma(1.0) }
+
 func NewOpGamma(gamma float32) *OpGamma {
-	return &OpGamma{gamma!=1.0, gamma}
+	active:=gamma!=1.0
+	op:=OpGamma{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "gamma", Active: active}},
+		Gamma       : gamma,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
-	fmt.Fprintf(logWriter, "Applying gamma %.3g\n", op.Gamma)
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpGamma) UnmarshalJSON(data []byte) error {
+	type defaults OpGamma
+	def:=defaults( *NewOpGammaDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpGamma(def)
+	return nil
+}
+
+func (op *OpGamma) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if !op.Active || op.Gamma==1.0 { return f, nil }
+	fmt.Fprintf(c.Log, "%d: Applying gamma %.3g\n", f.ID, op.Gamma)
 	f.ApplyGamma(op.Gamma)
 	return f, nil
 }
 
 
-
-type OpPPGamma struct {
-	Active bool `json:"active"`
+type OpGammaPP struct {
+	ops.OpUnaryBase
 	Gamma  float32 `json:"gamma"`
 	Sigma  float32 `json:"sigma"`
 }
 
-func NewOpPPGamma(gamma, sigma float32) *OpPPGamma {
-	return &OpPPGamma{gamma!=1.0, gamma, sigma}
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpGammaPPDefault() })} // register the operator for JSON decoding
+
+func NewOpGammaPPDefault() *OpGammaPP { return NewOpGammaPP(1.0, 1.0) }
+
+func NewOpGammaPP(gamma, sigma float32) *OpGammaPP {
+	active:=gamma!=1.0
+	op:=OpGammaPP{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "gammaPP", Active: active}},
+		Gamma       : gamma, 
+		Sigma       : sigma,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpPPGamma) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpGammaPP) UnmarshalJSON(data []byte) error {
+	type defaults OpGammaPP
+	def:=defaults( *NewOpGammaPPDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpGammaPP(def)
+	return nil
+}
+
+func (op *OpGammaPP) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
 	loc, scale:=f.Stats.Location(), f.Stats.Scale()
 	from:=loc+float32(op.Sigma)*scale
 	to  :=float32(1.0)
 
-	fmt.Fprintf(logWriter, "Based on sigma=%.4g, boosting values in [%.2f%%, %.2f%%] with gamma %.4g...\n", 
-		op.Sigma, from*100, to*100, op.Gamma)
+	fmt.Fprintf(c.Log, "%d: Based on sigma=%.4g, boosting [%.2f%%, %.2f%%] with gamma %.4g...\n", 
+		f.ID, op.Sigma, from*100, to*100, op.Gamma)
 	f.ApplyPartialGamma(from, to, float32(op.Gamma))
 	return f, nil
 }
 
 
 
-
 type OpScaleBlack struct {
-	Active bool `json:"active"`
+	ops.OpUnaryBase
 	Black  float32 `json:"value"`
 }
 
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpScaleBlackDefault() })} // register the operator for JSON decoding
+
+func NewOpScaleBlackDefault() *OpScaleBlack { return NewOpScaleBlack(0) }
+
 func NewOpScaleBlack(black float32) *OpScaleBlack {
-	return &OpScaleBlack{black!=0, black}
+	active:=black!=0
+	op:=OpScaleBlack{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "scaleBlack", Active: active}},
+		Black       : black,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpScaleBlack) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpScaleBlack) UnmarshalJSON(data []byte) error {
+	type defaults OpScaleBlack
+	def:=defaults( *NewOpScaleBlackDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpScaleBlack(def)
+	return nil
+}
+
+func (op *OpScaleBlack) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if !op.Active { return f, nil }
 
 	loc, scale:=f.Stats.Location(), f.Stats.Scale()
-	fmt.Fprintf(logWriter, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
+	fmt.Fprintf(c.Log, "%d: Location %.2f%% and scale %.2f%%: ", f.ID, loc*100, scale*100)
 
 	if loc>op.Black {
-		fmt.Fprintf(logWriter, "scaling black to move location to %.2f%%...\n", op.Black*100.0)
+		fmt.Fprintf(c.Log, "scaling black to move location to %.2f%%...\n", op.Black*100.0)
 		f.ShiftBlackToMove(loc, op.Black)
 	} else {
-		fmt.Fprintf(logWriter, "cannot move to location %.2f%% by scaling black\n", op.Black*100.0)
+		fmt.Fprintf(c.Log, "cannot move to location %.2f%% by scaling black\n", op.Black*100.0)
 	}
 	return f, nil
 }
 
 
 type OpUnsharpMask struct {
-	Active    bool    `json:"active"`
+	ops.OpUnaryBase
 	Sigma     float32 `json:"sigma"`
 	Gain      float32 `json:"gain"`
 	Threshold float32 `json:"threshold"`
 }
 
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpUnsharpMaskDefault() })} // register the operator for JSON decoding
+
+func NewOpUnsharpMaskDefault() *OpUnsharpMask { return NewOpUnsharpMask(1.5, 0, 1.0) }
+
 func NewOpUnsharpMask(sigma, gain, threshold float32) *OpUnsharpMask {
-	return &OpUnsharpMask{gain>0, sigma, gain, threshold}
+	active:=gain>0
+	op:=OpUnsharpMask{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "unsharpMask", Active: active}},
+		Sigma       : sigma, 
+		Gain        : gain, 
+		Threshold   : threshold,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpUnsharpMask) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpUnsharpMask) UnmarshalJSON(data []byte) error {
+	type defaults OpUnsharpMask
+	def:=defaults( *NewOpUnsharpMaskDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpUnsharpMask(def)
+	return nil
+}
+
+func (op *OpUnsharpMask) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if !op.Active || op.Gain==0 { return f, nil }
 
 	absThresh:=f.Stats.Location() + f.Stats.Scale()*op.Threshold
-	fmt.Fprintf(logWriter, "%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", f.ID, op.Sigma, op.Gain, op.Threshold, absThresh)
+	fmt.Fprintf(c.Log, "%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", 
+		        f.ID, op.Sigma, op.Gain, op.Threshold, absThresh)
 	kernel:=GaussianKernel1D(op.Sigma)
-	fmt.Fprintf(logWriter, "Unsharp masking kernel sigma %.2f size %d: %v\n", op.Sigma, len(kernel), kernel)
+	fmt.Fprintf(c.Log, "%d: Unsharp masking kernel sigma %.2f size %d: %v\n", 
+		        f.ID, op.Sigma, len(kernel), kernel)
 	f.Data=UnsharpMask(f.Data, int(f.Naxisn[0]), op.Sigma, op.Gain, f.Stats.Min(), f.Stats.Max(), absThresh)
 	return f, nil
 }
-

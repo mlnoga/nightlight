@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -46,6 +47,10 @@ var totalMiBs=memory.TotalMemory()/1024/1024
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+
+var job    = flag.String("job","", "JSON job specification to run")
+var chroot = flag.String("chroot", "", "directory to chroot and chdir to when serving HTTP. must be run as root")
+var setuid = flag.Int64("setuid", -1, "user id number to setuid to when serving HTTP. must be run as root")
 
 var out  = flag.String("out", "out.fits", "save output to `file`")
 var jpg  = flag.String("jpg", "%auto",  "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
@@ -145,6 +150,7 @@ Commands:
   stack   Stack input images
   stretch Stretch single image
   rgb     Combine color channels. Inputs are treated as r, g, b and optional l channel in that order
+  run     Run a JSON job from the file specified by -job 
   legal   Show license and attribution information
   version Show version information
 
@@ -226,48 +232,43 @@ Flags:
     default:
     }
 
-	// glob filename arguments into OpLoadFiles operators
-	var err error
-	opLoadFiles, err:=ops.NewOpLoadFiles(args, logWriter)
-	if err!=nil {
-		fmt.Fprintf(logWriter, "Error globbing filenames: %s\n", err.Error())
-		os.Exit(-1)
-	}
+	c:=ops.NewContext(logWriter, stats.LSEstimatorMode(*lsEst))
 
-	// parse flags into OperatorUnary objects
+	// glob filename arguments into an opLoadMany operator
+	var err error
+	opLoadMany:=ops.NewOpLoadMany(args)
+
+	// parse preprocessing flags into preprocessing sequence operator
 	opDebayer:=pre.NewOpDebayer(*debayer, *cfa)
+	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
 	opPreProc:=pre.NewOpPreProcess(
 		pre.NewOpCalibrate(*dark, *flat),
 		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
 		opDebayer,
 		pre.NewOpBin(int32(*binning)),
 		pre.NewOpBackExtract(int32(*backGrid), float32(*backSigma), int32(*backClip), *back),
-		pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars),
+		opStarDetect,
 		ops.NewOpSave(*pPre),
 	)
 
 	// run actions
     switch args[0] {
     case "serve":
-    	rest.Serve();
+    	rest.Serve(*chroot, int(*setuid));
 
     case "stats":
-    	var m []byte
-		m,err=json.MarshalIndent(opPreProc,"", "  ")
-		if err!=nil { break }
-		fmt.Fprintf(logWriter, "\nPreprocessing and statting %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
-
-		opParallel:=ops.NewOpParallel(opPreProc, int64(runtime.NumCPU()))
-		_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)
+		//opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany})
+		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opPreProc})
+		err=runOp(opSeq, c)
 
 	case "stack":
-    	opStackMultiBatch :=stack.NewOpStackMultiBatch(
-	    	stack.NewOpStackSingleBatch(
+    	opStackBatches :=stack.NewOpStackBatches(
+	    	stack.NewOpStackBatch(
 	    		opPreProc, 
-	    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opPreProc.StarDetect),
+	    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opStarDetect),
 	    		post.NewOpPostProcess(
-		            post.NewOpNormalize(post.HistoNormMode(*normHist)),
-		            post.NewOpAlign(int32(*align), int32(*alignK), float32(*alignT), post.OOBModeNaN, ref.RefSelMode(*refSelMode)),
+		            post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
+		            post.NewOpAlign(int32(*align), int32(*alignK), float32(*alignT), post.OOBModeNaN),
 		            ops.NewOpSave(*pPost),
 				), 
 				stack.NewOpStack(
@@ -276,46 +277,34 @@ Flags:
 					float32(*stSigLow), 
 					float32(*stSigHigh),
 				),
-	    		opPreProc.StarDetect, 
+	    		opStarDetect, 
 	    		ops.NewOpSave(*batch),
 	    	),
-			*stMemory, 
+	    	opStarDetect,
 			ops.NewOpSave(*out),
 		)
-
-		m, err:=json.MarshalIndent(opStackMultiBatch, "", "  ")
-		if err!=nil { break }
-		fmt.Fprintf(logWriter, "\nBatch stacking %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
-
-    	_, err=opStackMultiBatch.Apply(opLoadFiles, logWriter)
+		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opStackBatches})
+		err=runOp(opSeq, c)
 
     case "stretch":
-    	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
     	opStretch:=stretch.NewOpStretch(
 			stretch.NewOpNormalizeRange  (true),
 			stretch.NewOpStretchIterative(float32(*autoLoc / 100), float32(*autoScale / 100)),
 			stretch.NewOpMidtones        (float32(*midtone), float32(*midBlack)),
 			stretch.NewOpGamma           (float32(*gamma)),
-			stretch.NewOpPPGamma         (float32(*ppGamma), float32(*ppSigma)),
+			stretch.NewOpGammaPP         (float32(*ppGamma), float32(*ppSigma)),
 			stretch.NewOpScaleBlack      (float32(*scaleBlack / 100)),
 			opStarDetect,
 			ref    .NewOpSelectReference (ref.RFMFileName, *alignTo, opStarDetect),
-			post   .NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), post.OOBModeOwnLocation, ref.RefSelMode(*refSelMode)),
+			post   .NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops    .NewOpSave            (*out),
 			ops    .NewOpSave            (*jpg),
     	)
-
-    	var m []byte
-		m,err=json.MarshalIndent(opStretch,"", "  ")
-		if err!=nil { break }
-		fmt.Fprintf(logWriter, "\nStretching %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
-
-    	opParallel:=ops.NewOpParallel(opStretch, int64(runtime.GOMAXPROCS(0)))
-    	_, err=opParallel.ApplyToFiles(opLoadFiles, logWriter)  // FIXME: materializes all files in memory
+		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opStretch})
+		err=runOp(opSeq, c)
 
     case "rgb":
-    	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
     	opRGB:=rgb.NewOpRGBLProcess(
     		opStarDetect,
 			ref.NewOpSelectReference(ref.RFMStarsOverHFR, "", opStarDetect),
@@ -323,7 +312,7 @@ Flags:
 			rgb.NewOpRGBBalance(true),
 			rgb.NewOpRGBToHSLuv(true),
 			hsl.NewOpHSLApplyLum(true),
-			ops.NewOpSequence([]ops.OperatorUnary{
+			ops.NewOpSequence([]ops.Operator{
 				hsl.NewOpHSLApplyLum(true),
 				hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
 				hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
@@ -332,20 +321,23 @@ Flags:
 				hsl.NewOpHSLSCNR(float32(*scnr)),
 				hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
 				hsl.NewOpHSLGamma(float32(*gamma)),
-				hsl.NewOpHSLPPGamma(float32(*ppGamma), float32(*ppSigma)),
+				hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
 				hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
 			}), 
 			rgb.NewOpHSLuvToRGB(true),
 			ops.NewOpSave(*out),
 			ops.NewOpSave(*jpg),
 		) 
+		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opRGB})
+		err=runOp(opSeq, c)
 
-    	var m []byte
-		m,err=json.MarshalIndent(opRGB,"", "  ")
-		if err!=nil { break }
-		fmt.Fprintf(logWriter, "\nCombining %d frames with these settings:\n%s\n", len(opLoadFiles), string(m))
-
-    	_, err=opRGB.Apply(opLoadFiles, logWriter)
+	case "run":
+		content, err:=ioutil.ReadFile(*job)
+		if err!=nil { panic(fmt.Sprintf("Error opening %s: %s\n", *job, err.Error())) }
+		var opSeq ops.OpSequence
+		err=json.Unmarshal(content, &opSeq)
+		if err!=nil { panic(fmt.Sprintf("Error unmarshaling JSON: %s\n", err.Error())) }
+		err=runOp(&opSeq, c)
 
     case "legal":
     	fmt.Fprintf(logWriter, legal)
@@ -361,6 +353,11 @@ Flags:
     	flag.Usage()
     	return 
     }
+
+    if err!=nil {
+		fmt.Fprintf(logWriter, "Error: %s\n", err.Error())
+		os.Exit(-1)
+	}
 
 	now:=time.Now()
 	elapsed:=now.Sub(start).Round(time.Millisecond*10)
@@ -380,10 +377,18 @@ Flags:
             os.Exit(-1)
         }
     }
-
-    if err!=nil {
-		fmt.Fprintf(logWriter, "Error: %s\n", err.Error())
-		os.Exit(-1)
-	}
 }
 
+
+func runOp(op ops.Operator, c *ops.Context) (err error) {
+	var m []byte
+	m,err=json.MarshalIndent(op,"", "  ")
+	if err!=nil { return err }
+	fmt.Fprintf(c.Log, "\nRunning job:\n%s\n", string(m))
+
+	promises, err :=op.MakePromises(nil, c)
+	if err!=nil { return err }
+
+	_, err = ops.MaterializeAll(promises, c.MaxThreads, true) 
+	return err
+}

@@ -17,40 +17,22 @@
 package post
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/star"
 	"github.com/mlnoga/nightlight/internal/ops"
-	"github.com/mlnoga/nightlight/internal/ops/ref"
 )
 
 
 
-type OpPostProcess struct {
-	Normalize   *OpNormalize 	`json:"normalize"`
-	Align       *OpAlign 	    `json:"align"`
-	Save        *ops.OpSave     `json:"save"`
-}
-var _ ops.OperatorUnary = (*OpPostProcess)(nil) // Compile time assertion: type implements the interface
-
-func NewOpPostProcess(opNormalize *OpNormalize, opAlign *OpAlign, opSave *ops.OpSave) *OpPostProcess {
-	return &OpPostProcess{
-		Normalize : opNormalize,
-		Align : 	opAlign,
-		Save :	 	opSave,
-	}
-}
-
-
-func (op *OpPostProcess) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if f, err=op.Normalize.Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.Align.    Apply(f, logWriter); err!=nil { return nil, err}
-	if f, err=op.Save.     Apply(f, logWriter); err!=nil { return nil, err}
-	return f, nil
+func NewOpPostProcess(opMatchHistogram *OpMatchHistogram, opAlign *OpAlign, opSave *ops.OpSave) *ops.OpSequence {
+	return ops.NewOpSequence([]ops.Operator{
+		opMatchHistogram, opAlign, opSave,
+	})
 }
 
 
@@ -64,30 +46,51 @@ const (
 	HNMAuto          // Auto mode. Uses ScaleLoc for stacking, and LocBlack for (L)RGB combination.
 )
 
-type OpNormalize struct {
-	Active      bool          `json:"active"`
+type OpMatchHistogram struct {
+	ops.OpUnaryBase
 	Mode        HistoNormMode `json:"mode"`
-	Reference  *fits.Image     `json:"-"`}
-
-func NewOpNormalize(mode HistoNormMode) *OpNormalize {
-	return &OpNormalize{mode!=HNMNone, mode, nil}
 }
 
-func (op *OpNormalize) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error)  {
+var _ ops.Operator = (*OpMatchHistogram)(nil) // this type is an Operator
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpMatchHistogramDefault() })} // register the operator for JSON decoding
+
+func NewOpMatchHistogramDefault() *OpMatchHistogram { return NewOpMatchHistogram(HNMLocScale) }
+
+func NewOpMatchHistogram(mode HistoNormMode) *OpMatchHistogram {
+	active:=mode!=HNMNone
+	op:=OpMatchHistogram{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "matchHist", Active: active}},
+		Mode        : mode,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpMatchHistogram) UnmarshalJSON(data []byte) error {
+	type defaults OpMatchHistogram
+	def:=defaults( *NewOpMatchHistogramDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpMatchHistogram(def)
+	return nil
+}
+
+func (op *OpMatchHistogram) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if !op.Active || op.Mode==HNMNone { return f, nil }
+	if c.RefFrame==nil { return nil, errors.New("missing historgram reference frame")}
 	switch op.Mode {
 		case HNMLocation:
-			f.MatchLocation(op.Reference.Stats.Location())
+			f.MatchLocation(c.RefFrame.Stats.Location())
 		case HNMLocScale:
-			f.MatchHistogram(op.Reference.Stats)
+			f.MatchHistogram(c.RefFrame.Stats)
 		case HNMLocBlack:
-	    	f.ShiftBlackToMove(f.Stats.Location(), op.Reference.Stats.Location())
+	    	f.ShiftBlackToMove(f.Stats.Location(), c.RefFrame.Stats.Location())
 	}
-	fmt.Fprintf(logWriter, "%d: %s\n", f.ID, f.Stats)
+	fmt.Fprintf(c.Log, "%d: %s after normalizing histogram to reference %d\n", f.ID, f.Stats, c.RefFrame.ID)
 	return f, nil
 }
-
-
 
 // Replacement mode for out of bounds values when projecting images
 type OutOfBoundsMode int
@@ -98,51 +101,51 @@ const (
 )
 
 type OpAlign struct {
-	Active     bool            `json:"active"`
+	ops.OpUnaryBase
 	K          int32           `json:"k"`
 	Threshold  float32         `json:"threshold"`
 	OobMode    OutOfBoundsMode `json:"oobMode"`
-	RefSelMode ref.RefSelMode      `json:"refSelMode"`
-	Reference *fits.Image      `json:"-"`
-	HistoRef  *fits.Image      `json:"-"`
 	Aligner   *star.Aligner    `json:"-"`
 	mutex     sync.Mutex       `json:"-"`       
 }
 
-func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode, refSelMode ref.RefSelMode) *OpAlign {
-	return &OpAlign{
-		Active    : align!=0,
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpAlignDefault() })} // register the operator for JSON decoding
+
+func NewOpAlignDefault() *OpAlign { return NewOpAlign(1, 20, 1.0, OOBModeNaN) }
+
+func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode) *OpAlign {
+	active:=alignK>0
+	op:=OpAlign{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "align", Active: active}},
 		K         : alignK,
 		Threshold : alignThreshold,	
 		OobMode   : oobMode,
-		RefSelMode: refSelMode,
 	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpAlign) init() error {
-	op.mutex.Lock()
-	defer op.mutex.Unlock()
-	if !op.Active || op.Aligner!=nil { return nil }
-
-	if op.Reference==nil || op.Reference.Stars==nil || len(op.Reference.Stars)==0 {
-		return errors.New("Unable to align without star detections in reference frame")
-	}
-	op.Aligner=star.NewAligner(op.Reference.Naxisn, op.Reference.Stars, op.K)
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpAlign) UnmarshalJSON(data []byte) error {
+	type defaults OpAlign
+	def:=defaults( *NewOpAlignDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpAlign(def)
 	return nil
 }
 
-func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if err=op.init(); err!=nil { return nil, err }
+func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if err =op.init(c); err!=nil { return nil, err } // initialize the aligner
 
 	// Is alignment to the reference frame required?
-	if !op.Active || op.Aligner==nil || op.Aligner.RefStars==nil || len(op.Aligner.RefStars)==0 {
+	if !op.Active || op.Aligner==nil || len(op.Aligner.RefStars)==0 {
 		// Generally not required
 		f.Trans=star.IdentityTransform2D()		
 	} else if (len(op.Aligner.RefStars)==len(f.Stars) && (&op.Aligner.RefStars[0]==&f.Stars[0])) {
-		// FIXME: comparison is just a heuristic?
 		// Not required for reference frame itself
 		f.Trans=star.IdentityTransform2D()		
-	} else if f.Stars==nil || len(f.Stars)==0 {
+	} else if len(f.Stars)==0 {
 		// No stars - skip alignment and warn
 		msg:=fmt.Sprintf("%d: No alignment stars found, skipping frame\n", f.ID)
 		return nil, errors.New(msg)
@@ -152,8 +155,8 @@ func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, 
 		var outOfBounds float32
 		switch(op.OobMode) {
 			case OOBModeNaN:         outOfBounds=float32(math.NaN())
-			case OOBModeRefLocation: outOfBounds=op.HistoRef.Stats.Location()
-			case OOBModeOwnLocation: outOfBounds=f          .Stats.Location()
+			case OOBModeRefLocation: outOfBounds=c.RefFrame.Stats.Location()
+			case OOBModeOwnLocation: outOfBounds=f         .Stats.Location()
 		}
 
 		// Determine alignment of the image to the reference frame
@@ -163,7 +166,7 @@ func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, 
 			return nil, errors.New(msg)
 		} 
 		f.Trans, f.Residual=trans, residual
-		fmt.Fprintf(logWriter, "%d: Transform %v; oob %.3g residual %.3g\n", f.ID, f.Trans, outOfBounds, f.Residual)
+		fmt.Fprintf(c.Log, "%d: Transform %v; residual %.3g oob %.3g\n", f.ID, f.Trans, f.Residual, outOfBounds)
 
 		// Project image into reference frame
 		f, err= f.Project(op.Aligner.Naxisn, trans, outOfBounds)
@@ -171,3 +174,18 @@ func (op *OpAlign) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, 
 	}	
 	return f, nil
 }
+
+func (op *OpAlign) init(c *ops.Context) error {
+	op.mutex.Lock()
+	defer op.mutex.Unlock()
+	if !op.Active || op.Aligner!=nil { return nil }
+
+	if c.RefFrame==nil {
+		return errors.New("Unable to align without reference frame")
+	} else if len(c.RefFrame.Stars)==0 {
+		return errors.New("Unable to align without star detections in reference frame")
+	}
+	op.Aligner=star.NewAligner(c.RefFrame.Naxisn, c.RefFrame.Stars, op.K)
+	return nil
+}
+

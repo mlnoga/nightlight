@@ -17,11 +17,9 @@
 package rgb
 
 import (
-	// "encoding/json"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/ops/pre"
@@ -30,175 +28,163 @@ import (
 )
 
 
-
-
-type OpRGBLProcess struct {
-	StarDetect            *pre.OpStarDetect            `json:"starDetect"`
-	SelectReference       *ref.OpSelectReference       `json:"selectReference"`
-	RGBCombine            *OpRGBCombine            `json:"RGBCombine"`
-	RGBBalance            *OpRGBBalance            `json:"RGBBalance"`
-    RGBToHSLuv            *OpRGBToHSLuv            `json:"RGBToHSLuv"`
-	HSLApplyLum           *hsl.OpHSLApplyLum           `json:"hslApplyLum"`
-
-	HSLProcess            *ops.OpSequence              `json:"HSLProcess"`         
-	// OpHSLApplyLuminance
-	// OpHSLNeutralizeBackground
-	// OpHSLSaturationGamma
-	// OpHSLSelectiveSaturation
-	// OpHSLRotateHue
-	// OpHSLSCNR
-	// OpHSLMidtones
-	// OpHSLGamma
-	// OpHSLPPGamma
-	// OpHSLScaleBlack
-
-    HSLuvToRGB            *OpHSLuvToRGB            `json:"HSLuvToRGB"`
-	Save                  *ops.OpSave                  `json:"save"`
-	Save2                 *ops.OpSave                  `json:"save2"`
-	parStarDetect         *ops.OpParallel              `json:"-"`
-	mutex                 sync.Mutex               `json:"-"`
-}
-var _ ops.OperatorJoinFiles = (*OpRGBLProcess)(nil) // Compile time assertion: type implements the interface
-
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpRGBLProcess(opStarDetect *pre.OpStarDetect, opSelectReference *ref.OpSelectReference,
                       opRGBCombine *OpRGBCombine, opRGBBalance *OpRGBBalance,
                       opRGBToHSLuv *OpRGBToHSLuv, opHSLApplyLum *hsl.OpHSLApplyLum,
                       opHSLProcess *ops.OpSequence, opHSLuvToRGB *OpHSLuvToRGB,
-                      opSave, opSave2 *ops.OpSave) *OpRGBLProcess {
-	return &OpRGBLProcess{
-		StarDetect      : opStarDetect,
-		SelectReference : opSelectReference,
-		RGBCombine      : opRGBCombine,
- 		RGBBalance      : opRGBBalance,
- 		RGBToHSLuv      : opRGBToHSLuv,
- 		HSLApplyLum     : opHSLApplyLum,
- 		HSLProcess      : opHSLProcess,
- 		HSLuvToRGB      : opHSLuvToRGB,
-		Save            : opSave,
-		Save2           : opSave2,
-	}	
+                      opSave, opSave2 *ops.OpSave) *ops.OpSequence {
+	return ops.NewOpSequence([]ops.Operator{
+		opStarDetect, opSelectReference, opRGBCombine, opRGBBalance, opRGBToHSLuv, opHSLApplyLum, 
+		opHSLProcess, opHSLuvToRGB, opSave, opSave2,
+	})
 }
-
-func (op *OpRGBLProcess) init() (err error) { 
-	op.mutex.Lock()
-	defer op.mutex.Unlock()
-	if op.StarDetect!=nil && op.parStarDetect==nil { 
-		op.parStarDetect=ops.NewOpParallel(op.StarDetect, 4) // max 4 channels with separate thread
-	} 
-	return nil
- }
-
-func (op *OpRGBLProcess) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if err=op.init(); err!=nil { return nil, err }
-
-	var fs []*fits.Image
-	fmt.Fprintf(logWriter, "Reading color channels and detecting stars:\n")
-	if op.parStarDetect  !=nil { if fs,   err=op.parStarDetect  .ApplyToFiles(opLoadFiles, logWriter); err!=nil { return nil, err} }
-
-	if l:=len(fs); l<3 || l>4 {
-		return nil, errors.New(fmt.Sprintf("Need 3 or 4 channels for RGB(L) combination, have %d",l))
-	} else if len(fs)==4 { 
-		op.HSLApplyLum.Lum=fs[3] 
-		op.SelectReference.Frame=fs[3]
-		op.SelectReference.Mode=ref.RFMFrame
-		fs=fs[:3]
-	} 
-
-	if op.SelectReference!=nil { if fs,   err=op.SelectReference.ApplyToFITS (fs,          logWriter); err!=nil { return nil, err} }
-	if op.SelectReference!=nil && op.RGBCombine!=nil { op.RGBCombine.RefFrame=op.SelectReference.Frame }
-	if op.RGBCombine     !=nil { if fOut, err=op.RGBCombine     .Apply       (fs,          logWriter); err!=nil { return nil, err} 
-    } else {
-    	 return nil, errors.New("Combine operator missing")
-    }
-	if op.RGBBalance     !=nil && op.RGBBalance    .Active { if fOut, err=op.RGBBalance    .Apply(fOut, logWriter); err!=nil { return nil, err } }	
-	if op.RGBToHSLuv     !=nil && op.RGBToHSLuv    .Active { if fOut, err=op.RGBToHSLuv    .Apply(fOut, logWriter); err!=nil { return nil, err } }	
-	if op.HSLApplyLum    !=nil && op.HSLApplyLum   .Active { if fOut, err=op.HSLApplyLum   .Apply(fOut, logWriter); err!=nil { return nil, err } }	
-	if op.HSLProcess     !=nil && op.HSLProcess    .Active { if fOut, err=op.HSLProcess    .Apply(fOut, logWriter); err!=nil { return nil, err } }	
-	if op.HSLuvToRGB     !=nil && op.HSLuvToRGB    .Active { if fOut, err=op.HSLuvToRGB    .Apply(fOut, logWriter); err!=nil { return nil, err } }	
-	if op.Save           !=nil && op.Save          .Active { if fOut, err=op.Save          .Apply(fOut, logWriter); err!=nil { return nil, err } }
-	if op.Save2          !=nil && op.Save2         .Active { if fOut, err=op.Save2         .Apply(fOut, logWriter); err!=nil { return nil, err } }
-	return fOut, nil
-}
-
 
 
 type OpRGBCombine struct {
-	Active     bool      `json:"active"`
-	RefFrame       *fits.Image          `json:"-"`
+	ops.OpBase
 }
-var _ ops.OperatorJoin = (*OpRGBCombine)(nil) // Compile time assertion: type implements the interface
 
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpRGBCombineDefault() })} // register the operator for JSON decoding
+
+func NewOpRGBCombineDefault() *OpRGBCombine { return NewOpRGBCombine(true) }
+
 func NewOpRGBCombine(active bool) *OpRGBCombine {
-	return &OpRGBCombine{Active: active}
+	return &OpRGBCombine{
+		OpBase: ops.OpBase{Type:"rgbCombine", Active: active},
+	}
 }
 
-func (op *OpRGBCombine) Apply(fs []*fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+func (op *OpRGBCombine) MakePromises(ins []ops.Promise, c *ops.Context) (outs []ops.Promise, err error) {
+	if len(ins)<3 || len(ins)>4 { return nil, errors.New(fmt.Sprintf("%s operator with %d inputs", op.Type, len(ins))) }
+	out:=func() (fOut *fits.Image, err error) {
+		fs,err:=ops.MaterializeAll(ins, c.MaxThreads, false)
+		if err!=nil { return nil, err }
+		return op.Apply(fs, c)
+	}
+	return []ops.Promise{out}, nil
+}
+
+func (op *OpRGBCombine) Apply(fs []*fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
 	if !op.Active { return nil, errors.New("RGB combination inactive, unable to produce image") }
-	if len(fs)!=3 {
+	if len(fs)<3 || len(fs)>4 {
 		return nil, errors.New(fmt.Sprintf("Invalid number of channels for color combination: %d", len(fs)))
 	}
-
-	fmt.Fprintf(logWriter, "\nCombining RGB color channels...\n")
-	fOut=fits.NewRGBFromChannels(fs, op.RefFrame, logWriter)
+	if len(fs)==4 {
+		c.LumFrame=fs[3]
+	}
+	fmt.Fprintf(c.Log, "\nCombining RGB color channels...\n")
+	fOut=fits.NewRGBFromChannels(fs[:3], c.RefFrame, c.Log)
 	return fOut, nil
 }
 
 
 
 type OpRGBBalance struct {
-	Active     bool      `json:"active"`
+	ops.OpUnaryBase
 }
-var _ ops.OperatorUnary = (*OpRGBBalance)(nil) // Compile time assertion: type implements the interface
 
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpRGBBalanceDefault() })} // register the operator for JSON decoding
+
+func NewOpRGBBalanceDefault() *OpRGBBalance { return NewOpRGBBalance(true) }
+
 func NewOpRGBBalance(active bool) *OpRGBBalance {
-	return &OpRGBBalance{active}
+	op:=OpRGBBalance{
+		OpUnaryBase : ops.OpUnaryBase{OpBase: ops.OpBase{Type:"rgbBalance", Active: active}},
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpRGBBalance) UnmarshalJSON(data []byte) error {
+	type defaults OpRGBBalance
+	def:=defaults( *NewOpRGBBalanceDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpRGBBalance(def)
+	return nil
 }
 
 // Automatically balance colors with multiple iterations of SetBlackWhitePoints, producing log output
-func (op *OpRGBBalance) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+func (op *OpRGBBalance) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
 	if f.Stars==nil || len(f.Stars)==0 {
 		return nil, errors.New("Cannot balance colors with zero stars detected")
 	} 
 
-	fmt.Fprintf(logWriter, "Setting black point so histogram peaks align and white point so median star color becomes neutral...\n")
-	err=f.SetBlackWhitePoints(logWriter)
+	fmt.Fprintf(c.Log, "Setting black point so histogram peaks align and white point so median star color becomes neutral...\n")
+	err=f.SetBlackWhitePoints(c.Log)
 	return f, err
 }
 
 
+
 type OpRGBToHSLuv struct {
-	Active     bool      `json:"active"`
+	ops.OpUnaryBase
 }
-var _ ops.OperatorUnary = (*OpRGBToHSLuv)(nil) // Compile time assertion: type implements the interface
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpRGBToHSLuvDefault() })} // register the operator for JSON decoding
+
+func NewOpRGBToHSLuvDefault() *OpRGBToHSLuv { return NewOpRGBToHSLuv(true) }
 
 func NewOpRGBToHSLuv(active bool) *OpRGBToHSLuv {
-	return &OpRGBToHSLuv{active}
+	op:=OpRGBToHSLuv{
+		OpUnaryBase : ops.OpUnaryBase{OpBase: ops.OpBase{Type:"rgbToHSLuv", Active: active}},
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpRGBToHSLuv) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpRGBToHSLuv) UnmarshalJSON(data []byte) error {
+	type defaults OpRGBToHSLuv
+	def:=defaults( *NewOpRGBToHSLuvDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpRGBToHSLuv(def)
+	return nil
+}
+
+func (op *OpRGBToHSLuv) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
+	fmt.Fprintf(c.Log,"Converting linear RGB to nonlinear HSLuv...\n")
 	f.RGBToHSLuv()
 	return f, nil
 }
 
 
 
+
 type OpHSLuvToRGB struct {
-	Active     bool      `json:"active"`
+	ops.OpUnaryBase
 }
-var _ ops.OperatorUnary = (*OpHSLuvToRGB)(nil) // Compile time assertion: type implements the interface
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLuvToRGBDefault() })} // register the operator for JSON decoding
+
+func NewOpHSLuvToRGBDefault() *OpHSLuvToRGB { return NewOpHSLuvToRGB(true) }
 
 func NewOpHSLuvToRGB(active bool) *OpHSLuvToRGB {
-	return &OpHSLuvToRGB{active}
+	op:=OpHSLuvToRGB{
+		OpUnaryBase : ops.OpUnaryBase{OpBase: ops.OpBase{Type:"hsluvToRGB", Active: active}},
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return &op	
 }
 
-func (op *OpHSLuvToRGB) Apply(f *fits.Image, logWriter io.Writer) (fOut *fits.Image, err error) {
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpHSLuvToRGB) UnmarshalJSON(data []byte) error {
+	type defaults OpHSLuvToRGB
+	def:=defaults( *NewOpHSLuvToRGBDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpHSLuvToRGB(def)
+	return nil
+}
+
+func (op *OpHSLuvToRGB) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
 	if !op.Active { return f, nil }
-	fmt.Fprintf(logWriter, "Converting nonlinear HSLuv to linear RGB\n")
+	fmt.Fprintf(c.Log, "Converting nonlinear HSLuv to linear RGB\n")
     f.HSLuvToRGB()
 	return f, nil
 }

@@ -19,44 +19,51 @@ package stack
 import (
 	"errors"
 	"fmt"
-	"io"
 	"math"
 	"math/rand"
 	"runtime"
 	"runtime/debug"
 	"sort"
-	"github.com/pbnjay/memory"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
+	"github.com/mlnoga/nightlight/internal/ops/pre"
 )
 
 
-
-
-type OpStackMultiBatch struct {
-	Batch            *OpStackSingleBatch   `json:"batch"`
-	Memory            int64           `json:"memory"`
-	Save             *ops.OpSave          `json:"save"`
+type OpStackBatches struct {
+	ops.OpBase
+	PerBatch         *ops.OpSequence   `json:"perBatch"`
+	StarDetect       *pre.OpStarDetect `json:"starDetect"`
+	Save             *ops.OpSave       `json:"save"`
 }
 
-func NewOpStackMultiBatch(batch *OpStackSingleBatch, memory int64, save *ops.OpSave) (op *OpStackMultiBatch) {
-	return &OpStackMultiBatch{
-		Batch       : batch,
-		Memory      : memory,
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpStackBatchesDefault() })} // register the operator for JSON decoding
+
+func NewOpStackBatchesDefault() *OpStackBatches { return NewOpStackBatches(nil, pre.NewOpStarDetectDefault(), ops.NewOpSave("")) }
+
+func NewOpStackBatches(perBatch *ops.OpSequence, starDetect *pre.OpStarDetect, save *ops.OpSave) (op *OpStackBatches) {
+	return &OpStackBatches{
+		OpBase      : ops.OpBase{Type:"multiBatch", Active: true},
+		PerBatch    : perBatch,
+		StarDetect  : starDetect,
 		Save        : save,
 	}
 }
 
-
-func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if len(opLoadFiles)==0 {
-		return nil, errors.New("No frames to batch process")
+func (op *OpStackBatches) MakePromises(ins []ops.Promise, c *ops.Context) (outs []ops.Promise, err error) {
+	if len(ins)==0 { return nil, errors.New("No frames to batch process") }
+	out:=func() (fOut *fits.Image, err error) {
+		return op.Apply(ins, c)
 	}
+	return []ops.Promise{out}, nil
+}
+
+func (op *OpStackBatches) Apply(ins []ops.Promise, c *ops.Context) (fOut *fits.Image, err error) {
 	// Partition the loaders into optimal batches
-	opLoadFilesPerm, numBatches, batchSize, maxThreads, err := op.partition(opLoadFiles, logWriter)
+	insPerm, numBatches, batchSize, maxThreads, err := op.partition(ins, c)
 	if err!=nil { return nil, err }
-	op.Batch.MaxThreads=maxThreads
-	
+	c.MaxThreads=int(maxThreads)
+
 	// Process each batch. The first batch sets the reference image 
 	stack:=(*fits.Image)(nil)
 	stackFrames:=int64(0)
@@ -65,14 +72,17 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 		// Cut out relevant part of the overall input filenames
 		batchStartOffset:= b   *batchSize
 		batchEndOffset  :=(b+1)*batchSize
-		if batchEndOffset>int64(len(opLoadFilesPerm)) { batchEndOffset=int64(len(opLoadFilesPerm)) }
+		if batchEndOffset>int64(len(insPerm)) { batchEndOffset=int64(len(insPerm)) }
 		batchFrames     :=batchEndOffset-batchStartOffset
-		opLoadFilesBatch:=opLoadFilesPerm[batchStartOffset:batchEndOffset]
-		fmt.Fprintf(logWriter, "\nStarting batch %d of %d with %d frames...\n", b+1, numBatches, len(opLoadFilesBatch))
+		insBatch:=insPerm[batchStartOffset:batchEndOffset]
+		fmt.Fprintf(c.Log, "\nStarting batch %d of %d with %d frames...\n", b+1, numBatches, len(insBatch))
 
 		// Stack the files in this batch
-		if op.Batch==nil { return nil, errors.New("Missing batch parameters")}
-		batch, err:=op.Batch.Apply(opLoadFilesBatch, logWriter)
+		if op.PerBatch==nil { return nil, errors.New("Missing batch parameters")}
+		batchPromises, err:=op.PerBatch.MakePromises(insBatch, c)
+		if err!=nil { return nil, err }
+		if len(batchPromises)!=1 { return nil, errors.New("stacking returned more than one promise")}
+		batch, err:=batchPromises[0]()      // materialize the result
 		if err!=nil { return nil, err }
 
 		// Update stack of stacks
@@ -85,14 +95,12 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 		}
 
 		// Free memory
-		opLoadFilesBatch, batch=nil, nil
+		batch=nil
 		debug.FreeOSMemory()
 	}
 
 	// Free more memory; primary frames already freed after stacking
-	if op.Batch.PostProcess.Align.Reference    !=nil { op.Batch.PostProcess.Align.Reference   =nil }
-	if op.Batch.PreProcess.Calibrate.DarkFrame !=nil { op.Batch.PreProcess.Calibrate.DarkFrame=nil }
-	if op.Batch.PreProcess.Calibrate.FlatFrame !=nil { op.Batch.PreProcess.Calibrate.FlatFrame=nil }
+	c.DarkFrame, c.FlatFrame, c.RefFrame = nil, nil, nil
 	debug.FreeOSMemory()
 
 	if numBatches>1 {
@@ -100,35 +108,36 @@ func (op *OpStackMultiBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.W
 		StackIncrementalFinalize(stack, float32(stackFrames))
 
 		// Find stars in newly stacked image and report out on them
-		stack, err=op.Batch.PreProcess.StarDetect.Apply(stack, logWriter)
-		fmt.Fprintf(logWriter, "Overall stack: Stars %d HFR %.2f Exposure %gs %v\n", len(stack.Stars), stack.HFR, stack.Exposure, stack.Stats)
+		stack, err=op.StarDetect.Apply(stack, c)
+		if err!=nil { return nil, err }
+		fmt.Fprintf(c.Log, "Overall stack: Stars %d HFR %.2f Exposure %gs %v\n", len(stack.Stars), stack.HFR, stack.Exposure, stack.Stats)
 
 		avgNoise:=stackNoise/float32(stackFrames)
 		expectedNoise:=avgNoise/float32(math.Sqrt(float64(numBatches)))
-		fmt.Fprintf(logWriter, "Expected noise %.4g from stacking %d batches with average noise %.4g\n",
+		fmt.Fprintf(c.Log, "Expected noise %.4g from stacking %d batches with average noise %.4g\n",
 					expectedNoise, int(numBatches), avgNoise )
 	}
 
 	// Save and return
-	stack, err=op.Save.Apply(stack, logWriter)
+	stack, err=op.Save.Apply(stack, c)
 	if err!=nil { return nil, err }
 
 	return stack, nil;
 }
 
 
-func (op *OpStackMultiBatch) partition(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (opLoadFilesPerm []*ops.OpLoadFile, 
-	                                                                               numBatches, batchSize, maxThreads int64, err error) {
-	numFrames:=int64(len(opLoadFiles))
+func (op *OpStackBatches) partition(ins []ops.Promise, c *ops.Context) (insPerm []ops.Promise, 
+	                                                                    numBatches, batchSize, maxThreads int64, err error) {
+	numFrames:=int64(len(ins))
 	width, height:=int64(0), int64(0)
-	if op.Batch.PreProcess.Calibrate.DarkFrame!=nil {
-		width, height=int64(op.Batch.PreProcess.Calibrate.DarkFrame.Naxisn[0]), int64(op.Batch.PreProcess.Calibrate.DarkFrame.Naxisn[1])
-	}  else if op.Batch.PreProcess.Calibrate.FlatFrame!=nil {
-		width, height=int64(op.Batch.PreProcess.Calibrate.FlatFrame.Naxisn[0]), int64(op.Batch.PreProcess.Calibrate.FlatFrame.Naxisn[1])
-	} else if len(opLoadFiles)>0 {
-		fmt.Fprintf(logWriter, "\nEstimating memory needs for %d images from %s:\n", numFrames, opLoadFiles[0].FileName)
-		first,err:=opLoadFiles[0].Apply(logWriter)
+	if c.DarkFrame!=nil {
+		width, height=int64(c.DarkFrame.Naxisn[0]), int64(c.DarkFrame.Naxisn[1])
+	}  else if c.FlatFrame!=nil {
+		width, height=int64(c.FlatFrame.Naxisn[0]), int64(c.FlatFrame.Naxisn[1])
+	} else if len(ins)>0 {
+		first,err:=ins[0]()
 		if err!=nil { return nil, 0,0,0, err }
+		fmt.Fprintf(c.Log, "\nEstimating memory needs for %d images from %s:\n", numFrames, first.FileName)
 		width, height=int64(first.Naxisn[0]), int64(first.Naxisn[1])
 	} else {
 		return nil, 0,0,0, errors.New("No input files to prepare batches")
@@ -137,13 +146,13 @@ func (op *OpStackMultiBatch) partition(opLoadFiles []*ops.OpLoadFile, logWriter 
 	mPixels:=float32(width)*float32(height)*1e-6
 	bytes:=pixels*4
 	mib:=bytes/1024/1024
-	fmt.Fprintf(logWriter, "%d images of %dx%d pixels (%.1f MPixels), which each take %d MiB in-memory as floating point.\n", 
+	fmt.Fprintf(c.Log, "%d images of %dx%d pixels (%.1f MPixels), which each take %d MiB in-memory as floating point.\n", 
 	            numFrames, width, height, mPixels, mib)
 
-	availableFrames:=(int64(op.Memory)*1024*1024)/bytes // rounding down
+	availableFrames:=(int64(c.StackMemoryMB)*1024*1024)/bytes // rounding down
 	maxThreads=int64(runtime.GOMAXPROCS(0))
-	fmt.Fprintf(logWriter, "CPU has %d threads. Physical memory is %d MiB, -op.Memory is %d MiB, this fits %d frames.\n", 
-		        maxThreads, memory.TotalMemory()/1024/1024, op.Memory, availableFrames)
+	fmt.Fprintf(c.Log, "CPU has %d threads. Physical memory is %d MiB, -op.Memory is %d MiB, this fits %d frames.\n", 
+		        maxThreads, c.MemoryMB, c.StackMemoryMB, availableFrames)
 
 	// Calculate batch sizes for preprocessing
 	for ; maxThreads>=1; maxThreads-- {
@@ -151,8 +160,8 @@ func (op *OpStackMultiBatch) partition(opLoadFiles []*ops.OpLoadFile, logWriter 
 		// the optional dark and flat, the reference frame from batch 0 (if >1 batches), 
 		// and the stack of stacks (if >1 bacthes) 
 		batchSize=availableFrames - int64(maxThreads)
-		if op.Batch.PreProcess.Calibrate.DarkFrame!=nil { batchSize-- }
-		if op.Batch.PreProcess.Calibrate.FlatFrame!=nil { batchSize-- }
+		if c.DarkFrame!=nil { batchSize-- }  // FIXME may not be loaded yet...
+		if c.FlatFrame!=nil { batchSize-- }  // FIXME may not be loaded yet...
 		if batchSize<2 { continue }
 
 		// correct for multi-batch memory requirements 
@@ -167,28 +176,28 @@ func (op *OpStackMultiBatch) partition(opLoadFiles []*ops.OpLoadFile, logWriter 
 	if maxThreads<1 || batchSize<2 { return nil, 0,0,0, errors.New("Cannot find a stacking execution path within the given memory constraints.") }
 	// even out size of the last frame
 	for ; (batchSize-1)*numBatches>=numFrames ; batchSize-- {}
-	fmt.Fprintf(logWriter, "Using %d batches of batch size %d with %d images in parallel.\n", numBatches, batchSize, maxThreads)
+	fmt.Fprintf(c.Log, "Using %d random batches of size %d with %d images in parallel.\n", numBatches, batchSize, maxThreads)
 
-	opLoadFilesPerm=opLoadFiles
+	insPerm=ins
 	if numBatches>1 {
-		perm:=make([]int, len(opLoadFiles))
+		perm:=make([]int, len(ins))
 		for i,_:=range perm {
 			perm[i]=i
 		}
-		fmt.Fprintf(logWriter, "Randomizing input files across batches...\n")
-		perm=rand.Perm(len(opLoadFiles))
+		fmt.Fprintf(c.Log, "Randomizing input files into batches...\n")
+		perm=rand.Perm(len(ins))
 		for i:=0; i<int(numBatches); i++ {
 			from:=i*int(batchSize)
 			to  :=(i+1)*int(batchSize)
 			if to>len(perm) { to=len(perm) }
 			sort.Ints(perm[from:to])
 		}
-		opLoadFilesPerm:=make([]*ops.OpLoadFile, len(opLoadFiles))
-		for i,_:=range opLoadFiles {
-			opLoadFilesPerm[i]=opLoadFiles[perm[i]]
+		insPerm:=make([]ops.Promise, len(ins))
+		for i,_:=range ins {
+			insPerm[i]=ins[perm[i]]
 		}
 	}
-	return opLoadFilesPerm, numBatches, batchSize, maxThreads, nil
+	return insPerm, numBatches, batchSize, maxThreads, nil
 }
 
 

@@ -17,59 +17,52 @@
 package stack
 
 import (
-	"errors"
-	"fmt"
-	"io"
-	"math"
-	"runtime/debug"
-	"github.com/mlnoga/nightlight/internal/fits"
+	// "errors"
+	// "fmt"
+	// "io"
+	// "math"
+	// "runtime/debug"
+	// "github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/ops/pre"
 	"github.com/mlnoga/nightlight/internal/ops/ref"
-	"github.com/mlnoga/nightlight/internal/ops/post"
 )
 
 
-type OpStackSingleBatch struct {
-	PreProcess      *pre.OpPreProcess      `json:"preProcess"`
-	SelectReference *ref.OpSelectReference `json:"selectReference"`
-	PostProcess     *post.OpPostProcess     `json:"postProcess"`
-	Stack           *OpStack           `json:"stack"`
-	StarDetect      *pre.OpStarDetect      `json:"starDetect"` 
-	Save            *ops.OpSave            `json:"save"`
-	MaxThreads       int64             `json:"-"`
-}
-var _ ops.OperatorJoinFiles = (*OpStackSingleBatch)(nil) // Compile time assertion: type implements the interface
+// type OpStackSingleBatch struct {
+// 	PreProcess      *pre.OpPreProcess      `json:"preProcess"`
+// 	SelectReference *ref.OpSelectReference `json:"selectReference"`
+// 	PostProcess     *post.OpPostProcess     `json:"postProcess"`
+// 	Stack           *OpStack           `json:"stack"`
+// 	StarDetect      *pre.OpStarDetect      `json:"starDetect"` 
+// 	Save            *ops.OpSave            `json:"save"`
+// 	MaxThreads       int64             `json:"-"`
+// }
+// var _ ops.OperatorJoinFiles = (*OpStackSingleBatch)(nil) // Compile time assertion: type implements the interface
 
 
-func NewOpStackSingleBatch(opPreProc *pre.OpPreProcess, opSelectReference *ref.OpSelectReference, 
-	                       opPostProc *post.OpPostProcess, opStack *OpStack, opStarDetect *pre.OpStarDetect, 
-	                       opSave *ops.OpSave) *OpStackSingleBatch {
-	return &OpStackSingleBatch{
-		PreProcess:      opPreProc, 
-		SelectReference: opSelectReference,
-		PostProcess:     opPostProc,
-		Stack:           opStack, 
-		StarDetect:      opStarDetect,
-		Save:            opSave, 
-		MaxThreads:      0,
-	}
+func NewOpStackBatch(opPreProc *ops.OpSequence, opSelectReference *ref.OpSelectReference, 
+	                 opPostProc *ops.OpSequence, opStack *OpStack, opStarDetect *pre.OpStarDetect, 
+	                 opSave *ops.OpSave) *ops.OpSequence {
+	return ops.NewOpSequence([]ops.Operator{
+		opPreProc, opSelectReference, opPostProc, opStack, opStarDetect, opSave,
+	})
 }
 
-
+/*
 // Stack a given batch of files, using the reference provided, or selecting a reference frame if nil.
 // Returns the stack for the batch, and updates reference frame internally
-func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.Writer) (fOut *fits.Image, err error) {
-	if len(opLoadFiles)==0 {
+func (op *OpStackSingleBatch) Apply(opLoads []*ops.OpLoad, logWriter io.Writer) (fOut *fits.Image, err error) {
+	if len(opLoads)==0 {
 		return nil, errors.New("No frames to preprocess, postprocess and stack")
 	}
 
 	// Preprocess light frames (subtract dark, divide flat, remove bad pixels, detect stars and HFR)
-	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoadFiles))
+	fmt.Fprintf(logWriter, "\nPreprocessing %d frames...\n", len(opLoads))
 
 	if op.PreProcess==nil { return nil, errors.New("Missing preprocessing parameters") }
 	opParallelPre:=ops.NewOpParallel(op.PreProcess, op.MaxThreads)
-	lights, err:=opParallelPre.ApplyToFiles(opLoadFiles, logWriter)
+	lights, err:=opParallelPre.ApplyToFiles(opLoads, logWriter)
 	if err!=nil { return nil, err }
 	lights=RemoveNils(lights) // Remove nils from lights, in case of read errors
 	debug.FreeOSMemory()					
@@ -87,7 +80,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 	// Select reference frame, unless one was provided from prior batches
 	if op.SelectReference==nil { return nil, errors.New("Missing reference frame parameters") }
 	if op.SelectReference.Frame==nil {
-		lights, err=op.SelectReference.ApplyToFITS(lights, logWriter)
+		lights, err=op.SelectReference.Apply(lights, logWriter)
 		if err!=nil { return nil, err }
 		op.PostProcess.Align.Reference    =op.SelectReference.Frame
 	    op.PostProcess.Normalize.Reference=op.SelectReference.Frame
@@ -98,7 +91,7 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 
 	if op.PostProcess==nil { return nil, errors.New("Missing postprocessing parameters") }
 	opParallelPost:=ops.NewOpParallel(op.PostProcess, op.MaxThreads)
-	lights, err=opParallelPost.ApplyToFITS(lights, logWriter)
+	lights, err=opParallelPost.Apply(lights, logWriter)
 	if err!=nil { return nil, err }
 	lights=RemoveNils(lights) // Remove nils from lights, in case of alignment errors
 	debug.FreeOSMemory()					
@@ -140,20 +133,4 @@ func (op *OpStackSingleBatch) Apply(opLoadFiles []*ops.OpLoadFile, logWriter io.
 
 	return fOut, nil
 }
-
-
-// Remove nils from an array of fits.Images, editing the underlying array in place
-func RemoveNils(lights []*fits.Image) ([]*fits.Image) {
-	o:=0
-	for i:=0; i<len(lights); i+=1 {
-		if lights[i]!=nil {
-			lights[o]=lights[i]
-			o+=1
-		}
-	}
-	for i:=o; i<len(lights); i++ {
-		lights[i]=nil
-	}
-	return lights[:o]	
-}
-
+*/
