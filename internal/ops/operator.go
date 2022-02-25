@@ -205,11 +205,21 @@ func NewOpLoad(id int, fileName string) *OpLoad {
 // Load image from a file. Ignores any f argument provided
 func (op *OpLoad) MakePromises(ins []Promise, c *Context) (outs []Promise, err error) {
 	if len(ins)>0 { return nil, errors.New(fmt.Sprintf("%s operator with non-zero input", op.Type)) }
+	if !isPathAllowed(op.FileName) { return nil, errors.New("Filename outside current directory tree, aborting") }
+
 	out:=func() (f *fits.Image, err error) {
 		// no inputs to materialize
 		return op.Apply(nil, c)
 	}
 	return []Promise{out}, nil
+}
+
+// Returns true if a path is considered safe, i.e. not an absolute path,
+// and doesn't contain the ".." characters to change to a parent directory 
+func isPathAllowed(p string) bool {
+	if filepath.IsAbs(p) { return false }          // relative paths only
+    if strings.Contains(p, "..") { return false }  // no going outside the tree
+    return true
 }
 
 func (op *OpLoad) Apply(f *fits.Image, c *Context) (result *fits.Image, err error) {
@@ -251,6 +261,10 @@ func (op *OpLoadMany) MakePromises(ins []Promise, c *Context) (outs []Promise, e
 		matches, err := filepath.Glob(pattern)
 		if err!=nil { return nil, err }
 		for _,match:=range(matches) {
+			if !isPathAllowed(match) { 
+				fmt.Fprintf(c.Log, "Pattern match outside current directory tree, skipping\n")
+				continue
+			}
 			opLoad:=NewOpLoad(len(outs), match)
 			promises, err:=opLoad.MakePromises(nil, c)
 			if err!=nil { return nil, err }
