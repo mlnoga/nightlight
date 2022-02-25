@@ -35,11 +35,18 @@ var reParser *regexp.Regexp=compileRE() // Regexp parser for FITS header lines
 func NewImageFromFile(fileName string, id int, logWriter io.Writer) (i *Image, err error) {
 	i=NewImage()
 	i.ID=id
-	return i, i.ReadFile(fileName, logWriter)
+	return i, i.ReadFile(fileName, true, logWriter)
 }
 
-// Read FITS data from the file with the given name. Decompresses gzip if .gz or gzip suffix is present
-func (fits *Image) ReadFile(fileName string, logWriter io.Writer) error {
+func NewImageMasterDataFromFile(fileName string, id int, logWriter io.Writer) (i *Image, err error) {
+	i=NewImage()
+	i.ID=id
+	return i, i.ReadFile(fileName, false, logWriter)
+}
+
+// Read FITS data from the file with the given name. Decompresses gzip if .gz or gzip suffix is present.
+// Reads metadata only (fast) if readData is false.
+func (fits *Image) ReadFile(fileName string, readData bool, logWriter io.Writer) error {
 	//LogPrintln("Reading from " + fileName + "..." )
 	f, err:=os.Open(fileName)
 	if err!=nil { return err }
@@ -56,7 +63,7 @@ func (fits *Image) ReadFile(fileName string, logWriter io.Writer) error {
 	} 
 
 	fits.FileName=fileName
-	return fits.Read(r, logWriter)
+	return fits.Read(r, readData, logWriter)
 }
 
 func (fits *Image) PopHeaderInt32(key string) (res int32, err error) {
@@ -78,7 +85,7 @@ func (fits *Image) PopHeaderInt32OrFloat(key string) (res float32, err error) {
 	return 0, errors.New(fmt.Sprintf("FITS header does not contain key %s", key))
 }
 
-func (fits *Image) Read(f io.Reader, logWriter io.Writer) (err error) {
+func (fits *Image) Read(f io.Reader, readData bool, logWriter io.Writer) (err error) {
 	err=fits.Header.read(f, logWriter)
 	if err!=nil { return err }
 
@@ -108,6 +115,7 @@ func (fits *Image) Read(f io.Reader, logWriter io.Writer) (err error) {
 		if fits.Exposure,err =fits.PopHeaderInt32OrFloat("EXPTIME");  err!=nil { fits.Exposure=0 }
 	}
 
+	if !readData { return nil }
 	return fits.readData(f, logWriter)
 }
 
