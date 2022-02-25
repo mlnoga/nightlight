@@ -48,9 +48,10 @@ var totalMiBs=memory.TotalMemory()/1024/1024
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
 var memprofile = flag.String("memprofile", "", "write memory profile to `file`")
 
-var job    = flag.String("job","", "JSON job specification to run")
+var port   = flag.Int64("port", 8080, "port for serving HTTP API")
 var chroot = flag.String("chroot", "", "directory to chroot and chdir to when serving HTTP. must be run as root")
 var setuid = flag.Int64("setuid", -1, "user id number to setuid to when serving HTTP. must be run as root")
+var job    = flag.String("job","", "JSON job specification to run")
 
 var out  = flag.String("out", "out.fits", "save output to `file`")
 var jpg  = flag.String("jpg", "%auto",  "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
@@ -254,7 +255,8 @@ Flags:
 	// run actions
     switch args[0] {
     case "serve":
-    	rest.Serve(*chroot, int(*setuid));
+    	rest.MakeSandbox(*chroot, int(*setuid))
+    	rest.Serve(int(*port))
 
     case "stats":
 		//opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany})

@@ -52,7 +52,7 @@ func MakeSandbox(chroot string, setuid int) {
 }
 
 // Serve APIs and static files via HTTP
-func Serve() {
+func Serve(port int) {
 	r := gin.Default()
 	api := r.Group("/api")
 	{
@@ -63,7 +63,7 @@ func Serve() {
 			v1.StaticFS("/files",http.Dir(".") )
 		}
 	}
-	r.Run() // listen and serve on 0.0.0.0:8080	
+	r.Run(fmt.Sprintf(":%d", port)) // listen and serve on 0.0.0.0:port
 }
 
 func getPing(c *gin.Context) {
