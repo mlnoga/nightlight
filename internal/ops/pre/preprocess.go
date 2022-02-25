@@ -32,9 +32,7 @@ import (
 func NewOpPreProcess(opCalibrate *OpCalibrate, opBadPixel *OpBadPixel, opDebayer *OpDebayer,
                      opBin *OpBin, opBackExtract *OpBackExtract, opStarDetect *OpStarDetect,
                      opSave *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence([]ops.Operator{
-		opCalibrate, opBadPixel, opDebayer, opBin, opBackExtract, opStarDetect,	opSave,
-	})	
+	return ops.NewOpSequence(opCalibrate, opBadPixel, opDebayer, opBin, opBackExtract, opStarDetect, opSave)
 }
 
 

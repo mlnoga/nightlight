@@ -32,10 +32,10 @@ func NewOpStretch(opNormalizeRange *OpNormalizeRange, opStretchIterative *OpStre
 	              opGamma *OpGamma, opGammaPP *OpGammaPP, opScaleBlack*OpScaleBlack, opStarDetect *pre.OpStarDetect, 
 	              opSelectReference *ref.OpSelectReference, opAlign *post.OpAlign, 
 	              opUnsharpMask *OpUnsharpMask, opSave, opSave2 *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence([]ops.Operator{
+	return ops.NewOpSequence(
 		opNormalizeRange, opStretchIterative, opMidtones, opGamma, opGammaPP, opScaleBlack, 
 		opStarDetect, opSelectReference, opAlign, opUnsharpMask, opSave, opSave2,
-	})
+	)
 }
 
 // Normalizes the image range to [0, 1]. Takes one input, produces one output

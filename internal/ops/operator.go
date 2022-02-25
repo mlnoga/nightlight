@@ -343,9 +343,9 @@ type OpSequence struct {
 
 func init() { SetOperatorFactory(func() Operator { return NewOpSequenceDefault()}) } // register the operator for JSON decoding
 
-func NewOpSequenceDefault() *OpSequence { return NewOpSequence(nil) }
+func NewOpSequenceDefault() *OpSequence { return NewOpSequence() }
 
-func NewOpSequence(steps []Operator) *OpSequence {
+func NewOpSequence(steps ...Operator) *OpSequence {
 	return &OpSequence{
 		OpBase : OpBase{Type: "seq", Active: len(steps)>0},
 		Steps  : steps,
@@ -375,6 +375,13 @@ func (op *OpSequence) UnmarshalJSON(b []byte) error {
         op.Steps = append(op.Steps, i)
     }
     return nil
+}
+
+// Appends one or more operators to the existing sequence
+func (op *OpSequence) Append(steps ...Operator) {
+	for _,step:=range steps {
+		op.Steps=append(op.Steps, step)
+	}
 }
 
 // Marshals a sequence with polymorphic operators to JSON.

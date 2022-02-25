@@ -30,9 +30,7 @@ import (
 
 
 func NewOpPostProcess(opMatchHistogram *OpMatchHistogram, opAlign *OpAlign, opSave *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence([]ops.Operator{
-		opMatchHistogram, opAlign, opSave,
-	})
+	return ops.NewOpSequence(opMatchHistogram, opAlign, opSave)
 }
 
 

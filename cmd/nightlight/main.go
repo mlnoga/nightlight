@@ -260,7 +260,7 @@ Flags:
 
     case "stats":
 		//opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany})
-		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opPreProc})
+		opSeq:=ops.NewOpSequence(opLoadMany, opPreProc)
 		err=runOp(opSeq, c)
 
 	case "stack":
@@ -285,7 +285,7 @@ Flags:
 	    	opStarDetect,
 			ops.NewOpSave(*out),
 		)
-		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opStackBatches})
+		opSeq:=ops.NewOpSequence(opLoadMany, opStackBatches)
 		err=runOp(opSeq, c)
 
     case "stretch":
@@ -303,7 +303,7 @@ Flags:
 			ops    .NewOpSave            (*out),
 			ops    .NewOpSave            (*jpg),
     	)
-		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opStretch})
+		opSeq:=ops.NewOpSequence(opLoadMany, opStretch)
 		err=runOp(opSeq, c)
 
     case "rgb":
@@ -314,7 +314,7 @@ Flags:
 			rgb.NewOpRGBBalance(true),
 			rgb.NewOpRGBToHSLuv(true),
 			hsl.NewOpHSLApplyLum(true),
-			ops.NewOpSequence([]ops.Operator{
+			ops.NewOpSequence(
 				hsl.NewOpHSLApplyLum(true),
 				hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
 				hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
@@ -325,12 +325,12 @@ Flags:
 				hsl.NewOpHSLGamma(float32(*gamma)),
 				hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
 				hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
-			}), 
+			), 
 			rgb.NewOpHSLuvToRGB(true),
 			ops.NewOpSave(*out),
 			ops.NewOpSave(*jpg),
 		) 
-		opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany, opRGB})
+		opSeq:=ops.NewOpSequence(opLoadMany, opRGB)
 		err=runOp(opSeq, c)
 
 	case "run":

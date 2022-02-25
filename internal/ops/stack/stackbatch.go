@@ -44,9 +44,9 @@ import (
 func NewOpStackBatch(opPreProc *ops.OpSequence, opSelectReference *ref.OpSelectReference, 
 	                 opPostProc *ops.OpSequence, opStack *OpStack, opStarDetect *pre.OpStarDetect, 
 	                 opSave *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence([]ops.Operator{
+	return ops.NewOpSequence(
 		opPreProc, opSelectReference, opPostProc, opStack, opStarDetect, opSave,
-	})
+	)
 }
 
 /*

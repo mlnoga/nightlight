@@ -34,10 +34,10 @@ func NewOpRGBLProcess(opStarDetect *pre.OpStarDetect, opSelectReference *ref.OpS
                       opRGBToHSLuv *OpRGBToHSLuv, opHSLApplyLum *hsl.OpHSLApplyLum,
                       opHSLProcess *ops.OpSequence, opHSLuvToRGB *OpHSLuvToRGB,
                       opSave, opSave2 *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence([]ops.Operator{
+	return ops.NewOpSequence(
 		opStarDetect, opSelectReference, opRGBCombine, opRGBBalance, opRGBToHSLuv, opHSLApplyLum, 
 		opHSLProcess, opHSLuvToRGB, opSave, opSave2,
-	})
+	)
 }
 
 
