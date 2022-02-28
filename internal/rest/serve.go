@@ -21,35 +21,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"runtime/debug"
-	"syscall"
 	"github.com/gin-gonic/gin"
 
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/stats"
 )
-
-// Secures the current process by creating a chroot environment
-// (requires root) and changing the user ID to something without
-// elevated rights.
-func MakeSandbox(chroot string, setuid int) {
-	if len(chroot)>0 {
-		fmt.Printf("Changing filesystem root to %s...\n", chroot)
-		if err:=syscall.Chroot(chroot); err!=nil {
-			panic(fmt.Sprintf("error chroot(%s): %s\n", chroot, err.Error()))
-		}
-		if err:=os.Chdir(chroot); err!=nil {
-			panic(fmt.Sprintf("error chdir(%s): %s\n", chroot, err.Error()))
-		}
-	}
-	if setuid>=0 {
-		fmt.Printf("Setting user id from %d/%d to  %d\n", syscall.Getuid(), syscall.Geteuid(), setuid)
-		if err:=syscall.Setuid(setuid); err!=nil {
-			panic(fmt.Sprintf("error setuid(%d): %s\n", setuid, err.Error()))
-		}
-	}
-}
 
 // Serve APIs and static files via HTTP
 func Serve(port int) {
