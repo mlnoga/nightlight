@@ -90,18 +90,18 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 	return func() (f *fits.Image, err error) {
 		if !op.Active { return ins[i]() }
 
-		// acquire lock on reference frame to avoid race conditions
-		op.mutex.Lock()
-		defer op.mutex.Unlock()
-		// if reference frame already set, return materialized input if it exists, else input promise
-		if c.RefFrame!=nil { 
-			if op.materialized!=nil && op.materialized[i]!=nil {
+		op.mutex.Lock()                 // lock so a single thread accesses the reference frame
+		if c.RefFrame!=nil {            // if a reference frame already exists
+			op.mutex.Unlock()           // unlock immediately to allow ...
+			if op.materialized==nil || op.materialized[i]==nil {
+				return ins[i]()         // ... materializations to be parallelized by the caller
+			} else {
 				mat:=op.materialized[i]
-				op.materialized[i]=nil // remove reference
+				op.materialized[i]=nil  // remove reference to free memory
 				return mat, nil
 			}
-			return ins[i]() 
 		}
+		defer op.mutex.Unlock()		    // else release lock later when reference frame is computed
 
 		// if reference image is given in a file, load it and detect stars w/o materializing all input promises
 		if op.Mode==RFMFileName {
