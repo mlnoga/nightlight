@@ -410,34 +410,3 @@ func (op *OpSequence) applyRecursive(steps []Operator, ins []Promise, c *Context
 	if err!=nil { return nil, err }
 	return op.applyRecursive(steps[1:], ins, c)
 }
-
-
-// Applies a single operator to each input.Takes n inputs, produces n outputs
-type OpForEach struct {
-	OpBase
-	Operation    Operator  `json:"operation"`
-}
-
-func init() { SetOperatorFactory(func() Operator { return NewOpForEachDefault()}) } // register the operator for JSON decoding
-
-func NewOpForEachDefault() *OpForEach { return NewOpForEach(nil) }
-
-func NewOpForEach(operation Operator) *OpForEach {
-	return &OpForEach{
-		OpBase : OpBase{Type: "forEach", Active: operation!=nil},
-		Operation    : operation, 
-	} 
-}
-
-// Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func (op *OpForEach) MakePromises(ins []Promise, c *Context) (outs []Promise, err error) {
-	if len(ins)==0 { return ins, nil }
-	if op.Operation==nil { return nil, errors.New(fmt.Sprintf("%s operator has no operation to apply", op.Type))}
-    for _,in:=range(ins) {
-    	out, err:=op.Operation.MakePromises([]Promise{in}, c)
-    	if err!=nil { return nil, err }
-    	if len(out)!=1 { return nil, errors.New(fmt.Sprintf("%s operator needs exactly one promise from embedded operation", op.Type))}
-    	outs=append(outs, out[0])
-    }
-    return outs, nil
-}
