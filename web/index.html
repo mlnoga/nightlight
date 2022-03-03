@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8"></meta>
+    <title>Nightlight</title>
+    <script src="blockly/blockly_compressed.js"></script>
+    <script src="blockly/blocks_compressed.js"></script>
+    <script src="blockly/msg/js/en.js"></script>
+    <script src="js/field-slider/field-slider.js"></script>
+    <script src="js/blocks.js"></script>
+    <script src="js/toolbox.js"></script>
+    <script src="js/codegen.js"></script>
+    <script src="js/theme.js"></script>
+    <style>
+      html, body {
+        height: 100%;
+        margin: 0;
+      }
+      body {
+        background-color: #000000;
+        color: #a00000;
+        font-family: sans-serif;
+        overflow: hidden;
+      }
+      h1 {
+        font-weight: normal;
+        font-size: 140%;
+      }
+      h2 {
+        font-weight: normal;
+        font-size: 120%;
+      }
+      table {
+        height: 100%;
+        width: 100%;
+      }
+      #blocklyArea {
+        height: 99%;
+        background: #101010;
+        text-align: center;
+      }
+      #generatedCode {
+        color:  #a00000;
+        height:  100%;
+        vertical-align: top;
+        overflow-x: auto;
+        overflow-y: auto;
+      }
+      #logMessages {
+        color:  #a00000;
+        height:  100%;
+        vertical-align: top;
+        overflow-x: auto;
+        overflow-y: auto;
+      }
+      #image {
+        width: 100%;
+        height: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <table>
+      <tr><td><h1>Nightlight</h1></td><td><button onclick="showCode()">Show code</button> <button onclick="run()">Run</button></td></tr>
+      <tr><td id="blocklyArea" width="768px"></td><td width="*">
+        <table><tr><td height="50%"><img src="/api/v1/files/C2021A1_LRGB.jpg" id="image"></img><!--<h2>Generated JSON</h2><br></br><div id="generatedCode"></div>--></td></tr>
+               <tr><td height="50%"><h2>Log messages</h2><br></br><pre id="logMessages"></pre></td></tr></table>
+      </td></tr>
+    </table>
+    <div id="blocklyDiv" style="position: absolute"></div>
+
+    <script language="javascript">
+      var blocklyArea = document.getElementById('blocklyArea');
+      var blocklyDiv = document.getElementById('blocklyDiv');
+      var workspace = Blockly.inject(blocklyDiv,{
+        media: 'blockly/media/',
+        toolbox: toolbox,
+        theme: theme,
+      });
+      var onresize = function(e) {
+        // Compute the absolute coordinates and dimensions of blocklyArea.
+        var element = blocklyArea;
+        var x = 0;
+        var y = 0;
+        do {
+          x += element.offsetLeft;
+          y += element.offsetTop;
+          element = element.offsetParent;
+        } while (element);
+        // Position blocklyDiv over blocklyArea.
+        blocklyDiv.style.left = x + 'px';
+        blocklyDiv.style.top = y + 'px';
+        blocklyDiv.style.width = blocklyArea.offsetWidth + 'px';
+        blocklyDiv.style.height = blocklyArea.offsetHeight + 'px';
+        Blockly.svgResize(workspace);
+      };
+      window.addEventListener('resize', onresize, false);
+      onresize();
+      Blockly.svgResize(workspace);
+
+      var generatedCodeDiv = document.getElementById('generatedCode');
+      var logMessagesDiv = document.getElementById('logMessages');
+
+      function showCode() {
+        var code = Json.workspaceToCode(workspace);
+        generatedCodeDiv.textContent=code;
+        // alert(code);
+      }
+
+      async function run() {
+        var code = Json.workspaceToCode(workspace);
+        const options = {
+          method: 'POST',
+          headers: new Headers({
+            'Content-Type': 'application/json; charset=UTF-8'
+          }),
+          body: code,
+        };
+
+        fetch('http://localhost:8080/api/v1/job', options)
+          .then(processChunkedResponse)
+          .then(onChunkedResponseComplete)
+          .catch(onChunkedResponseError)
+          ;
+      }
+
+function onChunkedResponseComplete(result) {
+  // completed
+}
+
+function onChunkedResponseError(err) {
+  alert(err)
+}
+
+function processChunkedResponse(response) {
+  var text = '';
+  var reader = response.body.getReader()
+  var decoder = new TextDecoder();
+  
+  return readChunk();
+
+  function readChunk() {
+    return reader.read().then(appendChunks);
+  }
+
+  function appendChunks(result) {
+    var chunk = decoder.decode(result.value || new Uint8Array, {stream: !result.done});
+    text += chunk;
+    logMessagesDiv.textContent=text;
+    if (result.done) {
+      return text;
+    } else {
+      return readChunk();
+    }
+  }
+}
+
+
+
+    </script>
+
+  </body>
+</html>

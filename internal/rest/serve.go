@@ -18,6 +18,7 @@ package rest
 
 import (
 	"encoding/json"
+	_ "embed"
 	"fmt"
 	"io"
 	"net/http"
@@ -26,11 +27,24 @@ import (
 
 	"github.com/mlnoga/nightlight/internal/ops"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/web"
 )
+
 
 // Serve APIs and static files via HTTP
 func Serve(port int) {
 	r := gin.Default()
+	r.Use(CORSMiddleware())
+	// web content
+	r.GET("/", func(c *gin.Context) {
+	    c.Data(http.StatusOK, "text/html", web.IndexHTML)
+	})
+	r.GET("/index.html", func(c *gin.Context) {
+	    c.Data(http.StatusOK, "text/html", web.IndexHTML)
+	})
+	r.StaticFS("/js", web.JavascriptFS())
+	r.StaticFS("/blockly", web.BlocklyFS())
+
 	api := r.Group("/api")
 	{
 		v1 := api.Group("/v1")
@@ -41,6 +55,23 @@ func Serve(port int) {
 		}
 	}
 	r.Run(fmt.Sprintf(":%d", port)) // listen and serve on 0.0.0.0:port
+}
+
+
+func CORSMiddleware() gin.HandlerFunc {
+    return func(c *gin.Context) {
+        c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+        c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+        c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+        c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+        if c.Request.Method == "OPTIONS" {
+            c.AbortWithStatus(204)
+            return
+        }
+
+        c.Next()
+    }
 }
 
 func getPing(c *gin.Context) {
@@ -58,6 +89,9 @@ func printOp(logWriter io.Writer, prefix, suffix string, op interface{}) error {
 
 func postJob(c *gin.Context)  {
 	{
+		// raw,_:=c.GetRawData()
+		// fmt.Printf("Raw data: %s\n", string(raw))
+
 		// bind POST arguments to a sequence operator
 		var op ops.OpSequence
 		if err:=c.ShouldBind(&op); err!=nil {
