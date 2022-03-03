@@ -242,7 +242,7 @@ Flags:
 	// parse preprocessing flags into preprocessing sequence operator
 	opDebayer:=pre.NewOpDebayer(*debayer, *cfa)
 	opStarDetect:=pre.NewOpStarDetect(int32(*starRadius), float32(*starSig), float32(*starBpSig), float32(*starInOut), *stars)
-	opPreProc:=pre.NewOpPreProcess(
+	opPreProc:=ops.NewOpSequence(
 		pre.NewOpCalibrate(*dark, *flat),
 		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
 		opDebayer,
@@ -259,38 +259,38 @@ Flags:
     	rest.Serve(int(*port))
 
     case "stats":
-		//opSeq:=ops.NewOpSequence([]ops.Operator{opLoadMany})
 		opSeq:=ops.NewOpSequence(opLoadMany, opPreProc)
 		err=runOp(opSeq, c)
 
 	case "stack":
-    	opStackBatches :=stack.NewOpStackBatches(
-	    	stack.NewOpStackBatch(
-	    		opPreProc, 
-	    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opStarDetect),
-	    		post.NewOpPostProcess(
+    	opSeq :=ops.NewOpSequence(
+    		opLoadMany, 
+    		stack.NewOpStackBatches(
+		    	ops.NewOpSequence(
+		    		opPreProc, 
+		    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opStarDetect),
 		            post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
-		            post.NewOpAlign(int32(*align), int32(*alignK), float32(*alignT), post.OOBModeNaN),
+		            post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeNaN),
 		            ops.NewOpSave(*pPost),
-				), 
-				stack.NewOpStack(
-					stack.StackMode(*stMode), 
-					stack.StackWeighting(*stWeight), 
-					float32(*stSigLow), 
-					float32(*stSigHigh),
-				),
-	    		opStarDetect, 
-	    		ops.NewOpSave(*batch),
-	    	),
+					stack.NewOpStack(
+						stack.StackMode(*stMode), 
+						stack.StackWeighting(*stWeight), 
+						float32(*stSigLow), 
+						float32(*stSigHigh),
+					),
+		    		opStarDetect, 
+		    		ops.NewOpSave(*batch),
+		    	),
+		    ),
 	    	opStarDetect,
 			ops.NewOpSave(*out),
 		)
-		opSeq:=ops.NewOpSequence(opLoadMany, opStackBatches)
 		err=runOp(opSeq, c)
 
     case "stretch":
-    	opStretch:=stretch.NewOpStretch(
-			stretch.NewOpNormalizeRange  (true),
+    	opSeq:=ops.NewOpSequence(
+    		opLoadMany,
+			stretch.NewOpNormalizeRange  (),
 			stretch.NewOpStretchIterative(float32(*autoLoc / 100), float32(*autoScale / 100)),
 			stretch.NewOpMidtones        (float32(*midtone), float32(*midBlack)),
 			stretch.NewOpGamma           (float32(*gamma)),
@@ -298,39 +298,39 @@ Flags:
 			stretch.NewOpScaleBlack      (float32(*scaleBlack / 100)),
 			opStarDetect,
 			ref    .NewOpSelectReference (ref.RFMFileName, *alignTo, opStarDetect),
-			post   .NewOpAlign           (int32(*align), int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
+			post   .NewOpAlign           (int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops    .NewOpSave            (*out),
 			ops    .NewOpSave            (*jpg),
     	)
-		opSeq:=ops.NewOpSequence(opLoadMany, opStretch)
 		err=runOp(opSeq, c)
 
     case "rgb":
-    	opRGB:=rgb.NewOpRGBLProcess(
+    	opSeq:=ops.NewOpSequence(
+    		opLoadMany,
     		opStarDetect,
 			ref.NewOpSelectReference(ref.RFMStarsOverHFR, "", opStarDetect),
-			rgb.NewOpRGBCombine(true), 
-			rgb.NewOpRGBBalance(true),
-			rgb.NewOpRGBToHSLuv(true),
-			hsl.NewOpHSLApplyLum(true),
-			ops.NewOpSequence(
-				hsl.NewOpHSLApplyLum(true),
-				hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
-				hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
-				hsl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
-				hsl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
-				hsl.NewOpHSLSCNR(float32(*scnr)),
-				hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
-				hsl.NewOpHSLGamma(float32(*gamma)),
-				hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
-				hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
-			), 
-			rgb.NewOpHSLuvToRGB(true),
+
+			rgb.NewOpRGBCombine(), 
+			rgb.NewOpRGBBalance(),
+
+			rgb.NewOpRGBToHSLuv(),
+			hsl.NewOpHSLApplyLum(),
+
+			hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
+			hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
+			hsl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
+			hsl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
+			hsl.NewOpHSLSCNR(float32(*scnr)),
+			hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
+			hsl.NewOpHSLGamma(float32(*gamma)),
+			hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
+			hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
+
+			rgb.NewOpHSLuvToRGB(),
 			ops.NewOpSave(*out),
 			ops.NewOpSave(*jpg),
 		) 
-		opSeq:=ops.NewOpSequence(opLoadMany, opRGB)
 		err=runOp(opSeq, c)
 
 	case "run":
@@ -386,7 +386,7 @@ func runOp(op ops.Operator, c *ops.Context) (err error) {
 	var m []byte
 	m,err=json.MarshalIndent(op,"", "  ")
 	if err!=nil { return err }
-	fmt.Fprintf(c.Log, "\nRunning job:\n%s\n", string(m))
+	fmt.Fprintf(c.Log, "\nRunning JSON job:\n%s\n", string(m))
 
 	promises, err :=op.MakePromises(nil, c)
 	if err!=nil { return err }

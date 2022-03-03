@@ -32,14 +32,14 @@ type OpHSLApplyLum struct {
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLApplyLumDefault() })} // register the operator for JSON decoding
 
-func NewOpHSLApplyLumDefault() *OpHSLApplyLum { return NewOpHSLApplyLum(true) }
+func NewOpHSLApplyLumDefault() *OpHSLApplyLum { return NewOpHSLApplyLum() }
 
-func NewOpHSLApplyLum(active bool) *OpHSLApplyLum {
-	op:=OpHSLApplyLum{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslApplyLum", Active: active}},
+func NewOpHSLApplyLum() *OpHSLApplyLum {
+	op:=&OpHSLApplyLum{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslApplyLum"}},
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -49,11 +49,12 @@ func (op *OpHSLApplyLum) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLApplyLum(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLApplyLum) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active || c.LumFrame==nil { return f, nil }
+	if c.LumFrame==nil { return f, nil }
     fmt.Fprintf(c.Log, "Converting mono luminance image to HSLuv as well...\n")
     c.LumFrame.MonoToHSLuvLum()
 
@@ -77,14 +78,13 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLNeutra
 func NewOpHSLNeutralizeBackgroundDefault() *OpHSLNeutralizeBackground { return NewOpHSLNeutralizeBackground(0.75, 1.0) }
 
 func NewOpHSLNeutralizeBackground(sigmaLow, sigmaHigh float32) *OpHSLNeutralizeBackground {
-	active:=sigmaLow!=0 || sigmaHigh!=0
-	op:=OpHSLNeutralizeBackground{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslNeutralizeBackground", Active: active}},
+	op:=&OpHSLNeutralizeBackground{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslNeutralizeBackground"}},
 		SigmaLow    : sigmaLow,
 		SigmaHigh   : sigmaHigh,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -94,11 +94,12 @@ func (op *OpHSLNeutralizeBackground) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLNeutralizeBackground(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLNeutralizeBackground) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.SigmaLow==0 && op.SigmaHigh==0 { return f, nil }
 	fmt.Fprintf(c.Log, "Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", op.SigmaLow, op.SigmaHigh)    	
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -125,14 +126,13 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLSatura
 func NewOpHSLSaturationGammaDefault() *OpHSLSaturationGamma { return NewOpHSLSaturationGamma(1.75, 0.75) }
 
 func NewOpHSLSaturationGamma(gamma, sigma float32) *OpHSLSaturationGamma {
-	active:=gamma!=1.0
-	op:=OpHSLSaturationGamma{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSaturationGamma", Active: active}},
+	op:=&OpHSLSaturationGamma{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSaturationGamma"}},
 		Gamma       : gamma, 
 		Sigma       : sigma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -142,11 +142,12 @@ func (op *OpHSLSaturationGamma) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLSaturationGamma(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLSaturationGamma) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Gamma==1.0 { return f, nil }
    	fmt.Fprintf(c.Log, "Applying gamma %.2f to saturation for values %.4g sigma above background...\n", op.Gamma, op.Sigma)
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -171,15 +172,14 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLSelect
 func NewOpHSLSelectiveSaturationDefault() *OpHSLSelectiveSaturation { return NewOpHSLSelectiveSaturation(295,40,1) }
 
 func NewOpHSLSelectiveSaturation(from, to, factor float32) *OpHSLSelectiveSaturation {
-	active:=factor!=1
-	op:=OpHSLSelectiveSaturation{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSelectiveSaturation", Active: active}},
+	op:=&OpHSLSelectiveSaturation{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSelectiveSaturation"}},
 		From        : from, 
 		To          : to, 
 		Factor      : factor,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -189,11 +189,12 @@ func (op *OpHSLSelectiveSaturation) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLSelectiveSaturation(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLSelectiveSaturation) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Factor==1 { return f, nil }
 	fmt.Fprintf(c.Log, "Multiplying LCH chroma (saturation) by %.4g for hues in [%g,%g]...\n", op.Factor, op.From, op.To)
 	f.AdjustChromaForHues(op.From, op.To, op.Factor)
 	return f, nil
@@ -213,16 +214,15 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLRotate
 func NewOpHSLRotateHueDefault() *OpHSLRotateHue { return  NewOpHSLRotateHue(100, 190, 0, 1) }
 
 func NewOpHSLRotateHue(from, to, offset, sigma float32) *OpHSLRotateHue {
-	active:=offset!=0
-	op:=OpHSLRotateHue{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslRotateHue", Active: active}},
+	op:=&OpHSLRotateHue{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslRotateHue"}},
 		From        : from, 
 		To          : to, 
 		Offset      : offset,
 		Sigma       : sigma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -232,11 +232,12 @@ func (op *OpHSLRotateHue) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLRotateHue(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLRotateHue) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Offset!=0 { return f, nil }
 	fmt.Fprintf(c.Log, "Rotating LCH hue angles in [%g,%g] by %.4g for lum>=loc+%g*scale...\n", op.From, op.To, op.Offset, op.Sigma)
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -259,13 +260,12 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLSCNRDe
 func NewOpHSLSCNRDefault() *OpHSLSCNR { return NewOpHSLSCNR(0) }
 
 func NewOpHSLSCNR(factor float32) *OpHSLSCNR {
-	active:=factor!=0
-	op:=OpHSLSCNR{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSCNR", Active: active}},
+	op:=&OpHSLSCNR{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslSCNR"}},
 		Factor      : factor,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -275,11 +275,12 @@ func (op *OpHSLSCNR) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLSCNR(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLSCNR) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Factor!=0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying SCNR of %.4g ...\n", op.Factor)
 	f.SCNR(op.Factor)
 
@@ -299,14 +300,13 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLMidton
 func NewOpHSLMidtonesDefault() *OpHSLMidtones { return NewOpHSLMidtones(0, 2) }
 
 func NewOpHSLMidtones(mid, black float32) *OpHSLMidtones {
-	active:=mid!=0
-	op:=OpHSLMidtones{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslMidtones", Active: active}},
+	op:=&OpHSLMidtones{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslMidtones"}},
 		Mid:    mid,
 		Black:  black,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -316,11 +316,12 @@ func (op *OpHSLMidtones) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLMidtones(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLMidtones) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Mid!=0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -346,13 +347,12 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLGammaD
 func NewOpHSLGammaDefault() *OpHSLGamma { return NewOpHSLGamma(1.0) }
 
 func NewOpHSLGamma(gamma float32) *OpHSLGamma {
-	active:=gamma!=1.0
-	op:=OpHSLGamma{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslGamma", Active: active}},
+	op:=&OpHSLGamma{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslGamma"}},
 		Gamma       : gamma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -362,11 +362,12 @@ func (op *OpHSLGamma) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLGamma(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLGamma) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Gamma!=1.0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying gamma %.3g\n", op.Gamma)
 	f.ApplyGammaToChannel(2, op.Gamma)
 	return f, nil
@@ -385,14 +386,13 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLGammaP
 func NewOpHSLGammaPPDefault() *OpHSLGammaPP { return NewOpHSLGammaPP(1.0, 1.0) }
 
 func NewOpHSLGammaPP(gamma, sigma float32) *OpHSLGammaPP {
-	active:=gamma!=1.0
-	op:=OpHSLGammaPP{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslGammaPP", Active: active}},
+	op:=&OpHSLGammaPP{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslGammaPP"}},
 		Gamma       : gamma,
 		Sigma       : sigma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -402,11 +402,12 @@ func (op *OpHSLGammaPP) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLGammaPP(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLGammaPP) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Gamma!=1.0 { return f, nil }
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
 	loc, scale:=st.Location(), st.Scale()
@@ -431,13 +432,12 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLScaleB
 func NewOpHSLScaleBlackDefault() *OpHSLScaleBlack { return NewOpHSLScaleBlack(0) }
 
 func NewOpHSLScaleBlack(black float32) *OpHSLScaleBlack {
-	active:=black!=0
-	op:=OpHSLScaleBlack{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslScaleBlack", Active: active}},
+	op:=&OpHSLScaleBlack{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslScaleBlack"}},
 		Black: black,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -447,11 +447,12 @@ func (op *OpHSLScaleBlack) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpHSLScaleBlack(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpHSLScaleBlack) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if !op.Active { return f, nil }
+	if op.Black==0 { return f, nil }
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
 	loc, scale:=st.Location(), st.Scale()

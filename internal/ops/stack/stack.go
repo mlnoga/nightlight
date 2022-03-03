@@ -76,14 +76,15 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpStackDefa
 func NewOpStackDefault() *OpStack { return NewOpStack(StAuto, StWeightNone, 2.75, 2.75) }
 
 func NewOpStack(mode StackMode, weighting StackWeighting, sigmaLow, sigmaHigh float32) *OpStack {
-	return &OpStack{
-	  	OpBase      : ops.OpBase{Type: "stack", Active: true},
+	op:=&OpStack{
+	  	OpBase      : ops.OpBase{Type: "stack"},
 		Mode        : mode, 
 		Weighting   : weighting, 
 		SigmaLow    : sigmaLow, 
 		SigmaHigh   : sigmaHigh, 
 		RefFrameLoc : 0,
 	}
+	return op
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -101,18 +102,8 @@ func (op *OpStack) MakePromises(ins []ops.Promise, c *ops.Context) (outs []ops.P
 	if len(ins)==0 { return nil, errors.New(fmt.Sprintf("%s operator needs inputs", op.Type)) }
 
 	out:=func() (f *fits.Image, err error) {
-		if !op.Active { return f, nil }
 		fs, err:=ops.MaterializeAll(ins, c.MaxThreads, false) // materialize all input promises
 		if err!=nil { return nil, err }
-
-		if !op.Active { 
-			if len(fs)==1 { 
-				return f, nil 
-			} else {
-				return nil, errors.New(fmt.Sprintf("%s operator inactive with %d inputs", op.Type, len(fs)))
-			}
-		}
-
 		return op.Apply(fs, c)
 	}
 	return []ops.Promise{out}, nil

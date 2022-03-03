@@ -1,8 +1,9 @@
 module github.com/mlnoga/nightlight
 
-go 1.13
+go 1.17
 
 require (
+	github.com/gin-contrib/static v0.0.1 // indirect
 	github.com/gin-gonic/gin v1.7.7 // indirect
 	github.com/go-playground/validator/v10 v10.10.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect

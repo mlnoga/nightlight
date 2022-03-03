@@ -28,12 +28,6 @@ import (
 )
 
 
-
-func NewOpPostProcess(opMatchHistogram *OpMatchHistogram, opAlign *OpAlign, opSave *ops.OpSave) *ops.OpSequence {
-	return ops.NewOpSequence(opMatchHistogram, opAlign, opSave)
-}
-
-
 // Histogram normalization mode for post-processing
 type HistoNormMode int
 const (
@@ -56,13 +50,12 @@ func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpMatchHist
 func NewOpMatchHistogramDefault() *OpMatchHistogram { return NewOpMatchHistogram(HNMLocScale) }
 
 func NewOpMatchHistogram(mode HistoNormMode) *OpMatchHistogram {
-	active:=mode!=HNMNone
-	op:=OpMatchHistogram{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "matchHist", Active: active}},
+	op:=&OpMatchHistogram{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "matchHist"}},
 		Mode        : mode,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -72,11 +65,12 @@ func (op *OpMatchHistogram) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpMatchHistogram(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
 func (op *OpMatchHistogram) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
-	if !op.Active || op.Mode==HNMNone { return f, nil }
+	if op.Mode==HNMNone { return f, nil }
 	if c.RefFrame==nil { return nil, errors.New("missing historgram reference frame")}
 	switch op.Mode {
 		case HNMLocation:
@@ -109,18 +103,17 @@ type OpAlign struct {
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpAlignDefault() })} // register the operator for JSON decoding
 
-func NewOpAlignDefault() *OpAlign { return NewOpAlign(1, 20, 1.0, OOBModeNaN) }
+func NewOpAlignDefault() *OpAlign { return NewOpAlign(50, 1.0, OOBModeNaN) }
 
-func NewOpAlign(align, alignK int32, alignThreshold float32, oobMode OutOfBoundsMode) *OpAlign {
-	active:=alignK>0
-	op:=OpAlign{
-	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "align", Active: active}},
+func NewOpAlign(alignK int32, alignThreshold float32, oobMode OutOfBoundsMode) *OpAlign {
+	op:=&OpAlign{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "align"}},
 		K         : alignK,
 		Threshold : alignThreshold,	
 		OobMode   : oobMode,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op	
+	return op	
 }
 
 // Unmarshal the type from JSON with default values for missing entries
@@ -130,6 +123,7 @@ func (op *OpAlign) UnmarshalJSON(data []byte) error {
 	err:=json.Unmarshal(data, &def)
 	if err!=nil { return err }
 	*op=OpAlign(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
 	return nil
 }
 
@@ -137,7 +131,7 @@ func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err
 	if err =op.init(c); err!=nil { return nil, err } // initialize the aligner
 
 	// Is alignment to the reference frame required?
-	if !op.Active || op.Aligner==nil || len(op.Aligner.RefStars)==0 {
+	if op.K<=0 || op.Aligner==nil || len(op.Aligner.RefStars)==0 {
 		// Generally not required
 		f.Trans=star.IdentityTransform2D()		
 	} else if (len(op.Aligner.RefStars)==len(f.Stars) && (&op.Aligner.RefStars[0]==&f.Stars[0])) {
@@ -176,7 +170,7 @@ func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err
 func (op *OpAlign) init(c *ops.Context) error {
 	op.mutex.Lock()
 	defer op.mutex.Unlock()
-	if !op.Active || op.Aligner!=nil { return nil }
+	if op.K<=0 || op.Aligner!=nil { return nil }
 
 	if c.RefFrame==nil {
 		return errors.New("Unable to align without reference frame")

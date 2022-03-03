@@ -19,34 +19,28 @@ package stack
 import (
 	"errors"
 	"fmt"
-	"math"
 	"math/rand"
 	"runtime"
 	"runtime/debug"
 	"sort"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
-	"github.com/mlnoga/nightlight/internal/ops/pre"
 )
 
 
 type OpStackBatches struct {
 	ops.OpBase
 	PerBatch         *ops.OpSequence   `json:"perBatch"`
-	StarDetect       *pre.OpStarDetect `json:"starDetect"`
-	Save             *ops.OpSave       `json:"save"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpStackBatchesDefault() })} // register the operator for JSON decoding
 
-func NewOpStackBatchesDefault() *OpStackBatches { return NewOpStackBatches(nil, pre.NewOpStarDetectDefault(), ops.NewOpSave("")) }
+func NewOpStackBatchesDefault() *OpStackBatches { return NewOpStackBatches(ops.NewOpSequence()) }
 
-func NewOpStackBatches(perBatch *ops.OpSequence, starDetect *pre.OpStarDetect, save *ops.OpSave) (op *OpStackBatches) {
+func NewOpStackBatches(perBatch *ops.OpSequence) (op *OpStackBatches) {
 	return &OpStackBatches{
-		OpBase      : ops.OpBase{Type:"multiBatch", Active: true},
+		OpBase      : ops.OpBase{Type:"stackBatches"},
 		PerBatch    : perBatch,
-		StarDetect  : starDetect,
-		Save        : save,
 	}
 }
 
@@ -67,7 +61,6 @@ func (op *OpStackBatches) Apply(ins []ops.Promise, c *ops.Context) (fOut *fits.I
 	// Process each batch. The first batch sets the reference image 
 	stack:=(*fits.Image)(nil)
 	stackFrames:=int64(0)
-	stackNoise:=float32(0)
 	for b:=int64(0); b<numBatches; b++ {
 		// Cut out relevant part of the overall input filenames
 		batchStartOffset:= b   *batchSize
@@ -89,7 +82,6 @@ func (op *OpStackBatches) Apply(ins []ops.Promise, c *ops.Context) (fOut *fits.I
 		if numBatches>1 {
 			stack=StackIncremental(stack, batch, float32(batchFrames))
 			stackFrames+=batchFrames
-			stackNoise +=batch.Stats.Noise()*float32(batchFrames)
 		} else {
 			stack=batch
 		}
@@ -106,21 +98,7 @@ func (op *OpStackBatches) Apply(ins []ops.Promise, c *ops.Context) (fOut *fits.I
 	if numBatches>1 {
 		// Finalize stack of stacks
 		StackIncrementalFinalize(stack, float32(stackFrames))
-
-		// Find stars in newly stacked image and report out on them
-		stack, err=op.StarDetect.Apply(stack, c)
-		if err!=nil { return nil, err }
-		fmt.Fprintf(c.Log, "Overall stack: Stars %d HFR %.2f Exposure %gs %v\n", len(stack.Stars), stack.HFR, stack.Exposure, stack.Stats)
-
-		avgNoise:=stackNoise/float32(stackFrames)
-		expectedNoise:=avgNoise/float32(math.Sqrt(float64(numBatches)))
-		fmt.Fprintf(c.Log, "Expected noise %.4g from stacking %d batches with average noise %.4g\n",
-					expectedNoise, int(numBatches), avgNoise )
 	}
-
-	// Save and return
-	stack, err=op.Save.Apply(stack, c)
-	if err!=nil { return nil, err }
 
 	return stack, nil;
 }

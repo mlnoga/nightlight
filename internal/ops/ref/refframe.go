@@ -54,7 +54,7 @@ func NewOpSelectReferenceDefault() *OpSelectReference { return NewOpSelectRefere
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
 func NewOpSelectReference(mode RefSelMode, fileName string, opStarDetect *pre.OpStarDetect) *OpSelectReference {
 	op:=OpSelectReference{
-		OpBase    : ops.OpBase{Type:"selectRef", Active: true},
+		OpBase    : ops.OpBase{Type:"selectRef"},
 		Mode:       mode,
 		FileName:   fileName,
 		StarDetect: opStarDetect,
@@ -88,8 +88,6 @@ func (op *OpSelectReference) MakePromises(ins []ops.Promise, c *ops.Context) (ou
 
 func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Context) ops.Promise {
 	return func() (f *fits.Image, err error) {
-		if !op.Active { return ins[i]() }
-
 		op.mutex.Lock()                 // lock so a single thread accesses the reference frame
 		if c.RefFrame!=nil {            // if a reference frame already exists
 			op.mutex.Unlock()           // unlock immediately to allow ...

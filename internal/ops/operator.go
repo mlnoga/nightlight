@@ -119,18 +119,15 @@ func RemoveNils(lights []*fits.Image) ([]*fits.Image) {
 // and produces m promises as output or an error
 type Operator interface {
 	GetType() string
-	IsActive() bool
 	MakePromises(ins []Promise, c *Context) (outs []Promise, err error)
 }
 
 // Base type for operators, including type information for JSON serializing/deserializing
 type OpBase struct {
 	Type        string `json:"type"`
-	Active      bool   `json:"active"`
 }
 
 func (op *OpBase) GetType() string { return op.Type }
-func (op *OpBase) IsActive() bool { return op.Active }
 
 // Factory method for subclasses of unary operators. For JSON serializing/deserializing
 type OperatorFactory func() Operator
@@ -164,6 +161,10 @@ type OperatorUnary interface {
 type OpUnaryBase struct {
 	OpBase
 	Apply func(f *fits.Image, c *Context) (fOut *fits.Image, err error) `json:"-"`
+	// Careful: copying an OpUnary base as value into a new instance will lead to subsequent
+	// difficult to trace errors, as Apply() will still tie the method receiver to the
+	// address of the original. You must set op.OpUnaryBase.Apply=op.Apply after such a copy
+	// to avoid this error  
 }
 
 func (op *OpUnaryBase) MakePromises(ins []Promise, c *Context) (outs []Promise, err error) {
@@ -196,10 +197,20 @@ func NewOpLoadDefault() *OpLoad { return NewOpLoad(0, "") }
 
 func NewOpLoad(id int, fileName string) *OpLoad {
 	return &OpLoad{
-		OpBase : OpBase{Type: "load", Active: true},
+		OpBase : OpBase{Type: "load"},
 		ID : id,
 		FileName : fileName,
 	}
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpLoad) UnmarshalJSON(data []byte) error {
+	type defaults OpLoad
+	def:=defaults( *NewOpLoadDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpLoad(def)
+	return nil
 }
 
 // Load image from a file. Ignores any f argument provided
@@ -249,9 +260,19 @@ func NewOpLoadManyDefault() *OpLoadMany { return NewOpLoadMany(nil) }
 
 func NewOpLoadMany(filePatterns []string) *OpLoadMany {
 	return &OpLoadMany{
-		OpBase : OpBase{Type: "loadMany", Active: true},
+		OpBase : OpBase{Type: "loadMany"},
 		FilePatterns : filePatterns,
 	}
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpLoadMany) UnmarshalJSON(data []byte) error {
+	type defaults OpLoadMany
+	def:=defaults( *NewOpLoadManyDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpLoadMany(def)
+	return nil
 }
 
 // Turn filename wildcards into list of file load operators
@@ -293,16 +314,27 @@ func init() { SetOperatorFactory(func() Operator { return NewOpSaveDefault()}) }
 func NewOpSaveDefault() *OpSave { return NewOpSave("") }
 
 func NewOpSave(filenamePattern string) *OpSave {
-	op:=OpSave{
-		OpUnaryBase : OpUnaryBase{OpBase : OpBase{Type: "save", Active: filenamePattern!=""}},
+	op:=&OpSave{
+		OpUnaryBase : OpUnaryBase{OpBase : OpBase{Type: "save"}},
 		FilePattern : filenamePattern,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
-	return &op
+	return op
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpSave) UnmarshalJSON(data []byte) error {
+	type defaults OpSave
+	def:=defaults( *NewOpSaveDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpSave(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
+	return nil
 }
 
 func (op *OpSave) Apply(f *fits.Image, c *Context) (result *fits.Image, err error) {
-	if !op.Active || op.FilePattern=="" { return f, nil }
+	if op.FilePattern=="" { return f, nil }
 	fileName:=op.FilePattern
 	if strings.Contains(fileName, "%d") {
 		fileName=fmt.Sprintf(op.FilePattern, f.ID)
@@ -347,7 +379,7 @@ func NewOpSequenceDefault() *OpSequence { return NewOpSequence() }
 
 func NewOpSequence(steps ...Operator) *OpSequence {
 	return &OpSequence{
-		OpBase : OpBase{Type: "seq", Active: len(steps)>0},
+		OpBase : OpBase{Type: "seq"},
 		Steps  : steps,
 	}
 }
@@ -356,10 +388,12 @@ func NewOpSequence(steps ...Operator) *OpSequence {
 // Uses temporary op.StepsRaw inspired by https://alexkappa.medium.com/json-polymorphism-in-go-4cade1e58ed1
 func (op *OpSequence) UnmarshalJSON(b []byte) error {
     type alias OpSequence
-    err := json.Unmarshal(b, (*alias)(op))
+    var tmp alias
+    err := json.Unmarshal(b, &tmp)
     if err != nil { return err }
+    op.Type=tmp.Type
 
-    for _, raw := range op.StepsRaw {
+    for _, raw := range tmp.StepsRaw {
         var step OpBase
         err = json.Unmarshal(raw, &step)
         if err != nil { return err }
@@ -392,7 +426,7 @@ func (op *OpSequence) MarshalJSON() (bs []byte, err error) {
 	inner,err:=json.Marshal(op.Type)
 	if err!=nil { return nil, err }
 	buf.Write(inner)
-	fmt.Fprintf(&buf,", \"active\":%v, \"steps\":", op.Active)
+	fmt.Fprintf(&buf,", \"steps\":")
 	inner,err=json.Marshal(op.Steps)
 	if err!=nil { return nil, err }
 	buf.Write(inner)
