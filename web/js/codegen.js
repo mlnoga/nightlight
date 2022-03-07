@@ -98,7 +98,7 @@ Json["nl_stack_stack"]=function(block) {
 }
 
 Json["nl_stack_stackBatches"]=function(block) {
-  return createJsonObject(block, "stackBatches", null, null, ["perBatch", "starDetect", "save"]);
+  return createJsonObject(block, "stackBatches", null, null, ["perBatch"]);
 }
 
 Json["nl_stretch_normRange"]=function(block) {

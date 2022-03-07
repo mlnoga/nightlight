@@ -446,21 +446,7 @@ Blockly.defineBlocksWithJsonArray([
         "name": "perBatch"
       }
     ],
-    "message2": "create stack-of-batches weighted by exposure time",
-    "message3": "detect stars using %1",
-    "args3": [
-     {
-        "type": "input_statement",
-        "name": "starDetect"
-      }
-    ],
-    "message4": "and save final result to %1",
-    "args4": [
-     {
-        "type": "input_statement",
-        "name": "save"
-      }
-    ],
+    "message2": "and combine the batch stacks weighted by exposure time",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "stack_blocks",
