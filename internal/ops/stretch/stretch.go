@@ -290,7 +290,7 @@ func (op *OpGammaPP) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, e
 
 type OpScaleBlack struct {
 	ops.OpUnaryBase
-	Location  float32 `json:"value"`
+	Location  float32 `json:"location"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpScaleBlackDefault() })} // register the operator for JSON decoding
