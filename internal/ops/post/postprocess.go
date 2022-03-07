@@ -154,8 +154,8 @@ func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err
 		// Determine alignment of the image to the reference frame
 		trans, residual := op.Aligner.Align(f.Naxisn, f.Stars, f.ID)
 		if residual>op.Threshold {
-			msg:=fmt.Sprintf("%d: Alignment residual %g is above threshold %g, skipping frame", f.ID, residual, op.Threshold)
-			return nil, errors.New(msg)
+			fmt.Fprintf(c.Log, "%d: Alignment residual %g is above threshold %g, skipping frame\n", f.ID, residual, op.Threshold)
+			return nil, nil
 		} 
 		f.Trans, f.Residual=trans, residual
 		fmt.Fprintf(c.Log, "%d: Transform %v; residual %.3g oob %.3g\n", f.ID, f.Trans, f.Residual, outOfBounds)
