@@ -194,13 +194,23 @@ Nightlight is free software licensed under GPL3.0. See [LICENSE](./LICENSE).
 
 The binary version of this program uses several open source libraries and components, which come with their own licensing terms. See below for an overview, and [LICENSE](./LICENSE) for details.
 
-| Library attribution | License type |
-|---------------------|--------------|
-| [gonum/gonum](https://github.com/gonum/gonum) | BSD 3-Clause "New" or "Revised" License | 
-| [pbnjay/memory](https://github.com/pbnjay/memory) | BSD 3-Clause "New" or "Revised" License |
-| [valyala/fastrand](https://github.com/valyala/fastrand) | MIT License |
-| [lucasb-eyer/go-colorful](https://github.com/lucasb-eyer/go-colorful) | MIT License |
-| [klauspost/cpuid](https://github.com/klauspost/cpuid) | MIT License |
-| [gin-gonic/gin](https://github.com/gin-gonic/gin) | MIT License |
-| [json-iterator/go](https://github.com/json-iterator/go)| MIT License |
-
+| Library                                                                            | License type                            | Usage    |
+|------------------------------------------------------------------------------------|-----------------------------------------|----------|
+| [github.com/gin-gonic/gin](https://github.com/gin-gonic/gin)                       | MIT License                             |          |
+| [github.com/go-playground/validator/](https://github.com/go-playground/validator/) | MIT License                             | indirect |
+| [github.com/golang/protobuf](https://github.com/golang/protobuf)                   | BSD 3-Clause                            | indirect |
+| [github.com/json-iterator/go](https://github.com/json-iterator/go)                 | MIT License                             | indirect |
+| [github.com/klauspost/cpuid](https://github.com/klauspost/cpuid)                   | MIT License                             |          |
+| [github.com/lucasb-eyer/go-colorful](https://github.com/lucasb-eyer/go-colorful)   | MIT License                             |          |
+| [github.com/mattn/go-isatty](https://github.com/mattn/go-isatty)                   | MIT License                             | indirect |
+| [github.com/modern-go/concurrent](https://github.com/modern-go/concurrent)         | Apache 2.0 License                      | indirect |
+| [github.com/pbnjay/memory](https://github.com/pbnjay/memory)                       | BSD 3-Clause "New" or "Revised" License |          |
+| [github.com/ugorji/go](https://github.com/ugorji/go)                               | MIT License                             | indirect |
+| [github.com/valyala/fastrand](https://github.com/valyala/fastrand)                 | MIT License                             |          |
+| [golang.org/x/crypto](https://golang.org/x/crypto)                                 | BSD 3-Clause                            | indirect |
+| [golang.org/x/sys](https://golang.org/x/sys)                                       | BSD 3-Clause                            | indirect |
+| [golang.org/x/text](https://golang.org/x/text)                                     | BSD 3-Clause                            | indirect |
+| [gonum.org/v1/gonum](https://gonum.org/v1/gonum)                                   | BSD 3-Clause "New" or "Revised" License |          |
+| [google.golang.org/protobuf](https://google.golang.org/protobuf)                   | BSD 3-Clause                            | indirect |
+| [gopkg.in/yaml.v2](https://gopkg.in/yaml.v2)                                       | Apache 2.0 License                      | indirect |
+| [blockly](https://github.com/google/blockly)                                       | Apache 2.0 License                      |          |
