@@ -334,7 +334,8 @@ Flags:
 		err=runOp(opSeq, c)
 
 	case "run":
-		content, err:=ioutil.ReadFile(*job)
+		var content []byte
+		content, err=ioutil.ReadFile(*job)  // don't use := here, or the last error in this block is discarded
 		if err!=nil { panic(fmt.Sprintf("Error opening %s: %s\n", *job, err.Error())) }
 		var opSeq ops.OpSequence
 		err=json.Unmarshal(content, &opSeq)
