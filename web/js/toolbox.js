@@ -137,6 +137,22 @@ var toolbox = {
       "name": "RGB",
       "categorystyle": "rgb_category",
       "contents": [
+        {
+          "kind": "block",
+          "type": "nl_rgb_rgbCombine"
+        },
+        {
+          "kind": "block",
+          "type": "nl_rgb_rgbBalance"
+        },
+        {
+          "kind": "block",
+          "type": "nl_rgb_rgbToHSLuv"
+        },
+        {
+          "kind": "block",
+          "type": "nl_rgb_hsluvToRGB"
+        }
       ]
     },
     {

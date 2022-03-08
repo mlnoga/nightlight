@@ -625,5 +625,43 @@ Blockly.defineBlocksWithJsonArray([
   },
 
 
+  // RGB operators
+  //
+  {
+    "type": "nl_rgb_rgbCombine",
+    "message0": "Combine RGB channels",
+    "tooltip": "Combines three mono images into an RGB color image",
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "rgb_blocks",
+  },
+ 
+  {
+    "type": "nl_rgb_rgbBalance",
+    "message0": "Auto-balance RGB channels",
+    "tooltip": "Automatically balances colors so the skyfog peak location is the same, and average star colors are neutral",
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "rgb_blocks",
+  },
+ 
+  {
+    "type": "nl_rgb_rgbToHSLuv",
+    "message0": "Convert RGB to HSLuv",
+    "tooltip": "Performs a color space conversion",
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "rgb_blocks",
+  },
+
+  {
+    "type": "nl_rgb_hsluvToRGB",
+    "message0": "Convert HSLuv to RGB",
+    "tooltip": "Performs a color space conversion",
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "rgb_blocks",
+  },
+ 
 ]);
 

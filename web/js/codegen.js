@@ -128,3 +128,19 @@ Json["nl_stretch_scaleBlack"]=function(block) {
 Json["nl_stretch_unsharpMask"]=function(block) {
   return createJsonObject(block, "unsharpMask", ["sigma", "gain", "threshold"], null);
 }
+
+Json["nl_rgb_rgbCombine"]=function(block) {
+  return createJsonObject(block, "rgbCombine", null, null);
+}
+
+Json["nl_rgb_rgbBalance"]=function(block) {
+  return createJsonObject(block, "rgbBalance", null, null);
+}
+
+Json["nl_rgb_rgbToHSLuv"]=function(block) {
+  return createJsonObject(block, "rgbToHSLuv", null, null);
+}
+
+Json["nl_rgb_hsluvToRGB"]=function(block) {
+  return createJsonObject(block, "hsluvToRGB", null, null);
+}
