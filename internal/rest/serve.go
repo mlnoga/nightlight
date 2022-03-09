@@ -44,6 +44,7 @@ func Serve(port int) {
 	})
 	r.StaticFS("/js", web.JavascriptFS())
 	r.StaticFS("/blockly", web.BlocklyFS())
+	r.StaticFS("/icons", web.IconsFS())
 
 	api := r.Group("/api")
 	{

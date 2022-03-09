@@ -46,3 +46,14 @@ func JavascriptFS() http.FileSystem {
     return http.FS(fsys)
 }
 
+//go:embed icons
+var iconsFS embed.FS      // static web assets
+
+func IconsFS() http.FileSystem {
+    fsys, err := fs.Sub(iconsFS, "icons")
+    if err != nil {
+        panic(err)
+    }
+    return http.FS(fsys)
+}
+
