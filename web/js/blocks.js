@@ -4,8 +4,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_file_load",
-    "message0": "Load single image %1",
     "tooltip": "Load a FITS image from a file",
+    "message0": "Load single image %1",
     "args0": [
       {
         "type": "field_input",
@@ -20,8 +20,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_file_loadMany",
-    "message0": "Load many images %1",
     "tooltip": "Load many FITS images from a filename pattern with wildcards * and ?",
+    "message0": "Load many images %1",
     "args0": [
       {
         "type": "field_input",
@@ -36,8 +36,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_file_save",
-    "message0": "Save image to %1",
     "tooltip": "Save image to FITS or JPEG based on extension, expanding %d to the image ID",
+    "message0": "Save image to %1",
     "args0": [
       {
         "type": "field_input",
@@ -55,8 +55,8 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_pre_calibrate",
-    "message0": "Calibrate with dark %1 and with flat %2",
     "tooltip": "Calibrate image with a (master) dark frame and a (master) flat frame",
+    "message0": "Calibrate with dark %1 and with flat %2",
     "args0": [
       {
         "type": "field_input",
@@ -76,8 +76,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_pre_badPixel",
-    "message0": "Correct bad pixels with low sigma %1 and high sigma %2",
     "tooltip": "Cosmetic correction of pixels whose value is more than a given number of standard deviations, or sigmas, away from the local mean",
+    "message0": "Correct bad pixels with low sigma %1 and high sigma %2",
     "args0": [
       {
         "type": "field_slider",
@@ -110,8 +110,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_pre_debayer",
-    "message0": "Extract %1 color channel from bayer mask %2",
     "tooltip": "Extract a single color channel from a bayer mask image, interpolating values",
+    "message0": "Extract %1 color channel from bayer mask %2",
     "args0": [
       {
         "type": "field_dropdown",
@@ -141,8 +141,8 @@ Blockly.defineBlocksWithJsonArray([
 
  {
     "type": "nl_pre_bin",
-    "message0": "Bin every %1 pixels",
     "tooltip": "Add every NxN pixels to reduce noise and image size",
+    "message0": "Bin every %1 pixels",
     "args0": [
       {
         "type": "field_dropdown",
@@ -162,8 +162,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_pre_backExtract",
-    "message0": "Extract background with %1 pixel grid",
     "tooltip": "Extract background gradient from an image",
+    "message0": "Extract background with %1 pixel grid",
     "args0": [
       {
         "type": "field_dropdown",
@@ -215,8 +215,9 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_pre_starDetect",
+    "tooltip": "Detect stars based on bright pixels, HFR calculation and\
+                brightness ratios inside and outside the HFR.",
     "message0": "Detect stars inside a %1 pixel radius",
-    "tooltip": "Detect stars based on bright pixels and HFR",
     "args0": [
       {
         "type": "field_slider",
@@ -277,8 +278,8 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_ref_selectReference",
-    "message0": "Select reference frame by %1",
     "tooltip": "Select reference frame for histogram normalization and alignment",
+    "message0": "Select reference frame by %1",
     "args0": [
       {
         "type": "field_dropdown",
@@ -315,8 +316,8 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_post_matchHistogram",
-    "message0": "Match reference histogram %1",
     "tooltip": "Shift and/or stretch pixel values to match the reference histogram",
+    "message0": "Match reference histogram %1",
     "args0": [
       {
         "type": "field_dropdown",
@@ -337,8 +338,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_post_align",
-    "message0": "Align to reference frame with %1 star triangles",
     "tooltip": "Align image to reference frame based on star matching",
+    "message0": "Align to reference frame with %1 star triangles",
     "args0": [
       {
         "type": "field_slider",
@@ -382,8 +383,8 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_stack_stack",
-    "message0": "Stack a batch of frames using %1",
     "tooltip": "Stack previously aligned images to improve signal-to-noise ratio",
+    "message0": "Stack a batch of frames using %1",
     "args0": [
        {
         "type": "field_dropdown",
@@ -437,8 +438,9 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stack_stackBatches",
+    "tooltip": "Create batches fitting in memory, stack each batch with the given\
+                operator, then stack the batches with exposure-weighted addition.",
     "message0": "Create batches fitting in memory,",
-    "tooltip": "Stack previously aligned images to improve signal-to-noise ratio",
     "message1": "stack each batch with %1",
     "args1": [
      {
@@ -457,8 +459,9 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_stretch_normRange",
+    "tooltip": "Normalizes pixel values to 0.0 ... 1.0 to enable stretching,\
+                gamma and black point correction, color processing and more",
     "message0": "Normalize pixel values",
-    "tooltip": "Normalizes pixel values to 0.0 ... 1.0 to enable gamma correction, color processing and more",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "stretch_blocks",
@@ -466,8 +469,9 @@ Blockly.defineBlocksWithJsonArray([
  
   {
     "type": "nl_stretch_stretch",
+    "tooltip": "Iteratively applies gamma and black point correction until the peak \
+                and the width of the skyfog match target",
     "message0": "Stretch image until skyfog location is %1 and scale is %2",
-    "tooltip": "Iteratively applies gamma and black point correction until the peak and the width of the skyfog match target",
     "args0": [
       {
         "type": "field_slider",
@@ -493,8 +497,9 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stretch_midtones",
+    "tooltip": "Applies midtone correction, with grey and black level as a multiple \
+                of the skyfog scale",
     "message0": "Correct midtones to %1 and black to %2 skyfog scales",
-    "tooltip": "Applies midtone correction, with grey and black level as a multiple of the skyfog scale",
     "args0": [
       {
         "type": "field_slider",
@@ -520,8 +525,9 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stretch_gamma",
-    "message0": "Correct image brightness with gamma %1",
-    "tooltip": "Applies gamma correction, values greater one increase brightness",
+    "tooltip": "Applies gamma correction. Values greater than one make the image brighter.\
+                Values smaller than one make it darker.",
+    "message0": "Adjust image brightness with gamma %1",
     "args0": [
       {
         "type": "field_slider",
@@ -539,8 +545,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stretch_gammaPP",
-    "message0": "Correct image brightness with gamma %1",
     "tooltip": "Applies gamma correction to signal pixels, leaving alone skyfog noise pixels",
+    "message0": "Correct image brightness with gamma %1",
     "args0": [
       {
         "type": "field_slider",
@@ -569,8 +575,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stretch_scaleBlack",
-    "message0": "Shift black point to move the skyfog location to %1",
     "tooltip": "Shifts the black point to move the skyfog peak to the desired absolute value",
+    "message0": "Shift black point to move the skyfog location to %1",
     "args0": [
       {
         "type": "field_slider",
@@ -588,8 +594,8 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_stretch_unsharpMask",
-    "message0": "Apply unsharp mask with %1 pixel Gaussian and gain %2",
     "tooltip": "Increases image sharpness by subtracting a blurred version of the image",
+    "message0": "Apply unsharp mask with %1 pixel Gaussian and gain %2",
     "args0": [
       {
         "type": "field_slider",
@@ -629,8 +635,10 @@ Blockly.defineBlocksWithJsonArray([
   //
   {
     "type": "nl_rgb_rgbCombine",
+    "tooltip": "Combines three mono images into an RGB color image. If a fourth\
+                image is present, it is stored in the processing context as a\
+                luminance channel for future combination. Output is the RGB image.",
     "message0": "Combine RGB channels",
-    "tooltip": "Combines three mono images into an RGB color image",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "rgb_blocks",
@@ -638,8 +646,9 @@ Blockly.defineBlocksWithJsonArray([
  
   {
     "type": "nl_rgb_rgbBalance",
+    "tooltip": "Automatically balances colors so skyfog peak locations line up,\
+                and average star colors become neutral",
     "message0": "Auto-balance RGB channels",
-    "tooltip": "Automatically balances colors so the skyfog peak location is the same, and average star colors are neutral",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "rgb_blocks",
@@ -647,8 +656,10 @@ Blockly.defineBlocksWithJsonArray([
  
   {
     "type": "nl_rgb_rgbToHSLuv",
+    "tooltip": "Performs a color space conversion. The HSLuv color space is\
+                perceptually uniform and allows to modify hue, saturation and\
+                luminance independently from each other.",
     "message0": "Convert RGB to HSLuv",
-    "tooltip": "Performs a color space conversion",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "rgb_blocks",
@@ -656,12 +667,288 @@ Blockly.defineBlocksWithJsonArray([
 
   {
     "type": "nl_rgb_hsluvToRGB",
-    "message0": "Convert HSLuv to RGB",
     "tooltip": "Performs a color space conversion",
+    "message0": "Convert HSLuv to RGB",
     "previousStatement" : null,
     "nextStatement" : null,
     "style"  : "rgb_blocks",
   },
+
  
-]);
+  // HSL operators
+  //
+  {
+    "type": "nl_hsl_hslApplyLum",
+    "tooltip": "Applies the luminance channel stored in the processing context \
+                to the current HSLuv image",
+    "message0": "Apply luminance channel",
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+ 
+  {
+    "type": "nl_hsl_hslNeutralizeBackground",
+    "tooltip": "For luminances sigLow standard deviations above the background peak, bring saturation to zero.\
+                For luminances above sigHigh, keep full saturation. For those in between, interpolate linearly.",
+    "message0": "Desaturate pixels darker than %1 sigmas",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "sigmaLow",
+        "value" : 0.5,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+    ],
+   "message1": "keep saturation above %1 sigmas",
+    "args1": [
+      {
+        "type": "field_slider",
+        "name": "sigmaHigh",
+        "value" : 0.75,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      }      
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+ 
+  {
+    "type": "nl_hsl_hslSaturationGamma",
+    "tooltip": "Boost saturation with a gamma curve. Applied selectively to pixels whose luminance\
+                is a given number of standard deviations brighter than the skyfog peak location.",
+    "message0": "Apply gamma %1 to saturation",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "gamma",
+        "value" : 1.5,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+    ],
+    "message1": "for luminance above %1 sigma",
+    "args1": [
+      {
+        "type": "field_slider",
+        "name": "sigma",
+        "value" : 1.0,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      }      
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+ 
+  {
+    "type": "nl_hsl_hslSelectiveSaturation",
+    "tooltip": "Multiplies saturation by the given factor, for hues in the given range.\
+                Can be used to e.g. remove purple star colors",
+    "message0": "Multiply saturation by %1",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "factor",
+        "value" : 0.5,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+    ],
+    "message1": "for hues between %1 and %2",
+    "args1": [
+      {
+        "type": "field_angle",
+        "name": "from",
+        "angle" : 295,
+      },      
+      {
+        "type": "field_angle",
+        "name": "to",
+        "angle" : 40,
+      }      
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslRotateHue",
+    "tooltip": "Shift color hues in the given range by the given amount.\
+                Applied selectively where luminance is brighter than the skyfog peak location\
+                by the given amount of standard deviations.\
+                This is useful for creating Hubble palette images by turning greens to yellows.",
+    "message0": "Rotate hues between %1 and %2",
+    "args0": [
+      {
+        "type": "field_angle",
+        "name": "from",
+        "angle" : 100,
+      },      
+      {
+        "type": "field_angle",
+        "name": "to",
+        "angle" : 190,
+      },      
+    ],
+    "message1": "by %1 for luminances above %2 sigma",
+    "args1": [
+      {
+        "type": "field_slider",
+        "name": "offset",
+        "value" : 35,
+        "min" : -180,
+        "max" : 180,
+        "precision" : 1,
+      },
+      {
+        "type": "field_slider",
+        "name": "sigma",
+        "value" : 0.75,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },    
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslSCNR",
+    "tooltip": "Selectively reduces chroma noise in the green channel by the given amount.\
+                This is useful for creating Hubble palette images, after applying a color rotation.",
+    "message0": "SCNR %1",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "factor",
+        "value" : 0.5,
+        "min" : 0,
+        "max" : 1,
+        "precision" : 0.01,
+      },
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslMidtones",
+    "tooltip": "Applies midtone correction, with grey and black level as a multiple of the skyfog scale",
+    "message0": "Correct luminance midtones to %1",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "mid",
+        "value" : 0,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+    ],
+    "message1": "and black to %1 skyfog scales",
+    "args1": [
+      {
+        "type": "field_slider",
+        "name": "black",
+        "value" : 1,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      }
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslGamma",
+    "tooltip": "Applies gamma correction. Values greater than one make the image brighter.\
+                Values smaller than one make it darker.",
+    "message0": "Adjust luminance brightness with gamma %1",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "gamma",
+        "value" : 2.0,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslGammaPP",
+    "tooltip": "Applies gamma correction to signal pixels, leaving alone skyfog noise pixels",
+    "message0": "Adjust luminance brightness with gamma %1",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "gamma",
+        "value" : 2.0,
+        "min" : 0,
+        "max" : 5,
+        "precision" : 0.01,
+      },
+     ],
+    "message1": "for pixels %1 skyfog scales right of the peak",
+    "args1": [
+     {
+        "type": "field_slider",
+        "name": "sigma",
+        "value" : 1.0,
+        "min" : -5,
+        "max" : 5,
+        "precision" : 0.05,
+      },
+     ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+  {
+    "type": "nl_hsl_hslScaleBlack",
+    "tooltip": "Shifts the black point to move the skyfog peak to the desired absolute value",
+    "message0": "Shift luminance channel black point",
+    "message1": "to move the skyfog location to %1",
+    "args1": [
+      {
+        "type": "field_slider",
+        "name": "location",
+        "value" : 0.1,
+        "min" : 0,
+        "max" : 1,
+        "precision" : 0.005,
+      },
+     ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+ ]);
+
+Blockly.FieldAngle.CLOCKWISE = true // Blockly angle picker direction, unfortunately global
+Blockly.FieldAngle.OFFSET    =  90  // Blockly angle picker zero direction in degrees, unfortunately global
+Blockly.FieldAngle.ROUND     =   1  // Blockly angle resolution in degrees, unfortunately global
+Blockly.FieldAngle.HALF      =  64  // Blockly angle picker sizes in pixels, unfortunately global
 

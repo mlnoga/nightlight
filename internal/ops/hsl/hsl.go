@@ -424,17 +424,17 @@ func (op *OpHSLGammaPP) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, 
 // must be /100
 type OpHSLScaleBlack struct {
 	ops.OpUnaryBase
-	Black  float32 `json:"value"`
+	Location  float32 `json:"location"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLScaleBlackDefault() })} // register the operator for JSON decoding
 
 func NewOpHSLScaleBlackDefault() *OpHSLScaleBlack { return NewOpHSLScaleBlack(0) }
 
-func NewOpHSLScaleBlack(black float32) *OpHSLScaleBlack {
+func NewOpHSLScaleBlack(location float32) *OpHSLScaleBlack {
 	op:=&OpHSLScaleBlack{
 	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslScaleBlack"}},
-		Black: black,
+		Location: location,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -452,16 +452,16 @@ func (op *OpHSLScaleBlack) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLScaleBlack) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Black==0 { return f, nil }
+	if op.Location==0 { return f, nil }
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
 	loc, scale:=st.Location(), st.Scale()
 	fmt.Fprintf(c.Log, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
-	_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(op.Black)).Hcl()
+	_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(op.Location)).Hcl()
 	targetBlack:=float32(hclTargetBlack)
 	
 	if loc>targetBlack {
-		fmt.Fprintf(c.Log, "scaling black to move location to HCL %.2f%% for linear %.2f%%...\n", targetBlack*100.0, op.Black)
+		fmt.Fprintf(c.Log, "scaling black to move location to HCL %.2f%% for linear %.2f%%...\n", targetBlack*100.0, op.Location)
 		f.ShiftBlackToMoveChannel(2,loc, targetBlack)
 	} else {
 		fmt.Fprintf(c.Log, "cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)

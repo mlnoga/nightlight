@@ -144,3 +144,44 @@ Json["nl_rgb_rgbToHSLuv"]=function(block) {
 Json["nl_rgb_hsluvToRGB"]=function(block) {
   return createJsonObject(block, "hsluvToRGB", null, null);
 }
+
+Json["nl_hsl_hslApplyLum"]=function(block) {
+  return createJsonObject(block, "hslApplyLum", null, null);
+}
+
+Json["nl_hsl_hslNeutralizeBackground"]=function(block) {
+  return createJsonObject(block, "hslNeutralizeBackground", ["sigmaLow", "sigmaHigh"], null);
+}
+
+Json["nl_hsl_hslSaturationGamma"]=function(block) {
+  return createJsonObject(block, "hslSaturationGamma", ["gamma", "sigma"], null);
+}
+
+Json["nl_hsl_hslSelectiveSaturation"]=function(block) {
+  return createJsonObject(block, "hslSelectiveSaturation", ["from", "to", "factor"], null);
+}
+
+Json["nl_hsl_hslRotateHue"]=function(block) {
+  return createJsonObject(block, "hslRotateHue", ["from", "to", "offset", "sigma"], null);
+}
+
+Json["nl_hsl_hslSCNR"]=function(block) {
+  return createJsonObject(block, "hslSCNR", ["factor"], null);
+}
+
+Json["nl_hsl_hslMidtones"]=function(block) {
+  return createJsonObject(block, "hslMidtones", ["mid", "black"], null);
+}
+
+Json["nl_hsl_hslGamma"]=function(block) {
+  return createJsonObject(block, "hslGamma", ["gamma"], null);
+}
+
+Json["nl_hsl_hslGammaPP"]=function(block) {
+  return createJsonObject(block, "hslGammaPP", ["gamma", "sigma"], null);
+}
+
+Json["nl_hsl_hslScaleBlack"]=function(block) {
+  return createJsonObject(block, "hslScaleBlack", ["location"], null);
+}
+

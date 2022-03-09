@@ -160,6 +160,46 @@ var toolbox = {
       "name": "HSL",
       "categorystyle": "hsl_category",
       "contents": [
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslApplyLum"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslNeutralizeBackground"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslSaturationGamma"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslSelectiveSaturation"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslRotateHue"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslSCNR"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslMidtones"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslGamma"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslGammaPP"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslScaleBlack"
+        },
       ]
     },
   ]
