@@ -191,7 +191,7 @@ func (op *OpMidtones) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpMidtones) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
-	if op.Mid!=0 { return f, nil }
+	if op.Mid==0 { return f, nil }
 	fmt.Fprintf(c.Log, "%d: Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", f.ID, op.Mid, op.Black)
 
 	loc, scale:=f.Stats.Location(), f.Stats.Scale()
