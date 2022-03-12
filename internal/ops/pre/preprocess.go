@@ -208,6 +208,7 @@ func (op *OpDebayer) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpDebayer) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if op.Channel=="" || op.ColorFilterArray=="" { return f, nil }
 	f.Data, f.Naxisn[0], err=DebayerBilinear(f.Data, f.Naxisn[0], op.Channel, op.ColorFilterArray)
 	if err!=nil { return nil, err }
 	f.Pixels=int32(len(f.Data))
