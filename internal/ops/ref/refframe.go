@@ -35,7 +35,6 @@ const (
 	RFMStarsOverHFR RefSelMode = iota // Pick frame with highest ratio of stars over HFR (for lights)
 	RFMMedianLoc                      // Pick frame with median location (for multiplicative correction when integrating master flats)
 	RFMFileName                       // Load from given filename
-	RFMFrame                          // Use given frame
 )
 
 type OpSelectReference struct {
@@ -103,6 +102,8 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 
 		// if reference image is given in a file, load it and detect stars w/o materializing all input promises
 		if op.Mode==RFMFileName {
+			if op.FileName=="" { return ins[i]() }
+
 			promises, err:=ops.NewOpLoad(-3, op.FileName).MakePromises(nil, c)
 			if err!=nil { return nil, err }
 			if len(promises)!=1 { return nil, errors.New("load operator did not create exactly one promise")}
