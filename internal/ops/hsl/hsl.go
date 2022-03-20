@@ -99,7 +99,7 @@ func (op *OpHSLNeutralizeBackground) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLNeutralizeBackground) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.SigmaLow==0 && op.SigmaHigh==0 { return f, nil }
+	if op.SigmaLow<=0 && op.SigmaHigh<=0 { return f, nil }
 	fmt.Fprintf(c.Log, "Neutralizing background values below %.4g sigma, keeping color above %.4g sigma\n", op.SigmaLow, op.SigmaHigh)    	
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
