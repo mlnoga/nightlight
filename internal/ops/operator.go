@@ -338,6 +338,7 @@ func (op *OpSave) UnmarshalJSON(data []byte) error {
 
 func (op *OpSave) Apply(f *fits.Image, c *Context) (result *fits.Image, err error) {
 	if op.FilePattern=="" { return f, nil }
+	if f==nil { return nil, errors.New(fmt.Sprintf("cannot save nil file to %s", op.FilePattern)) }
 	fileName:=op.FilePattern
 	if strings.Contains(fileName, "%d") {
 		fileName=fmt.Sprintf(op.FilePattern, f.ID)
