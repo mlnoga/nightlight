@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/qsort"
@@ -137,7 +138,7 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 		if op.Mode==RFMStarsOverHFR {
 			c.RefFrame, refScore, c.RefFrameError=selectReferenceStarsOverHFR(op.materialized)
 		} else if op.Mode==RFMMedianLoc {
-			c.RefFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized)
+			c.RefFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized, c)
 		} else {
 			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
 		}
@@ -165,21 +166,51 @@ func selectReferenceStarsOverHFR(lights []*fits.Image) (refFrame *fits.Image, re
 	return refFrame, refScore, nil
 }
 
-func selectReferenceMedianLoc(lights []*fits.Image) (refFrame *fits.Image, refScore float32, err error) {
+func selectReferenceMedianLoc(lights []*fits.Image, c *ops.Context) (refFrame *fits.Image, refScore float32, err error) {
 	refFrame, refScore=nil, -1
-	locs:=make([]float32, len(lights))
-	num:=0
-	for _, lightP:=range lights {
-		if lightP==nil { continue }
-		locs[num]=lightP.Stats.Location()
-		num++
-	}	
-	medianLoc:=qsort.QSelectMedianFloat32(locs[:num])
+	fun:=func(f *fits.Image) float32 { return f.Stats.Location() }
+	locs:=inParallel(lights, fun, c.MaxThreads)
+    locs=removeNaNs(locs)
+	medianLoc:=qsort.QSelectMedianFloat32(locs)
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
 		if lightP.Stats.Location()==medianLoc {
 			return lightP, medianLoc, nil
 		}
 	}	
-	return nil, 0, errors.New("Unable to select median reference frame")
+	return nil, 0, errors.New("Unable to select reference frame with median location")
+}
+
+// Applies the given function to the set of images with given maximal number of threads in parallel.
+// Returns the results in order
+func inParallel(fs []*fits.Image, fun func(*fits.Image) float32, maxThreads int) []float32 {
+	if len(fs)==0 { return nil }
+	outs:=make([]float32, len(fs))
+	limiter:=make(chan bool, maxThreads)
+	for i, f := range(fs) {
+		limiter <- true 
+		go func(i int, theF *fits.Image) {
+			defer func() { <-limiter }()
+			if theF==nil { 
+				outs[i]=float32(math.NaN())
+			} else { 
+				outs[i]=fun(theF)
+			}
+		}(i, f)
+	}
+	for i:=0; i<cap(limiter); i++ {  // wait for goroutines to finish
+		limiter <- true
+	}
+	return outs
+}
+
+// Removes NaNs from the given array, returning a new array.
+// This is a stable removal, i.e. order is otherwise preserved
+func removeNaNs(as []float32) (res []float32) {
+	for _,a:=range(as) {
+		if !math.IsNaN(float64(a)) {
+			res=append(res, a)
+		}
+	}
+	return res
 }
