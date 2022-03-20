@@ -237,7 +237,7 @@ func (op *OpHSLRotateHue) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLRotateHue) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Offset!=0 { return f, nil }
+	if op.Offset==0 { return f, nil }
 	fmt.Fprintf(c.Log, "Rotating LCH hue angles in [%g,%g] by %.4g for lum>=loc+%g*scale...\n", op.From, op.To, op.Offset, op.Sigma)
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -280,7 +280,7 @@ func (op *OpHSLSCNR) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLSCNR) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Factor!=0 { return f, nil }
+	if op.Factor==0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying SCNR of %.4g ...\n", op.Factor)
 	f.SCNR(op.Factor)
 
@@ -321,7 +321,7 @@ func (op *OpHSLMidtones) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLMidtones) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Mid!=0 { return f, nil }
+	if op.Mid==0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying midtone correction with midtone=%.2f%% x scale and black=location - %.2f%% x scale\n", op.Mid, op.Black)
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
@@ -367,7 +367,7 @@ func (op *OpHSLGamma) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLGamma) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Gamma!=1.0 { return f, nil }
+	if op.Gamma==1.0 { return f, nil }
 	fmt.Fprintf(c.Log, "Applying gamma %.3g\n", op.Gamma)
 	f.ApplyGammaToChannel(2, op.Gamma)
 	return f, nil
@@ -407,7 +407,7 @@ func (op *OpHSLGammaPP) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpHSLGammaPP) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
-	if op.Gamma!=1.0 { return f, nil }
+	if op.Gamma==1.0 { return f, nil }
 
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
 	loc, scale:=st.Location(), st.Scale()
