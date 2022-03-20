@@ -362,7 +362,9 @@ func (op *OpStarDetect) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 	if op.Save!=nil && op.Save.FilePattern!="" {
 		stars:=fits.NewImageFromStars(f, 2.0)
 		promise:=func() (f *fits.Image, err error) { return stars, nil}
-		_,err:=op.Save.MakePromises([]ops.Promise{promise}, c)
+		promises,err:=op.Save.MakePromises([]ops.Promise{promise}, c)
+		if err!=nil { return nil, err }
+		_,err=promises[0]()
 		if err!=nil { return nil, err }
 	}	
 
