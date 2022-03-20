@@ -93,9 +93,10 @@ func (s *Stats) UpdateCachedWith(multiplier, offset float32) {
 	s.min     =s.min     *multiplier + offset
 	s.max     =s.max     *multiplier + offset
 	s.mean    =s.mean    *multiplier + offset
+	s.stdDev  =s.stdDev  *multiplier
 	s.location=s.location*multiplier + offset
-	s.scale   =s.scale   *multiplier + offset
-	s.noise   =s.noise   *multiplier + offset
+	s.scale   =s.scale   *multiplier
+	s.noise   =s.noise   *multiplier
 }
 
 func (s *Stats) Min() float32 {

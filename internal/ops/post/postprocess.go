@@ -71,7 +71,7 @@ func (op *OpMatchHistogram) UnmarshalJSON(data []byte) error {
 
 func (op *OpMatchHistogram) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if op.Mode==HNMNone { return f, nil }
-	if c.RefFrame==nil { return nil, errors.New("missing historgram reference frame")}
+	if c.RefFrame==nil { return nil, errors.New("missing histogram reference frame")}
 	switch op.Mode {
 		case HNMLocation:
 			f.MatchLocation(c.RefFrame.Stats.Location())
@@ -80,7 +80,7 @@ func (op *OpMatchHistogram) Apply(f *fits.Image, c *ops.Context) (result *fits.I
 		case HNMLocBlack:
 	    	f.ShiftBlackToMove(f.Stats.Location(), c.RefFrame.Stats.Location())
 	}
-	fmt.Fprintf(c.Log, "%d: %s after normalizing histogram to reference %d\n", f.ID, f.Stats, c.RefFrame.ID)
+	fmt.Fprintf(c.Log, "%d: %s after matching histogram of reference %d\n", f.ID, f.Stats, c.RefFrame.ID)
 	return f, nil
 }
 
