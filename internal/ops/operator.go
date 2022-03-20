@@ -40,6 +40,7 @@ type Context struct {
 	DarkFrame       *fits.Image
 	FlatFrame       *fits.Image
 	RefFrame        *fits.Image
+	RefFrameError    error
 	LumFrame        *fits.Image
 }
 
@@ -91,6 +92,8 @@ func MaterializeAll(ins []Promise, maxThreads int, forget bool) (outs []*fits.Im
 		if e!=nil {
 			if err==nil { 
 				err = e
+			} else if err.Error()==e.Error() {
+				// do nothing
 			} else {
 				err = errors.New(fmt.Sprintf("%s; %s", err.Error(), e.Error()))
 			}

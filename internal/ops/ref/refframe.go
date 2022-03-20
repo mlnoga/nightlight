@@ -88,6 +88,10 @@ func (op *OpSelectReference) MakePromises(ins []ops.Promise, c *ops.Context) (ou
 func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Context) ops.Promise {
 	return func() (f *fits.Image, err error) {
 		op.mutex.Lock()                 // lock so a single thread accesses the reference frame
+		if c.RefFrameError!=nil {       // if reference frame detection failed in a prior thread
+			op.mutex.Unlock()           // return immediately with the same error
+			return nil, errors.New("same error") 
+		}
 		if c.RefFrame!=nil {            // if a reference frame already exists
 			op.mutex.Unlock()           // unlock immediately to allow ...
 			if op.materialized==nil || op.materialized[i]==nil {
@@ -104,34 +108,41 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 		if op.Mode==RFMFileName {
 			if op.FileName=="" { return ins[i]() }
 
-			promises, err:=ops.NewOpLoad(-3, op.FileName).MakePromises(nil, c)
-			if err!=nil { return nil, err }
-			if len(promises)!=1 { return nil, errors.New("load operator did not create exactly one promise")}
+			var promises []ops.Promise
+			promises, c.RefFrameError=ops.NewOpLoad(-3, op.FileName).MakePromises(nil, c)
+			if c.RefFrameError!=nil { return nil, c.RefFrameError }
+			if len(promises)!=1 {
+				c.RefFrameError=errors.New("load operator did not create exactly one promise") 
+				return nil, c.RefFrameError 
+			}
 		
-			promises, err=op.StarDetect.MakePromises([]ops.Promise{promises[0]}, c)
-			if err!=nil { return nil, err }
-			if len(promises)!=1 { return nil, errors.New("star detect did not return exactly one promise") } 
-			c.RefFrame, err=promises[0]()
-			if err!=nil { return nil, err }
+			promises, c.RefFrameError=op.StarDetect.MakePromises([]ops.Promise{promises[0]}, c)
+			if c.RefFrameError!=nil { return nil, c.RefFrameError }
+			if len(promises)!=1 { 
+				c.RefFrameError=errors.New("star detect did not return exactly one promise") 
+				return nil, c.RefFrameError
+			} 
+			c.RefFrame, c.RefFrameError=promises[0]()
+			if c.RefFrameError!=nil { return nil, c.RefFrameError }
 
 			return ins[i]()
 		}
 
 		// otherwise, materialize the input promises
-		op.materialized,err=ops.MaterializeAll(ins, c.MaxThreads, false)
-		if err!=nil { return nil, err }
+		op.materialized,c.RefFrameError=ops.MaterializeAll(ins, c.MaxThreads, false)
+		if c.RefFrameError!=nil { return nil, c.RefFrameError }
 
 		// select reference with given mode
 		var refScore float32
 		if op.Mode==RFMStarsOverHFR {
-			c.RefFrame, refScore, err=selectReferenceStarsOverHFR(op.materialized)
+			c.RefFrame, refScore, c.RefFrameError=selectReferenceStarsOverHFR(op.materialized)
 		} else if op.Mode==RFMMedianLoc {
-			c.RefFrame, refScore, err=selectReferenceMedianLoc(op.materialized)
+			c.RefFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized)
 		} else {
-			err=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
+			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
 		}
-		if c.RefFrame==nil { err=errors.New("Unable to select reference image.") }
-		if err!=nil { return nil, err }
+		if c.RefFrame==nil { c.RefFrameError=errors.New("Unable to select reference image.") }
+		if c.RefFrameError!=nil { return nil, c.RefFrameError }
 		fmt.Fprintf(c.Log, "Using image %d with score %.4g as reference frame.\n", c.RefFrame.ID, refScore)
 
 		// return promise for the materialized image of this instance
