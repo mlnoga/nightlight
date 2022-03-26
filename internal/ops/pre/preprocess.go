@@ -250,8 +250,8 @@ func (op *OpBin) UnmarshalJSON(data []byte) error {
 
 func (op *OpBin) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if op.BinSize<=1 { return f, nil }
-	newF:=fits.NewImageBinNxN(f, op.BinSize)
-	fmt.Fprintf(c.Log, "%d: After %xx%d binning, new image size %dx%d\n", newF.ID, op.BinSize, op.BinSize, newF.Naxisn[0], newF.Naxisn[1])
+	f=fits.NewImageBinNxN(f, op.BinSize)
+	fmt.Fprintf(c.Log, "%d: After %xx%d binning, new image size %dx%d\n", f.ID, op.BinSize, op.BinSize, f.Naxisn[0], f.Naxisn[1])
 	return f, nil
 }
 
