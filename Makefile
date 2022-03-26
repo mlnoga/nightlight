@@ -14,7 +14,7 @@ endif
 all: $(EXECUTABLE)
 
 install: $(EXECUTABLE)
-	cp $< /usr/local/bin
+	sudo cp $< /usr/local/bin
 
 install-local: $(EXECUTABLE)
 	cp $< ~/bin/

@@ -206,6 +206,7 @@ func (hsl *Image) ApplyLuminanceToCIExyY(lum *Image) {
 	l:=len(hsl.Data)/3
 	dest:=hsl.Data[2*l:]
 	copy(dest, lum.Data)
+	hsl.Exposure+=lum.Exposure
 }
 
 
