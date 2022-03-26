@@ -120,7 +120,8 @@ func (op *OpStack) Apply(f []*fits.Image, c *ops.Context) (result *fits.Image, e
 	if mode==StAuto { 
 		mode=autoSelectStackingMode(len(f))
 	}
-	fmt.Fprintf(c.Log, "Stacking %d frames with stacking mode %d:\n", len(f), mode)
+	fmt.Fprintf(c.Log, "Stacking %d frames with stacking mode %d and sigma low %g high %g:\n", 
+				len(f), mode, op.SigmaLow, op.SigmaHigh)
 
 	// select weights if applicable
 	weights, err:=getWeights(f, op.Weighting)
