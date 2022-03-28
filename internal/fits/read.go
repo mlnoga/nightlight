@@ -71,7 +71,7 @@ func (fits *Image) PopHeaderInt32(key string) (res int32, err error) {
 		delete(fits.Header.Ints, key)
 		return val, nil
 	}
-	return 0, errors.New(fmt.Sprintf("FITS header does not contain key %s", key))
+	return 0, errors.New(fmt.Sprintf("%d: FITS header does not contain key %s", fits.ID, key))
 }
 
 func (fits *Image) PopHeaderInt32OrFloat(key string) (res float32, err error) {
@@ -82,16 +82,16 @@ func (fits *Image) PopHeaderInt32OrFloat(key string) (res float32, err error) {
 		delete(fits.Header.Floats, key)
 		return val, nil
 	}
-	return 0, errors.New(fmt.Sprintf("FITS header does not contain key %s", key))
+	return 0, errors.New(fmt.Sprintf("%d: FITS header does not contain key %s", fits.ID, key))
 }
 
 func (fits *Image) Read(f io.Reader, readData bool, logWriter io.Writer) (err error) {
-	err=fits.Header.read(f, logWriter)
+	err=fits.Header.read(f, fits.ID, logWriter)
 	if err!=nil { return err }
 
 	// check mandatory fields as per standard
 	if fits.Header.Bools["SIMPLE"]!=true { 
-		return errors.New("Not a valid FITS file; SIMPLE=T missing in header.") 
+		return errors.New(fmt.Sprintf("%d: Not a valid FITS file; SIMPLE=T missing in header.", fits.ID)) 
 	}
 	delete(fits.Header.Bools, "SIMPLE")
 
@@ -130,22 +130,22 @@ func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 		return fits.readInt16Data(f)
 
 	case 32:
-		fmt.Fprintf(logWriter, "Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
+		fmt.Fprintf(logWriter, "%d: Warning: loss of precision converting int%d to float32 values\n", fits.ID, fits.Bitpix)
 		return fits.readInt32Data(f)
 
 	case 64: 
-		fmt.Fprintf(logWriter, "Warning: loss of precision converting int%d to float32 values\n", fits.Bitpix)
+		fmt.Fprintf(logWriter, "%d: Warning: loss of precision converting int%d to float32 values\n", fits.ID, fits.Bitpix)
 		return fits.readInt64Data(f)
 
 	case -32:
 		return fits.readFloat32Data(f)
 
 	case -64:
-		fmt.Fprintf(logWriter, "Warning: loss of precision converting float%d to float32 values\n", -fits.Bitpix)
+		fmt.Fprintf(logWriter, "%d: Warning: loss of precision converting float%d to float32 values\n", fits.ID, -fits.Bitpix)
 		return fits.readFloat64Data(f)
 
 	default:
-		return errors.New("Unknown BITPIX value "+strconv.FormatInt(int64(fits.Bitpix),10))
+		return errors.New(fmt.Sprintf("%d: Unknown BITPIX value %g", fits.ID, int64(fits.Bitpix)))
 	}
 
 	return nil
@@ -167,7 +167,7 @@ func (fits *Image) readInt8Data(r io.Reader) error {
 			bytesToRead=bufLen
 		}
 		bytesRead, err:=r.Read(buf[:bytesToRead])
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		for i, val:=range(buf[:bytesRead]) { 
 			v:=float32(val)*fits.Bscale + fits.Bzero
@@ -201,7 +201,7 @@ func (fits *Image) readInt16Data(r io.Reader) error {
 			bytesToRead=bufLen
 		}
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
@@ -241,7 +241,7 @@ func (fits *Image) readInt32Data(r io.Reader) error {
 			bytesToRead=bufLen
 		}
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
@@ -281,7 +281,7 @@ func (fits *Image) readInt64Data(r io.Reader) error {
 			bytesToRead=bufLen
 		}
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
@@ -321,13 +321,10 @@ func (fits *Image) readFloat32Data(r io.Reader) error {
 		if bytesToRead>bufLen {
 			bytesToRead=bufLen
 		}
-		//fmt.Fprintf(logWriter, "dataIndex %d bytesToRead %d\n", dataIndex, bytesToRead)
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		//fmt.Fprintf(logWriter, "bytesRead %d err %d\n", bytesRead, err)
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		availableBytes:=leftoverBytes+bytesRead
-		//fmt.Fprintf(logWriter, "availableBytes %d\n", availableBytes)
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
 			bits:=((uint32(buf[i]))<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3]))
 			val:=math.Float32frombits(bits)
@@ -366,7 +363,7 @@ func (fits *Image) readFloat64Data(r io.Reader) error {
 			bytesToRead=bufLen
 		}
 		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return err }
+		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
 
 		availableBytes:=leftoverBytes+bytesRead
 		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
@@ -392,7 +389,7 @@ func (fits *Image) readFloat64Data(r io.Reader) error {
 }
 
 
-func (h *Header) read(r io.Reader, logWriter io.Writer) error {
+func (h *Header) read(r io.Reader, id int, logWriter io.Writer) error {
 	buf:=make([]byte, fitsBlockSize)
 
 	myParser:=reParser.Copy() // better (thread-)safe for SubexpNames() than sorry
@@ -400,7 +397,7 @@ func (h *Header) read(r io.Reader, logWriter io.Writer) error {
 	for h.Length=0; !h.End ; {
 		// read next header unit
 		bytesRead, err:=io.ReadFull(r, buf)
-		if err!=nil || bytesRead!=fitsBlockSize { return err }
+		if err!=nil || bytesRead!=fitsBlockSize { return errors.New(fmt.Sprintf("%d: %s", id, err.Error())) }
 		h.Length+=int32(bytesRead)
 
 		// parse all lines in this header unit
@@ -408,10 +405,10 @@ func (h *Header) read(r io.Reader, logWriter io.Writer) error {
 			line:=buf[lineNo*HeaderLineSize:(lineNo+1)*HeaderLineSize]
 			subValues:=myParser.FindSubmatch(line)
 			if subValues==nil {
-				fmt.Fprintf(logWriter, "Warning:Cannot parse '%s', ignoring\n",string(line))
+				fmt.Fprintf(logWriter, "%d: Warning:Cannot parse '%s', ignoring\n", id, string(line))
 			} else {
 				subNames:=myParser.SubexpNames()
-				h.readLine(subNames, subValues, lineNo, logWriter)
+				h.readLine(subNames, subValues, id, lineNo, logWriter)
 			}
 		}
 	}
@@ -419,7 +416,7 @@ func (h *Header) read(r io.Reader, logWriter io.Writer) error {
 }
 
 
-func (h *Header) readLine(subNames []string, subValues [][]byte, lineNo int, logWriter io.Writer) {
+func (h *Header) readLine(subNames []string, subValues [][]byte, id, lineNo int, logWriter io.Writer) {
 	key:=""
 	// ignore index 0 which is the whole line
 	for i:=1; i<len(subNames); i++ {
@@ -455,7 +452,7 @@ func (h *Header) readLine(subNames []string, subValues [][]byte, lineNo int, log
 			case byte('c'): // comment
 				// ignore value comments
 			default:
-				fmt.Fprintf(logWriter, "%d:Warning:Unknown token '%s'\n", lineNo, string(c))
+				fmt.Fprintf(logWriter, "%d:%d:Warning:Unknown token '%s'\n", id, lineNo, string(c))
 			}
 		}
 	}
