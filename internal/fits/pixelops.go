@@ -128,16 +128,22 @@ func pfScaleOffset(data []float32, params interface{}) {
 }
 
 // Applies given scale factor and offset to image.  Operates in-place. 
-func (f* Image) ScaleOffset(scale, offset float32) {
+func (f* Image) ApplyScaleOffset(scale, offset float32) {
 	f.ApplyPixelFunction(pfScaleOffset, pfScaleOffsetArgs{scale, offset})
 	f.Stats.UpdateCachedWith(scale, offset)
+}
+
+// Applies given scale factor and offset to image.  Operates in-place. 
+func (f* Image) ApplyScaleOffsetToChannel(chanID int, scale, offset float32) {
+	f.ApplyPixelFunction1Chan(chanID, pfScaleOffset, pfScaleOffsetArgs{scale, offset})
+	f.Stats.Clear();
 }
 
 // Normalize image to [0..1] based on basic stats.  Operates in-place. 
 func (f* Image) Normalize() {
 	scale:=1.0/(f.Stats.Max()-f.Stats.Min())
 	offset:=-f.Stats.Min()*scale
-	f.ScaleOffset(scale, offset)
+	f.ApplyScaleOffset(scale, offset)
 }
 
 
