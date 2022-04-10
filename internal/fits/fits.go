@@ -214,39 +214,64 @@ func (hsl *Image) ApplyLuminanceToCIExyY(lum *Image) {
 // and median star colors are of a neutral tone. 
 func (f *Image) SetBlackWhitePoints(logWriter io.Writer) error {
 	// Estimate location (=histogram peak, background black point) per color channel
-	locR:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 0, 3).Location()
-	locG:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 1, 3).Location()
-	locB:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3).Location()
+	statsR:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 0, 3)
+	statsG:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 1, 3)
+	statsB:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
+	locR:=statsR.Location()
+	locG:=statsG.Location()
+	locB:=statsB.Location()
 
-	// Pick rightmost histogram peak as new background peak location (do not clip blacks)
-	locNew:=locR
-	if locG>locNew { locNew=locG }
-	if locB>locNew { locNew=locB }
+	// Pick average histogram peak as new background peak location (avoid degenerated colors)
+	locNew:=(locR+locG+locB)/3
 
 	// Estimate median star color
 	l:=len(f.Data)/3
-	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], f.Stars)
-	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], f.Stars)
-	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], f.Stars)
+	sl:=len(f.Stars)
+	stars:=f.Stars[sl/3:2*sl/3]
+	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], stars)
+	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], stars)
+	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], stars)
 	fmt.Fprintf(logWriter, "Background peak (%.2f%%, %.2f%%, %.2f%%) and median star color (%.2f%%, %.2f%%, %.2f%%)\n", 
 	  	      locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
 
-	// Pick left most star color as new star color location (do not clip stars)
-	starNew:=starR
-	if starG<starNew { starNew=starG }
-	if starB<starNew { starNew=starB }
+	// Pick average star color as new star color location (avoid degenerated colors)
+	starNew:=(starR+starG+starB)/3
 
-	// Calculate multiplicative correction factors
-	alphaR:=(locNew-starNew)/(locR-starR)
-	alphaG:=(locNew-starNew)/(locG-starG)
-	alphaB:=(locNew-starNew)/(locB-starB)
+	useStars:=true
+	var alphaR, alphaG, alphaB float32 = 1, 1, 1
+	var betaR, betaG, betaB float32 = 0, 0, 0
+	if useStars  {
+		// Calculate multiplicative correction factors
+		alphaR=(starNew-locNew)/(starR-locR)
+		alphaG=(starNew-locNew)/(starG-locG)
+		alphaB=(starNew-locNew)/(starB-locB)
 
-	// Calculate additive correction factors 
-	betaR:=starNew - alphaR*starR
-	betaG:=starNew - alphaG*starG
-	betaB:=starNew - alphaB*starB
+		// Calculate additive correction factors 
+		betaR=locNew - alphaR * locR
+		betaG=locNew - alphaG * locG
+		betaB=locNew - alphaB * locB
+	} else {
+		// Calculate preliminary additive correction factors 
+		betaR=locNew - locR
+		betaG=locNew - locG
+		betaR=locNew - locB
 
-	fmt.Fprintf(logWriter, "r=%.3f*r %+.3f, g=%.3f*g %+.3f, b=%.3f*b %+.3f\n", alphaR, betaR, alphaG, betaG, alphaB, betaB)
+		// detect clipping
+		max:=statsR.Max()+betaR
+		if   statsG.Max()+betaG > max { max = statsG.Max()+betaG }
+		if   statsB.Max()+betaB > max { max = statsB.Max()+betaB }
+
+		// Calculate final additive correction factors to prevent clipping 
+		if max>1 {
+			alpha:=1.0/max			
+			betaR=locNew - alpha * locR
+			betaG=locNew - alpha * locG
+			betaB=locNew - alpha * locB
+		}
+	}
+
+
+	fmt.Fprintf(logWriter, "r=%.3f*r %+.3f%%, g=%.3f*g %+.3f%%, b=%.3f*b %+.3f%%\n", alphaR, betaR*100, alphaG, betaG*100, alphaB, betaB*100)
 	f.ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB)
 	return nil
 }
@@ -260,8 +285,9 @@ func medianStarIntensity(data []float32, width int32, stars []star.Star) float32
 	gathered:=make([]float32,0,len(data))
 	for _, s:=range stars {
 		starX,starY:=s.Index%width, s.Index/width
-		hfrR:=int32(s.HFR+0.5)
-		hfrSq:=(s.HFR+0.01)*(s.HFR+0.01)
+		hfr:=s.HFR*0.5
+		hfrR:=int32(hfr+0.5)
+		hfrSq:=(hfr+0.01)*(hfr+0.01)
 		for offY:=-hfrR; offY<=hfrR; offY++ {
 			y:=starY+offY
 			if y>=0 && y<height {
