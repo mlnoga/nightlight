@@ -288,7 +288,8 @@ Blockly.defineBlocksWithJsonArray([
           [ "highest # stars / HFR (for lights)", "0"],
           [ "median skyfog location (for flats)", "1"],
           [ "given filename", "2"],
-          [ "given in-memory image", "3"] // FIXME: still needed?
+          [ "given in-memory image", "3"],
+          [ "Lum if present, else best RGB", "4"]
         ]
       }
     ],
