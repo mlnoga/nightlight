@@ -36,6 +36,7 @@ const (
 	StMean 
 	StSigma
 	StWinsorSigma
+	StMADSigma
 	StLinearFit
 	StAuto
 )
@@ -175,6 +176,13 @@ func (op *OpStack) Apply(f []*fits.Image, c *ops.Context) (result *fits.Image, e
 					clipLow, clipHigh=StackWinsorSigma(ldBatch, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
 				} else {
 					clipLow, clipHigh=StackWinsorSigmaWeighted(ldBatch, weights, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
+				}
+
+			case StMADSigma:
+				if weights==nil {
+					clipLow, clipHigh=StackMADSigma(ldBatch, op.RefFrameLoc, op.SigmaLow, op.SigmaHigh, data[lower:upper])
+				} else {
+					panic("MADSigma stacking with weights is still unimplemented")
 				}
 
 			case StLinearFit:
@@ -521,6 +529,81 @@ func StackSigmaWeighted(lightsData [][]float32, weights []float32, RefFrameLoc, 
 
 	return numClippedLow, numClippedHigh
 }
+
+
+// Mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
+// MADs away from the median are excluded from the average calculation.
+func StackMADSigma(lightsData [][]float32, RefFrameLoc, sigmaLow, sigmaHigh float32, res []float32) (clipLow, clipHigh int32) {
+	gatheredFull:=make([]float32,len(lightsData))
+	adGatheredFull:=make([]float32,len(lightsData))
+	numClippedLow, numClippedHigh:=int32(0), int32(0)
+
+	// for all pixels
+	for i, _:=range lightsData[0] {
+
+		// gather data for this pixel across all lights, skipping NaNs
+		numGathered:=0
+		for li, _:=range lightsData {
+			value:=lightsData[li][i]
+			if !math.IsNaN(float64(value)) {
+				gatheredFull[numGathered]=value
+				numGathered++
+			}
+		}
+		if numGathered==0 {
+			// If no valid data points available, replace with overall mean.
+			// This is subobptimal, but NaN would break subsequent processing,
+			// unless all operations are made NaN-proof. As IEEE NaN does not
+			// compare equal to itself, this would require a full reimplementation
+			// of basic partitioning and sorting primitives on float32. 
+			// Not going down that rabbit hole for now. 
+			res[i]=RefFrameLoc 
+			continue	
+		}
+		gatheredCur:=gatheredFull[:numGathered]
+
+		// calculate median across gathered data
+		median:=qsort.QSelectMedianFloat32(gatheredCur)
+
+		// calculate median absolute distance (MAD)
+		adGatheredCur:=adGatheredFull[:numGathered]
+		for i,g:=range gatheredCur {
+			ad:=g-median
+			if ad<0 { ad=-ad }
+			adGatheredCur[i]=ad
+		}
+		mad:=qsort.QSelectMedianFloat32(adGatheredCur)
+		stdDev:=mad*1.4826  // normalize to Gaussian std dev equivalent value
+
+		// remove out-of-bounds values
+		lowBound :=median - sigmaLow *stdDev
+		highBound:=median + sigmaHigh*stdDev
+		for j:=0; j<len(gatheredCur); {
+			g:=gatheredCur[j]
+			if g<lowBound {
+				gatheredCur[j]=gatheredCur[len(gatheredCur)-1]
+				gatheredCur=gatheredCur[:len(gatheredCur)-1]
+				numClippedLow++
+			} else if g>highBound {
+				gatheredCur[j]=gatheredCur[len(gatheredCur)-1]
+				gatheredCur=gatheredCur[:len(gatheredCur)-1]
+				numClippedHigh++
+			} else {
+				j++
+			}
+		}
+
+		// calculate mean
+		mean:=float32(0)
+		for _,g:=range(gatheredCur) { mean+=g }
+		mean/=float32(len(gatheredCur))
+		res[i]=mean		
+	}
+
+	gatheredFull=nil
+	return numClippedLow, numClippedHigh
+}
+
 
 
 // Weighted mean stacking with sigma clipping. Values which are more than sigmaLow/sigmaHigh
