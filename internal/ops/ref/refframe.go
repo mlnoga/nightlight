@@ -36,12 +36,15 @@ const (
 	RFMStarsOverHFR RefSelMode = iota // Pick frame with highest ratio of stars over HFR (for lights)
 	RFMMedianLoc                      // Pick frame with median location (for multiplicative correction when integrating master flats)
 	RFMFileName                       // Load from given filename
+	RFMFileID                         // Load from given frame ID
+	RFMLRGB                           // (L)RGB mode. Uses luminance if present (id=3), else the RGB frame with the best stars/HFR ratio
 )
 
 type OpSelectReference struct {
 	ops.OpBase
 	Mode            RefSelMode         `json:"mode"`
 	FileName        string             `json:"fileName"`
+	FileID          int                `json:"fileID"`
 	StarDetect     *pre.OpStarDetect   `json:"starDetect"`
 	mutex           sync.Mutex         `json:"-"`
 	materialized    []*fits.Image      `json:"-"` 
@@ -49,14 +52,15 @@ type OpSelectReference struct {
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpSelectReferenceDefault() })} // register the operator for JSON decoding
 
-func NewOpSelectReferenceDefault() *OpSelectReference { return NewOpSelectReference(RFMStarsOverHFR, "", pre.NewOpStarDetectDefault() )}
+func NewOpSelectReferenceDefault() *OpSelectReference { return NewOpSelectReference(RFMStarsOverHFR, "", 0, pre.NewOpStarDetectDefault() )}
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpSelectReference(mode RefSelMode, fileName string, opStarDetect *pre.OpStarDetect) *OpSelectReference {
+func NewOpSelectReference(mode RefSelMode, fileName string, fileID int, opStarDetect *pre.OpStarDetect) *OpSelectReference {
 	op:=OpSelectReference{
 		OpBase    : ops.OpBase{Type:"selectRef"},
 		Mode:       mode,
 		FileName:   fileName,
+		FileID:     fileID,
 		StarDetect: opStarDetect,
 	}
 	return &op	
@@ -133,12 +137,28 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 		op.materialized,c.RefFrameError=ops.MaterializeAll(ins, c.MaxThreads, false)
 		if c.RefFrameError!=nil { return nil, c.RefFrameError }
 
+		// Auto-select mode for (L)RGB
+		mode, fileID :=op.Mode, op.FileID
+		if mode == RFMLRGB {
+			if len(op.materialized)>3 {
+				mode, fileID=RFMFileID, 3
+			} else {
+				mode=RFMStarsOverHFR
+			}
+		}
+
 		// select reference with given mode
 		var refScore float32
-		if op.Mode==RFMStarsOverHFR {
+		if mode==RFMStarsOverHFR {
 			c.RefFrame, refScore, c.RefFrameError=selectReferenceStarsOverHFR(op.materialized)
-		} else if op.Mode==RFMMedianLoc {
+		} else if mode==RFMMedianLoc {
 			c.RefFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized, c)
+		} else if mode==RFMFileID {
+			if fileID<0 || fileID>=len(op.materialized) {
+				c.RefFrameError=errors.New(fmt.Sprintf("invalid reference file ID %d", fileID))
+				return nil, c.RefFrameError
+			}
+			c.RefFrame=op.materialized[fileID]
 		} else {
 			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
 		}
