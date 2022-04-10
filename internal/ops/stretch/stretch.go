@@ -118,7 +118,8 @@ func (op *OpStretchIterative) Apply(f *fits.Image, c *ops.Context) (result *fits
 			idealGamma:=float32(1)
 			idealGammaDelta:=float32(math.Abs(float64(op.Scale)-float64(scale)))
 
-			for gamma:=float32(1.0); gamma<=8; gamma+=0.01 {
+			maxGamma:=float32(5.0)
+			for gamma:=float32(1.0); gamma<=maxGamma; gamma+=0.01 {
 				exponent:=1.0/float64(gamma)
 				newLocLower:=float32(math.Pow(float64(loc-scale), exponent))
 				newLoc     :=float32(math.Pow(float64(loc        ), exponent))
@@ -145,6 +146,7 @@ func (op *OpStretchIterative) Apply(f *fits.Image, c *ops.Context) (result *fits
 
 			fmt.Fprintf(c.Log, "applying gamma %.3g\n", idealGamma)
 			f.ApplyGamma(idealGamma)
+			//f.ApplyPartialGamma(0, 0.95, idealGamma)
 		} else if loc>op.Location*0.99 && scale<op.Scale {
 			fmt.Fprintf(c.Log, "scaling black to move location to %.2f%%...\n", op.Location*100)
 			f.ShiftBlackToMove(loc, op.Location)
