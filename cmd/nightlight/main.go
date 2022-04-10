@@ -95,7 +95,7 @@ var lsEst     = flag.Int64("lsEst",3,"location and scale estimators 0=mean/stdde
 var normRange = flag.Int64("normRange",0,"normalize range: 1=normalize to [0,1], 0=do not normalize")
 var normHist  = flag.Int64("normHist",4,"normalize histogram: 0=do not normalize, 1=location, 2=location and scale, 3=black point shift for RGB align, 4=auto")
 
-var stMode    = flag.Int64("stMode", 5, "stacking mode. 0=median, 1=mean, 2=sigma clip, 3=winsorized sigma clip, 4=linear fit, 5=auto")
+var stMode    = flag.Int64("stMode", 6, "stacking mode. 0=median, 1=mean, 2=sigma clip, 3=winsorized sigma clip, 4=MAD sigma clip, 5=linear fit, 6=auto")
 var stClipPercLow = flag.Float64("stClipPercLow", 0.5,"set desired low clipping percentage for stacking, 0=ignore (overrides sigmas)")
 var stClipPercHigh= flag.Float64("stClipPercHigh",0.5,"set desired high clipping percentage for stacking, 0=ignore (overrides sigmas)")
 var stSigLow  = flag.Float64("stSigLow", -1,"low sigma for stacking as multiple of standard deviations, -1: use clipping percentage to find")
@@ -131,6 +131,9 @@ var midBlack  = flag.Float64("midBlack", 2, "midtone black in multiples of stand
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
+
+var lumScale   = flag.Float64("lumScale", 1, "scale luminance by this factor")
+var lumOffset  = flag.Float64("lumOffset", 0, "offset luminance with this factor")
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
@@ -268,7 +271,7 @@ Flags:
     		stack.NewOpStackBatches(
 		    	ops.NewOpSequence(
 		    		opPreProc, 
-		    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, opStarDetect),
+		    		ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, 0, opStarDetect),
 		            post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
 		            post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeNaN),
 		            ops.NewOpSave(*pPost),
@@ -297,7 +300,7 @@ Flags:
 			stretch.NewOpGammaPP         (float32(*ppGamma), float32(*ppSigma)),
 			stretch.NewOpScaleBlack      (float32(*scaleBlack / 100)),
 			opStarDetect,
-			ref    .NewOpSelectReference (ref.RFMFileName, *alignTo, opStarDetect),
+			ref    .NewOpSelectReference (ref.RFMFileName, *alignTo, 0, opStarDetect),
 			post   .NewOpAlign           (int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask     (float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops    .NewOpSave            (*out),
@@ -309,7 +312,7 @@ Flags:
     	opSeq:=ops.NewOpSequence(
     		opLoadMany,
     		opStarDetect,
-			ref.NewOpSelectReference(ref.RFMStarsOverHFR, "", opStarDetect),
+			ref.NewOpSelectReference(ref.RFMLRGB, "", 0, opStarDetect),
 
 			rgb.NewOpRGBCombine(), 
 			rgb.NewOpRGBBalance(),
@@ -325,6 +328,7 @@ Flags:
 			hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
 			hsl.NewOpHSLGamma(float32(*gamma)),
 			hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
+			hsl.NewOpHSLScaleOffsetChannel(2, float32(*lumScale), float32(*lumOffset)),
 			hsl.NewOpHSLScaleBlack(float32(*scaleBlack / 100)),
 
 			rgb.NewOpHSLuvToRGB(),
