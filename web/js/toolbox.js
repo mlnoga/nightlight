@@ -44,6 +44,14 @@ var toolbox = {
         },
         {
           "kind": "block",
+          "type": "nl_pre_debandVert"
+        },
+        {
+          "kind": "block",
+          "type": "nl_pre_debandHoriz"
+        },
+        {
+          "kind": "block",
           "type": "nl_pre_bin"
         },
         {

@@ -69,6 +69,14 @@ Json["nl_pre_debayer"]=function(block) {
   return createJsonObject(block, "debayer", ["channel", "colorFilterArray"], null, null);
 }
 
+Json["nl_pre_debandVert"]=function(block) {
+  return createJsonObject(block, "debandVert", ["percentile"], null, null);
+}
+
+Json["nl_pre_debandHoriz"]=function(block) {
+  return createJsonObject(block, "debandHoriz", ["percentile"], null, null);
+}
+
 Json["nl_pre_bin"]=function(block) {
   return createJsonObject(block, "bin", ["binSize"], null, null);
 }

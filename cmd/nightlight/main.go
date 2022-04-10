@@ -68,6 +68,9 @@ var flat = flag.String("flat", "", "apply flat frame from `file`")
 var debayer = flag.String("debayer", "", "debayer the given channel, one of R, G, B or blank for no op")
 var cfa     = flag.String("cfa", "RGGB", "color filter array type for debayering, one of RGGB, GRBG, GBRG, BGGR")
 
+var debandH = flag.Float64("debandH", 0.0, "deband horizontally with given percentile [0..100], 0=off")
+var debandV = flag.Float64("debandV", 0.0, "deband vertically with given percentile [0..100], 0=off")
+
 var binning= flag.Int64("binning", 0, "apply NxN binning, 0 or 1=no binning")
 
 var bpSigLow  = flag.Float64("bpSigLow", 3.0,"low sigma for bad pixel removal as multiple of standard deviations")
@@ -249,6 +252,8 @@ Flags:
 		pre.NewOpCalibrate(*dark, *flat),
 		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
 		opDebayer,
+		pre.NewOpDebandHoriz(float32(*debandH)),
+		pre.NewOpDebandVert(float32(*debandV)),
 		pre.NewOpBin(int32(*binning)),
 		pre.NewOpBackExtract(int32(*backGrid), float32(*backSigma), int32(*backClip), *back),
 		opStarDetect,

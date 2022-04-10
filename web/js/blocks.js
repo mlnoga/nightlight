@@ -139,7 +139,45 @@ Blockly.defineBlocksWithJsonArray([
     "style"  : "pre_blocks",
   },
 
- {
+  {
+    "type": "nl_pre_debandVert",
+    "tooltip": "Apply vertical debanding to reduce chip readout artifacts",
+    "message0": "Deband vertically with %1th percentile",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "percentile",
+        "value" : 50,
+        "min" : 0,
+        "max" : 100,
+        "precision" : 0.5,
+      }
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "pre_blocks",
+  },
+
+  {
+    "type": "nl_pre_debandHoriz",
+    "tooltip": "Apply horizontal debanding to reduce chip readout artifacts",
+    "message0": "Deband horizontally with %1th percentile",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "percentile",
+        "value" : 50,
+        "min" : 0,
+        "max" : 100,
+        "precision" : 0.5,
+      }
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "pre_blocks",
+  },
+
+  {
     "type": "nl_pre_bin",
     "tooltip": "Add every NxN pixels to reduce noise and image size",
     "message0": "Bin every %1 pixels",
