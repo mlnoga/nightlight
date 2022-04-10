@@ -67,6 +67,48 @@ func (op *OpHSLApplyLum) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image,
 
 
 
+type OpHSLScaleOffsetChannel struct {
+	ops.OpUnaryBase
+	ChannelID int
+	Scale float32
+	Offset float32
+}
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLScaleOffsetChannelDefault() })} // register the operator for JSON decoding
+
+func NewOpHSLScaleOffsetChannelDefault() *OpHSLScaleOffsetChannel { return NewOpHSLScaleOffsetChannel(2,1,0) }
+
+func NewOpHSLScaleOffsetChannel(channelID int, scale, offset float32) *OpHSLScaleOffsetChannel {
+	op:=&OpHSLScaleOffsetChannel{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslScaleOffsetChannel"}},
+	  	ChannelID : channelID,
+	  	Scale : scale,
+	  	Offset : offset,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpHSLScaleOffsetChannel) UnmarshalJSON(data []byte) error {
+	type defaults OpHSLScaleOffsetChannel
+	def:=defaults( *NewOpHSLScaleOffsetChannelDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpHSLScaleOffsetChannel(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
+	return nil
+}
+
+func (op *OpHSLScaleOffsetChannel) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
+	if op.Scale==1 && op.Offset==0 { return f, nil }
+	fmt.Fprintf(c.Log, "%d: Linearly transforming channel %d with x = x * %.3f + %.3f%%\n", f.ID, op.ChannelID, op.Scale, op.Offset*100)
+	f.ApplyScaleOffsetToChannel(op.ChannelID, op.Scale, op.Offset)
+	return f, nil
+}
+
+
+
 type OpHSLNeutralizeBackground struct {
 	ops.OpUnaryBase
 	SigmaLow   float32    `json:"sigmaLow"`
