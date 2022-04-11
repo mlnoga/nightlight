@@ -70,6 +70,8 @@ var cfa     = flag.String("cfa", "RGGB", "color filter array type for debayering
 
 var debandH = flag.Float64("debandH", 0.0, "deband horizontally with given percentile [0..100], 0=off")
 var debandV = flag.Float64("debandV", 0.0, "deband vertically with given percentile [0..100], 0=off")
+var debandHWindow = flag.Int64("debandHWindow", 128, "deband horizontally with given window size [1..imageHeight], 0=off")
+var debandVWindow = flag.Int64("debandVWindow", 128, "deband vertically with given window size [1..imageWidth], 0=off")
 
 var binning= flag.Int64("binning", 0, "apply NxN binning, 0 or 1=no binning")
 
@@ -134,6 +136,9 @@ var midBlack  = flag.Float64("midBlack", 2, "midtone black in multiples of stand
 var gamma     = flag.Float64("gamma", 1, "apply output gamma, 1: keep linear light data")
 var ppGamma   = flag.Float64("ppGamma", 1, "apply post-peak gamma, scales curve from location+scale...ppLimit, 1: keep linear light data")
 var ppSigma   = flag.Float64("ppSigma", 1, "apply post-peak gamma this amount of scales from the peak (to avoid scaling background noise)")
+
+var preScale   = flag.Float64("preScale", 1, "scale pixels by this factor")
+var preOffset  = flag.Float64("preOffset", 0, "offset pixels with this factor")
 
 var lumScale   = flag.Float64("lumScale", 1, "scale luminance by this factor")
 var lumOffset  = flag.Float64("lumOffset", 0, "offset luminance with this factor")
@@ -252,8 +257,9 @@ Flags:
 		pre.NewOpCalibrate(*dark, *flat),
 		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
 		opDebayer,
-		pre.NewOpDebandHoriz(float32(*debandH)),
-		pre.NewOpDebandVert(float32(*debandV)),
+		pre.NewOpDebandHoriz(float32(*debandH), int32(*debandHWindow)),
+		pre.NewOpDebandVert(float32(*debandV), int32(*debandVWindow)),
+		pre.NewOpScaleOffset(float32(*preScale), float32(*preOffset)),
 		pre.NewOpBin(int32(*binning)),
 		pre.NewOpBackExtract(int32(*backGrid), float32(*backSigma), int32(*backClip), *back),
 		opStarDetect,
