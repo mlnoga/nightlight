@@ -53,7 +53,7 @@ func (f *Image) WriteJPG(writer io.Writer, quality int) error {
 			if math.IsNaN(float64(r)) { r=0 }  // replace NaNs with zeros for export, else JPG output breaks
 			if math.IsNaN(float64(g)) { g=0 }
 			if math.IsNaN(float64(b)) { b=0 }
-			c:=color.RGBA{uint8(r*255.0+0.5), uint8(g*255.0+0.5), uint8(b*255.0+0.5), 255}
+			c:=color.RGBA{uint8(r*255.0), uint8(g*255.0), uint8(b*255.0), 255}
 			img.SetRGBA(x, y, c)
 		}
 	}
