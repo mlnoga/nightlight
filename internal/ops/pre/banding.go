@@ -27,16 +27,18 @@ import (
 type OpDebandHoriz struct {
 	ops.OpUnaryBase
 	Percentile      float32     `json:"percentile"`
+	Window          int32       `json:"window"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpDebandHorizDefaults() })} // register the operator for JSON decoding
 
-func NewOpDebandHorizDefaults() *OpDebandHoriz { return NewOpDebandHoriz(50) }
+func NewOpDebandHorizDefaults() *OpDebandHoriz { return NewOpDebandHoriz(50, 128) }
 
-func NewOpDebandHoriz(percentile float32) *OpDebandHoriz {
+func NewOpDebandHoriz(percentile float32, window int32) *OpDebandHoriz {
 	op:=&OpDebandHoriz{
 		OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "debandHoriz"}},
 		Percentile  : percentile,
+		Window      : window,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -54,12 +56,16 @@ func (op *OpDebandHoriz) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpDebandHoriz) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
-	if op.Percentile<=0 || op.Percentile>=100 { return f, nil }
+	if op.Percentile<=0 || op.Percentile>=100 || op.Window<=0 { return f, nil }
+
+	// obtain dimensions
+	numCols, numRows   :=f.Naxisn[0], f.Naxisn[1]
+	windowRows:=op.Window
+	if windowRows>numRows { windowRows=numRows }
 
 	// allocate space
-	numCols, numRows   :=f.Naxisn[0], f.Naxisn[1]
 	rowPercentiles     :=make([]float32, numRows)
-	rowPercentilesClone:=make([]float32, numRows)
+	rowPercentilesClone:=make([]float32, windowRows)
 	rowBuffer          :=make([]float32, numCols)
 
 	// calculate desired percentile of each row
@@ -69,41 +75,90 @@ func (op *OpDebandHoriz) Apply(f *fits.Image, c *ops.Context) (result *fits.Imag
 		rowPercentiles[row]=qsort.QSelectFloat32(rowBuffer,int(k))
 	}
 
-	// calculate median of percentiles
-	copy(rowPercentilesClone, rowPercentiles)
-	medianOfRowPercentiles:=qsort.QSelectMedianFloat32(rowPercentilesClone)
-
-	// apply correction to each row
+	// correct each row
 	lowest, highest:=float32(1), float32(0)
 	for row:=int32(0); row<numRows; row++ {
+		// determine local window and calculate local median of percentiles
+		startRow:=row-(windowRows>>1)
+		missing:=int32(0)
+		if startRow<0 { 
+			missing = startRow
+			startRow = 0 
+		}
+		endRow:=startRow+windowRows
+		if endRow>numRows {
+			missing = endRow - numRows
+			endRow=numRows
+			startRow=endRow-windowRows
+		}
+		copy(rowPercentilesClone, rowPercentiles[startRow:endRow])
+		if missing!=0 {
+			fixWindowEdge(rowPercentilesClone, missing)
+		}
+		medianOfRowPercentiles:=qsort.QSelectMedianFloat32(rowPercentilesClone)
+
+		// calculate local correction factor
 		factor:=medianOfRowPercentiles / rowPercentiles[row]
 		if factor<lowest { lowest = factor }
 		if factor>highest { highest = factor }
+
+		// apply local correction factor
 		theRow:=f.Data[row*numCols:row*numCols+numCols]
 		for col, v:=range(theRow) {
 			theRow[col]=v*factor
 		}
 	}
 	f.Stats.Clear()
-	fmt.Fprintf(c.Log, "%d: De-banded horizontally with %.3fth percentile, factors in [%.3f, %.3f]\n", f.ID, op.Percentile, lowest, highest)
+	fmt.Fprintf(c.Log, "%d: De-banded horizontally with %.3fth percentile and window %d, factors in [%.3f, %.3f]\n", 
+		        f.ID, op.Percentile, op.Window, lowest, highest)
 	return f, nil
 }
 
+func fixWindowEdge(window []float32, missing int32) {
+  // calculate medians of the left and right halves of the window
+  left:=make([]float32, len(window)/2)
+  copy(left, window[:len(left)])
+  leftMedian:=qsort.QSelectMedianFloat32(left)
 
+  right:=make([]float32, len(window)-len(left))
+  copy(right, window[len(left):])
+  rightMedian:=qsort.QSelectMedianFloat32(right)
+
+  // linearly approximate the gradient via mean-of-medians and slope-of-medians  
+  meanOfMedians:=0.5*(leftMedian+rightMedian)
+  center:=0.5*(float32(len(left))+float32(len(right)))
+  slopeOfMedians:=(rightMedian-leftMedian)/center
+
+  if missing<0 { 
+  	// replace values on the right of the buffer with interpolated values left of buffer
+  	for i:=int32(len(window))+missing; i<int32(len(window)); i++ {
+  		offset:=float32(i-int32(len(window)))-center
+  		window[i]=meanOfMedians+slopeOfMedians*offset
+  	}
+  } else {
+  	// replace values on the left of the buffer with interpolated values right of buffer
+  	for i:=int32(0); i<missing; i++ {
+  		offset:=float32(i+int32(len(window)))-center
+  		window[i]=meanOfMedians+slopeOfMedians*offset
+  	}
+  }
+}
 
 type OpDebandVert struct {
 	ops.OpUnaryBase
 	Percentile      float32     `json:"percentile"`
+	Window          int32       `json:"window"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpDebandVertDefaults() })} // register the operator for JSON decoding
 
-func NewOpDebandVertDefaults() *OpDebandVert { return NewOpDebandVert(50) }
+func NewOpDebandVertDefaults() *OpDebandVert { return NewOpDebandVert(50, 128) }
 
-func NewOpDebandVert(percentile float32) *OpDebandVert {
+func NewOpDebandVert(percentile float32, window int32) *OpDebandVert {
 	op:=&OpDebandVert{
 		OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "debandVert"}},
 		Percentile  : percentile,
+		Window      : window,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -123,11 +178,15 @@ func (op *OpDebandVert) UnmarshalJSON(data []byte) error {
 func (op *OpDebandVert) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if op.Percentile<=0 || op.Percentile>=100 { return f, nil }
 
+	// obtain dimensions
+	numCols, numRows   :=f.Naxisn[0], f.Naxisn[1]
+	windowCols:=op.Window
+	if windowCols>numCols { windowCols=numCols }
+
 	// allocate space
-	numCols, numRows:=f.Naxisn[0], f.Naxisn[1]
-	colPercentiles      :=make([]float32, numCols)
-	colPercentilesClone :=make([]float32, numCols)
-	colBuffer       :=make([]float32, numRows)
+	colPercentiles     :=make([]float32, numCols)
+	colPercentilesClone:=make([]float32, windowCols)
+	colBuffer          :=make([]float32, numRows)
 
 	// calculate desired percentile of each column
 	k:=int(float32(numRows)*op.Percentile*0.01)
@@ -140,19 +199,41 @@ func (op *OpDebandVert) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 
 	// calculate median of percentiles
 	copy(colPercentilesClone, colPercentiles)
-	medianOfColPercentiles:=qsort.QSelectMedianFloat32(colPercentilesClone)
 
 	// apply correction to each column
 	lowest, highest:=float32(1), float32(0)
 	for col:=int32(0); col<numCols; col++ {
+		// determine local window and calculate local median of percentiles
+		startCol:=col-(windowCols>>1)
+		missing:=int32(0)
+		if startCol<0 { 
+			missing = startCol
+			startCol = 0 
+		}
+		endCol:=startCol+windowCols
+		if endCol>numCols {
+			missing = endCol - numCols
+			endCol=numCols
+			startCol=endCol-windowCols
+		}
+		copy(colPercentilesClone, colPercentiles[startCol:endCol])
+		if missing!=0 {
+			fixWindowEdge(colPercentilesClone, missing)
+		}
+		medianOfColPercentiles:=qsort.QSelectMedianFloat32(colPercentilesClone)
+
+		// calculate local correction factor
 		factor:=medianOfColPercentiles / colPercentiles[col]
 		if factor<lowest { lowest = factor }
 		if factor>highest { highest = factor }
+
+		// apply local correction factor
 		for row:=int32(0); row<numRows; row++ {
 			f.Data[row*numCols + col] *= factor			
 		}
 	}
 	f.Stats.Clear()
-	fmt.Fprintf(c.Log, "%d: De-banded vertically with %.3fth percentile, factors in [%.3f, %.3f]\n", f.ID, op.Percentile, lowest, highest)
+	fmt.Fprintf(c.Log, "%d: De-banded vertically with %.3fth percentile and window %d, factors in [%.3f, %.3f]\n", 
+		        f.ID, op.Percentile, op.Window, lowest, highest)
 	return f, nil
 }
