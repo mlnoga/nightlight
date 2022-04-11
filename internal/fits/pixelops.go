@@ -402,16 +402,29 @@ func pf3ChanHSLuvToRGB(rs,gs,bs []float32, params interface{}) {
 	for i:=0; i<len(rs); i++ {
 		h, s, l:=rs[i], gs[i], bs[i]
 
-		if s<0 { s=0 }
-		if s>1 { s=1 }
-		if l<0 { l=0 }
-		if l>1 { l=1 }
-
-		col:=colorful.HSLuv(float64(h),float64(s),float64(l)).Clamped()
-		r,g,b:=col.LinearRgb()
-
-		rs[i], gs[i], bs[i]=float32(r), float32(g), float32(b) 
+		// col:=colorful.HSLuv(float64(h),float64(s),float64(l)).Clamped()
+		// r,g,b:=col.LinearRgb()
+		// rs[i], gs[i], bs[i]=float32(r), float32(g), float32(b)
+		
+		rs[i], gs[i], bs[i]=HSLuvToLinearRGB(h, s, l) 
 	}
+}
+
+// default white, unfortunately defined as private in package colorful
+var hSLuvD65 = [3]float64{0.95045592705167, 1.0, 1.089057750759878}
+
+// convert HSLuv to linear RGB; faster; with color-preserving clamping
+func HSLuvToLinearRGB(h, s, l float32) (r, g, b float32) {
+	// HSLuv -> LuvLCh -> CIELUV -> CIEXYZ -> Linear RGB -> sRGB
+	ll, u, v := colorful.LuvLChToLuv(colorful.HSLuvToLuvLCh(float64(h), float64(s), float64(l)))
+	rr, gg, bb:=colorful.XyzToLinearRgb(colorful.LuvToXyzWhiteRef(ll, u, v, hSLuvD65))
+	max:=math.Max(math.Max(rr,gg),bb) // color-preserving clamping, instead of default lightness-preserving
+	if max>1 {
+		rr/=max
+		gg/=max
+		bb/=max
+	}
+	return float32(rr), float32(gg), float32(bb)
 }
 
 // Convert HSLuv to RGB pixels. Operates in-place.
