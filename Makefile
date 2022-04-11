@@ -2,6 +2,8 @@ TARGET=nightlight
 SRCS=$(wildcard cmd/$(TARGET)/*.go) $(wildcard internal/*.go) $(wildcard internal/*.asm) \
      $(wildcard internal/*/*.go) $(wildcard internal/*/*.asm) \
      $(wildcard internal/*/*/*.go) $(wildcard internal/*/*/*.asm)
+WEBSRCS=$(wildcard web/*) $(wildcard web/*/*) $(wildcard web/*/*/*)
+
 BLOCKLY=web/blockly/blockly_compressed.js
 FLAGS=-v -tags=jsoniter# -gcflags "-m"
 
@@ -22,7 +24,7 @@ install-local: $(EXECUTABLE)
 $(BLOCKLY):
 	cd web && git clone https://github.com/google/blockly.git && cd ..
 
-$(EXECUTABLE): $(SRCS) $(BLOCKLY)
+$(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	go build -o $@ $(FLAGS) ./cmd/$(TARGET)
 
 cross-platform: $(TARGET)_linux_amd64 $(TARGET)_darwin_amd64 $(TARGET)_windows_amd64.exe $(TARGET)_linux_arm7 $(TARGET)_linux_arm64
