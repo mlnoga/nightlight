@@ -69,9 +69,9 @@ func (op *OpHSLApplyLum) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image,
 
 type OpHSLScaleOffsetChannel struct {
 	ops.OpUnaryBase
-	ChannelID int
-	Scale float32
-	Offset float32
+	ChannelID int  `json:"channelID"`
+	Scale float32  `json:"scale"`
+	Offset float32 `json:"offset"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLScaleOffsetChannelDefault() })} // register the operator for JSON decoding
@@ -102,7 +102,7 @@ func (op *OpHSLScaleOffsetChannel) UnmarshalJSON(data []byte) error {
 
 func (op *OpHSLScaleOffsetChannel) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
 	if op.Scale==1 && op.Offset==0 { return f, nil }
-	fmt.Fprintf(c.Log, "%d: Linearly transforming channel %d with x = x * %.3f + %.3f%%\n", f.ID, op.ChannelID, op.Scale, op.Offset*100)
+	fmt.Fprintf(c.Log, "%d: Applying pixel math x = x * %.3f + %.3f%% to channel %d\n", f.ID, op.Scale, op.Offset*100, op.ChannelID)
 	f.ApplyScaleOffsetToChannel(op.ChannelID, op.Scale, op.Offset)
 	return f, nil
 }
@@ -499,12 +499,14 @@ func (op *OpHSLScaleBlack) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Imag
 	st:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
 	loc, scale:=st.Location(), st.Scale()
 	fmt.Fprintf(c.Log, "Location %.2f%% and scale %.2f%%: ", loc*100, scale*100)
-	_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(op.Location)).Hcl()
-	targetBlack:=float32(hclTargetBlack)
-	
+//	_,_,hclTargetBlack:=colorful.Xyy(0,0,float64(op.Location)).Hcl()
+//	targetBlack:=float32(hclTargetBlack)
+	_,_,hslUVTargetBlack:=colorful.LinearRgb(float64(op.Location), float64(op.Location), float64(op.Location)).HSLuv()
+	targetBlack:=float32(hslUVTargetBlack)
+
 	if loc>targetBlack {
-		fmt.Fprintf(c.Log, "scaling black to move location to HCL %.2f%% for linear %.2f%%...\n", targetBlack*100.0, op.Location)
-		f.ShiftBlackToMoveChannel(2,loc, targetBlack)
+		fmt.Fprintf(c.Log, "scaling black to move location to HSLuv %.2f%% for linear %.2f%%...\n", targetBlack*100.0, op.Location*100.0)
+		f.ShiftBlackToMoveChannel(2, loc, targetBlack)
 	} else {
 		fmt.Fprintf(c.Log, "cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
 	}
