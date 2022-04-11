@@ -219,6 +219,45 @@ func (op *OpDebayer) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, e
 }
 
 
+type OpScaleOffset struct {
+	ops.OpUnaryBase
+	Scale float32   `json:"scale"`
+	Offset float32  `json:"offset"`
+}
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpScaleOffsetDefault() })} // register the operator for JSON decoding
+
+func NewOpScaleOffsetDefault() *OpScaleOffset { return NewOpScaleOffset(1,0) }
+
+func NewOpScaleOffset(scale, offset float32) *OpScaleOffset {
+	op:=&OpScaleOffset{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "scaleOffset"}},
+	  	Scale : scale,
+	  	Offset : offset,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpScaleOffset) UnmarshalJSON(data []byte) error {
+	type defaults OpScaleOffset
+	def:=defaults( *NewOpScaleOffsetDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpScaleOffset(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
+	return nil
+}
+
+func (op *OpScaleOffset) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, err error) {
+	if op.Scale==1 && op.Offset==0 { return f, nil }
+	fmt.Fprintf(c.Log, "%d: Applying pixel math x = x * %.3f + %.3f%%\n", f.ID, op.Scale, op.Offset*100)
+	f.ApplyScaleOffset(op.Scale, op.Offset)
+	return f, nil
+}
+
+
 type OpBin struct {
 	ops.OpUnaryBase
 	BinSize           int32       `json:"binSize"`
