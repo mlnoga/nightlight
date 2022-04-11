@@ -142,7 +142,7 @@ Blockly.defineBlocksWithJsonArray([
   {
     "type": "nl_pre_debandVert",
     "tooltip": "Apply vertical debanding to reduce chip readout artifacts",
-    "message0": "Deband vertically with %1th percentile",
+    "message0": "Deband vertically with %1th percentile and window size %2",
     "args0": [
       {
         "type": "field_slider",
@@ -151,6 +151,22 @@ Blockly.defineBlocksWithJsonArray([
         "min" : 0,
         "max" : 100,
         "precision" : 0.5,
+      },
+      {
+        "type": "field_dropdown",
+        "name": "window",
+        "options" : [
+          [ "8", "8"],
+          [ "16", "16"],
+          [ "32", "32"],
+          [ "64", "64"],
+          [ "96", "96"],
+          [ "128", "128"],
+          [ "192", "192"],
+          [ "256", "256"],
+          [ "384", "384"],
+          [ "512", "512"]
+        ]
       }
     ],
     "previousStatement" : null,
@@ -161,7 +177,7 @@ Blockly.defineBlocksWithJsonArray([
   {
     "type": "nl_pre_debandHoriz",
     "tooltip": "Apply horizontal debanding to reduce chip readout artifacts",
-    "message0": "Deband horizontally with %1th percentile",
+    "message0": "Deband horizontally with %1th percentile and window size %2",
     "args0": [
       {
         "type": "field_slider",
@@ -170,6 +186,49 @@ Blockly.defineBlocksWithJsonArray([
         "min" : 0,
         "max" : 100,
         "precision" : 0.5,
+      },
+      {
+        "type": "field_dropdown",
+        "name": "window",
+        "options" : [
+          [ "8", "8"],
+          [ "16", "16"],
+          [ "32", "32"],
+          [ "64", "64"],
+          [ "96", "96"],
+          [ "128", "128"],
+          [ "192", "192"],
+          [ "256", "256"],
+          [ "384", "384"],
+          [ "512", "512"]
+        ]
+      }
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "pre_blocks",
+  },
+
+  {
+    "type": "nl_pre_scaleOffset",
+    "tooltip": "Multiply pixel values with given scale and add given offset",
+    "message0": "Multiply by %1 and add %2",
+    "args0": [
+      {
+        "type": "field_slider",
+        "name": "scale",
+        "value" : 1,
+        "min" : 0,
+        "max" : 10,
+        "precision" : 0.05,
+      },
+      {
+        "type": "field_slider",
+        "name": "offset",
+        "value" : 0,
+        "min" : -10000,
+        "max" : 10000,
+        "precision" : 50,
       }
     ],
     "previousStatement" : null,
@@ -726,6 +785,44 @@ Blockly.defineBlocksWithJsonArray([
     "style"  : "hsl_blocks",
   },
  
+  {
+    "type": "nl_hsl_hslScaleOffsetChannel",
+    "tooltip": "Multiply pixel values in given channel with given scale and add given offset",
+    "message0": "Multiply channel %1 by %2 and add %3",
+    "args0": [
+      {
+        "type": "field_dropdown",
+        "name": "channelID",
+        "options" : [
+          [ "Hue", "0"],
+          [ "Saturation", "1"],
+          [ "Luminance", "2"]
+        ]
+      },
+      {
+        "type": "field_slider",
+        "name": "scale",
+        "value" : 1,
+        "min" : 0,
+        "max" : 10,
+        "precision" : 0.05,
+      },
+      {
+        "type": "field_slider",
+        "name": "offset",
+        "value" : 0,
+        "min" : -0.5,
+        "max" : 0.5,
+        "precision" : 0.005,
+      }
+    ],
+    "previousStatement" : null,
+    "nextStatement" : null,
+    "style"  : "hsl_blocks",
+  },
+
+
+
   {
     "type": "nl_hsl_hslNeutralizeBackground",
     "tooltip": "For luminances sigLow standard deviations above the background peak, bring saturation to zero.\

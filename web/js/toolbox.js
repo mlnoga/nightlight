@@ -52,6 +52,10 @@ var toolbox = {
         },
         {
           "kind": "block",
+          "type": "nl_pre_scaleOffset"
+        },
+        {
+          "kind": "block",
           "type": "nl_pre_bin"
         },
         {
@@ -171,6 +175,10 @@ var toolbox = {
         {
           "kind": "block",
           "type": "nl_hsl_hslApplyLum"
+        },
+        {
+          "kind": "block",
+          "type": "nl_hsl_hslScaleOffsetChannel"
         },
         {
           "kind": "block",

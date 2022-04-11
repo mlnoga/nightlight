@@ -70,11 +70,15 @@ Json["nl_pre_debayer"]=function(block) {
 }
 
 Json["nl_pre_debandVert"]=function(block) {
-  return createJsonObject(block, "debandVert", ["percentile"], null, null);
+  return createJsonObject(block, "debandVert", ["percentile", "window"], null, null);
 }
 
 Json["nl_pre_debandHoriz"]=function(block) {
-  return createJsonObject(block, "debandHoriz", ["percentile"], null, null);
+  return createJsonObject(block, "debandHoriz", ["percentile", "window"], null, null);
+}
+
+Json["nl_pre_scaleOffset"]=function(block) {
+  return createJsonObject(block, "scaleOffset", ["scale", "offset"], null);
 }
 
 Json["nl_pre_bin"]=function(block) {
@@ -155,6 +159,10 @@ Json["nl_rgb_hsluvToRGB"]=function(block) {
 
 Json["nl_hsl_hslApplyLum"]=function(block) {
   return createJsonObject(block, "hslApplyLum", null, null);
+}
+
+Json["nl_hsl_hslScaleOffsetChannel"]=function(block) {
+  return createJsonObject(block, "hslScaleOffsetChannel", ["channelID", "scale", "offset"], null);
 }
 
 Json["nl_hsl_hslNeutralizeBackground"]=function(block) {
