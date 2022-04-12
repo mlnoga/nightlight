@@ -396,7 +396,7 @@ func (op *OpStarDetect) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 	if f.Stats==nil { return nil, errors.New("missing stats") }
 
 	f.Stars, _, f.HFR=star.FindStars(f.Data, f.Naxisn[0], f.Stats.Location(), f.Stats.Scale(), op.Sigma, op.BadPixelSigma, op.InOutRatio, op.Radius, f.MedianDiffStats)
-	fmt.Fprintf(c.Log, "%d: Stars %d HFR %.3g %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
+	fmt.Fprintf(c.Log, "%d: Stars %d HFR %.2f %v\n", f.ID, len(f.Stars), f.HFR, f.Stats)
 
 	if op.Save!=nil && op.Save.FilePattern!="" {
 		stars:=fits.NewImageFromStars(f, 2.0)
