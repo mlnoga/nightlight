@@ -139,8 +139,8 @@ func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err
 		f.Trans=star.IdentityTransform2D()		
 	} else if len(f.Stars)==0 {
 		// No stars - skip alignment and warn
-		msg:=fmt.Sprintf("%d: No alignment stars found, skipping frame\n", f.ID)
-		return nil, errors.New(msg)
+		fmt.Fprintf(c.Log, "%d: No alignment stars found, skipping frame\n", f.ID)
+		return nil, nil
 	} else {
 		// Alignment is required
 		// determine out of bounds fill value
