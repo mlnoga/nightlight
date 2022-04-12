@@ -170,7 +170,7 @@ func (op *OpStackBatches) partition(ins []ops.Promise, c *ops.Context) (insPerm 
 			if to>len(perm) { to=len(perm) }
 			sort.Ints(perm[from:to])
 		}
-		insPerm:=make([]ops.Promise, len(ins))
+		insPerm=make([]ops.Promise, len(ins))
 		for i,_:=range ins {
 			insPerm[i]=ins[perm[i]]
 		}
