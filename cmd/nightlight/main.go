@@ -84,6 +84,7 @@ var starInOut = flag.Float64("starInOut",1.4,"minimal ratio of brightness inside
 var starRadius= flag.Int64("starRadius", 16.0, "radius for star detection in pixels")
 
 var backGrid  = flag.Int64("backGrid", 0, "automated background extraction: grid size in pixels, 0=off")
+var backHFRFactor = flag.Float64("backHFRFactor", 4.0 ,"automated background extraction: exclude stars with HFR multiplied by this factor")
 var backSigma = flag.Float64("backSigma", 1.5 ,"automated background extraction: sigma for detecting foreground objects")
 var backClip  = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
@@ -144,6 +145,8 @@ var lumScale   = flag.Float64("lumScale", 1, "scale luminance by this factor")
 var lumOffset  = flag.Float64("lumOffset", 0, "offset luminance with this factor")
 
 var scaleBlack= flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
+
+var exportStats= flag.String("exportStats", "", "export statistics to file, default=don't")
 
 func main() {
 	var logWriter io.Writer = os.Stdout
@@ -261,8 +264,9 @@ Flags:
 		pre.NewOpDebandVert(float32(*debandV), int32(*debandVWindow)),
 		pre.NewOpScaleOffset(float32(*preScale), float32(*preOffset)),
 		pre.NewOpBin(int32(*binning)),
-		pre.NewOpBackExtract(int32(*backGrid), float32(*backSigma), int32(*backClip), *back),
 		opStarDetect,
+		pre.NewOpBackExtract(int32(*backGrid), float32(*backHFRFactor), float32(*backSigma), int32(*backClip), *back),
+		ref.NewOpExportStats(*exportStats),
 		ops.NewOpSave(*pPre),
 	)
 
