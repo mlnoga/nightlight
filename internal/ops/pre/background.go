@@ -24,6 +24,7 @@ import (
 	"strings"
 	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/mlnoga/nightlight/internal/median"
+	"github.com/mlnoga/nightlight/internal/star"
 )
 
 // A piecewise linear background, for automated background extraction (ABE)
@@ -40,6 +41,8 @@ type Background struct {
  	OutlierCells int32    // number of outlier cells replaced with interpolation of neighboring cells
  	Max float32           // maximum alpha, beta, gamma values
  	Min float32           // minimum alpha, beta, gamma values
+ 	CellStars [][]star.Star    // stars relevant for a given cell
+ 	HFRFactor    float32  // multiplier for HFRs
 }
 
 func (b *Background) String() string {
@@ -63,7 +66,7 @@ func (b *Background) CellsString() string {
 }
 
 // Creates new background by fitting linear gradients to grid cells of the given image, masking out areas in given mask
-func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32, logWriter io.Writer) (b *Background) {
+func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32, backClip int32, stars []star.Star, hfrFactor float32, logWriter io.Writer) (b *Background) {
 	// Allocate space for gradient cells
 	height:=int32(len(src)/int(width))
 
@@ -73,11 +76,15 @@ func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32,
 	gridSpacingX:=float32(width )/float32(gridCellsX)
 	gridSpacingY:=float32(height)/float32(gridCellsY)
 	cells       :=make([]float32, gridCells)
+    cellStars   :=make([][]star.Star, gridCells)
 
 	//LogPrintf("GridCells x %d y %d total %d GridSpacing x %.2f y %.2f\n", gridCellsX, gridCellsY, gridCells, gridSpacingX, gridSpacingY)
 	b=&Background{Width:width, Height:height, GridSpacing:gridSpacing, 
 	              GridSpacingX:gridSpacingX, GridSpacingY:gridSpacingY,
-	              GridCellsX:gridCellsX, GridCellsY:gridCellsY, GridCells:gridCells, Cells:cells}
+	              GridCellsX:gridCellsX, GridCellsY:gridCellsY, GridCells:gridCells, Cells:cells, 
+	              CellStars: cellStars, HFRFactor: hfrFactor}
+
+	b.binStarsIntoCells(stars)
 
 	b.init(src, sigma)
 	//LogPrintf("Sigma %f\n", sigma)
@@ -98,9 +105,41 @@ func NewBackground(src []float32, width int32, gridSpacing int32, sigma float32,
 	return b
 }
 
+// For each grid cell, put the stars relevant for it into the respective bin
+func (b* Background) binStarsIntoCells(stars []star.Star) {
+	cs:=b.CellStars
+	for _,s:=range(stars) {
+		sx, sy, hfr:=s.X, s.Y, s.HFR*b.HFRFactor
+		// Trace 3x3 grid centered around the star position
+		for yOff:=-1; yOff<2; yOff++ {
+			for xOff:=-1; xOff<2; xOff++ {
+				x:=sx+float32(xOff)*hfr
+				y:=sy+float32(yOff)*hfr
+
+				cellX:=int32(x/b.GridSpacingX)
+				if cellX<0 { cellX= 0 }
+                if cellX>=b.GridCellsX { cellX=b.GridCellsX-1 }
+
+				cellY:=int32(y/b.GridSpacingY)
+				if cellY<0 { cellY= 0 }
+                if cellY>=b.GridCellsY { cellY=b.GridCellsY-1 }
+
+				cellOffset:=cellY*b.GridCellsX + cellX
+				c:=cs[cellOffset]
+				l:=len(c)
+				if l==0 || c[l-1]!=s {
+					cs[cellOffset]=append(c, s)
+				}
+			}
+		}
+	}	
+}
+
 // Initialize background by approximating each grid cell with a linear gradient
 func (b *Background) init(src []float32, sigma float32) {
-	buffer:=make([]float32, int32(b.GridSpacingX+1.5)*int32(b.GridSpacingY+1.5)) // reuse for all grid cells to ease GC pressure
+	bufSize:=int32(b.GridSpacingX+1.5)*int32(b.GridSpacingY+1.5)
+	medBuffer:=make([]float32, bufSize) // reuse for all grid cells to ease GC pressure
+	madBuffer:=make([]float32, bufSize) // reuse for all grid cells to ease GC pressure
 
 	// For all grid cells
 	for y:=int32(0); y<b.GridCellsY; y++ {
@@ -116,11 +155,9 @@ func (b *Background) init(src []float32, sigma float32) {
 			//LogPrintf("y %d yS %d yE %d x %d xS %d xE %d \n", y, yStart, yEnd, x, xStart, xEnd)
 			// Fit linear gradient to masked source image within that cell
 			c:=y*b.GridCellsX + x
-			b.Cells[c]=FitCell(src, b.Width, sigma, xStart, xEnd, yStart, yEnd, buffer)
+			b.Cells[c]=FitCell(src, b.Width, sigma, xStart, xEnd, yStart, yEnd, b.CellStars[c], b.HFRFactor, medBuffer, madBuffer)
 		}	
 	}	
-
-	buffer=nil
 }
 
 // Clips the top n entries from the background gradient
@@ -415,45 +452,54 @@ func (b Background) Subtract(dest []float32) error {
 
 
 // Fit background cell to given source image, except where masked out
-func FitCell(src []float32, width int32, sigma float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
-	// First we determine the local background location and the scale of its noise level, to filter out stars and bright nebulae
-	median, mad:=medianAndMAD(src, width, xStart, xEnd, yStart, yEnd, buffer)
-	upperBound:=median+sigma*mad
+func FitCell(src []float32, width int32, sigma float32, xStart, xEnd, yStart, yEnd int32, stars []star.Star, hfrFactor float32, medBuffer, madBuffer []float32) float32 {
+	// Gather grid cell contents without known stars
+	medBuffer=gatherWithoutStars(src, width, xStart, xEnd, yStart, yEnd, stars, hfrFactor, medBuffer)
 
-	// Then we determine the trimmed median to approximate the true background
-	overallMedian:=trimmedMedian(src, width, upperBound, xStart, xEnd, yStart, yEnd, buffer)
-	return overallMedian
+	// Approximate the local background histogram peak location via median. Reorders the buffer
+	median:=qsort.QSelectMedianFloat32(medBuffer)
+
+	// Approximate the local background histogram peak scale via MAD
+	for i, b:=range medBuffer { 
+		madBuffer[i]=float32(math.Abs(float64(b - median))) 
+	}
+	madBuffer=madBuffer[:len(medBuffer)]
+	mad:=qsort.QSelectMedianFloat32(madBuffer)
+	stdDev:=mad*1.4826 // factor normalizes MAD to Gaussian standard deviation
+	upperBound:=median+sigma*stdDev
+
+	// Calculate trimmed median without upward outliers
+	numSamples:=0
+	for _, v:=range(medBuffer) {
+		if v<upperBound {
+			medBuffer[numSamples]=v
+			numSamples++
+		}
+	}
+	medBuffer=medBuffer[:numSamples]
+	trimmedMedian:=qsort.QSelectMedianFloat32(medBuffer)
+	return trimmedMedian
 }
 
 
-// Calculates the median and the MAD of the given grid cell of the image
-func medianAndMAD(src []float32, width int32, xStart, xEnd, yStart, yEnd int32, buffer []float32) (median, mad float32) {
+// Calculates the median and the MAD of the given grid cell of the image, masking out stars
+func gatherWithoutStars(src []float32, width int32, xStart, xEnd, yStart, yEnd int32, stars []star.Star, hfrFactor float32, buffer []float32) (res []float32) {
 	numSamples:=0
 	for y:=yStart; y<yEnd; y++ {
+		nextPixelInRow: 
 		for x:=xStart; x<xEnd; x++ {
+			// filter out coordinates vs. stars in this bin
+			for _,s:=range(stars) {
+				dx, dy:=float32(x)-s.X, float32(y)-s.Y
+				distSq:=dx*dx + dy*dy
+                hfrSq:=s.HFR*s.HFR*hfrFactor*hfrFactor
+				if distSq<=hfrSq { continue nextPixelInRow }                
+			}
+
 			offset:=x+y*width
 			buffer[numSamples]=src[offset]
 			numSamples++
 		}
 	}
-	buffer=buffer[:numSamples]
-	median=qsort.QSelectMedianFloat32(buffer)
-	for i, b:=range buffer { buffer[i]=float32(math.Abs(float64(b - median))) }
-	mad=qsort.QSelectMedianFloat32(buffer)*1.4826 // factor normalizes MAD to Gaussian standard deviation
-	return median, mad	
-}
-
-
-// Calculates the median of all values below the upper bound in the given grid cell of the image
-func trimmedMedian(src []float32, width int32, upperBound float32, xStart, xEnd, yStart, yEnd int32, buffer []float32) float32 {
-	numSamples:=0
-	for y:=yStart; y<yEnd; y++ {
-		for x:=xStart; x<xEnd; x++ {
-			value:=src[x+y*width]
-			if value>=upperBound { continue }
-			buffer[numSamples]=value
-			numSamples++
-		}
-	}
-	return qsort.QSelectMedianFloat32(buffer[:numSamples])	
+	return buffer[:numSamples]
 }

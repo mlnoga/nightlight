@@ -86,7 +86,7 @@ Json["nl_pre_bin"]=function(block) {
 }
 
 Json["nl_pre_backExtract"]=function(block) {
-  return createJsonObject(block, "backExtract", ["gridSize", "sigma", "clip"], null, ["save"]);
+  return createJsonObject(block, "backExtract", ["gridSize", "hfrFactor", "sigma", "clip"], null, ["save"]);
 }
 
 Json["nl_pre_starDetect"]=function(block) {

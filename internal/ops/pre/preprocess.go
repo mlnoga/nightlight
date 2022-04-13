@@ -296,8 +296,9 @@ func (op *OpBin) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err e
 
 
 type OpBackExtract struct {
-		ops.OpUnaryBase
+	ops.OpUnaryBase
     GridSize     	  int32           `json:"gridSize"`
+    HFRFactor         float32         `json:"hfrFactor"`
     Sigma 		      float32         `json:"sigma"`
     Clip              int32           `json:"clip"`
     Save             *ops.OpSave      `json:"save"`
@@ -305,12 +306,13 @@ type OpBackExtract struct {
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpBackExtractDefault() })} // register the operator for JSON decoding
 
-func NewOpBackExtractDefault() *OpBackExtract { return NewOpBackExtract(0, 1.5, 0, "") }
+func NewOpBackExtractDefault() *OpBackExtract { return NewOpBackExtract(0, 4.0, 1.5, 0, "") }
 
-func NewOpBackExtract(backGrid int32, backSigma float32, backClip int32, savePattern string) *OpBackExtract {
+func NewOpBackExtract(backGrid int32, hfrFactor, backSigma float32, backClip int32, savePattern string) *OpBackExtract {
 	op:=&OpBackExtract{
 	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "backExtract"}},
 	    GridSize    : backGrid,
+	    HFRFactor   : hfrFactor,
 	    Sigma 		: backSigma,
 	    Clip 		: backClip,
 	    Save        : ops.NewOpSave(savePattern),
@@ -333,7 +335,7 @@ func (op *OpBackExtract) UnmarshalJSON(data []byte) error {
 func (op *OpBackExtract) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if op.GridSize<=0 { return f, nil }
 
-	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.Clip, c.Log)
+	bg:=NewBackground(f.Data, f.Naxisn[0], op.GridSize, op.Sigma, op.Clip, f.Stars, op.HFRFactor, c.Log)
 	fmt.Fprintf(c.Log, "%d: %s\n", f.ID, bg)
 
 	if op.Save==nil || op.Save.FilePattern=="" {

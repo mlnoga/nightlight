@@ -276,8 +276,19 @@ Blockly.defineBlocksWithJsonArray([
         ]
       }
     ],
-    "message1": "ignoring pixels %1 sigma above background",
+    "message1": "masking out stars with %1x their HFR",
     "args1": [
+      {
+        "type": "field_slider",
+        "name": "hfrFactor",
+        "value" : 4,
+        "min" : 0,
+        "max" : 10,
+        "precision" : 0.1,
+      }
+    ],
+    "message2": "ignoring pixels %1 sigma above background",
+    "args2": [
       {
         "type": "field_slider",
         "name": "sigma",
@@ -287,8 +298,8 @@ Blockly.defineBlocksWithJsonArray([
         "precision" : 0.01,
       }
     ],
-    "message2": "and clipping away the brightest %1 cells",
-    "args2": [
+    "message3": "and clipping away the brightest %1 cells",
+    "args3": [
       {
         "type": "field_slider",
         "name": "clip",
@@ -298,8 +309,8 @@ Blockly.defineBlocksWithJsonArray([
         "precision" : 1,
       }
     ],
-    "message3": "optionally saving the background to %1",
-    "args3": [
+    "message4": "optionally saving the background to %1",
+    "args4": [
       {
         "type": "input_statement", 
         "name": "save"
