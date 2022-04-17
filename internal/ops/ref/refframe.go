@@ -187,17 +187,31 @@ func selectReferenceStarsOverHFR(lights []*fits.Image) (refFrame *fits.Image, re
 }
 
 func selectReferenceMedianLoc(lights []*fits.Image, c *ops.Context) (refFrame *fits.Image, refScore float32, err error) {
-	refFrame, refScore=nil, -1
+	// calculate locations for all lights
 	fun:=func(f *fits.Image) float32 { return f.Stats.Location() }
 	locs:=inParallel(lights, fun, c.MaxThreads)
     locs=removeNaNs(locs)
+
+    // calculate median
 	medianLoc:=qsort.QSelectMedianFloat32(locs)
+
+	// pick light closest to median
+	var closestLight *fits.Image
+	closestDistSq:=float32(math.MaxFloat32)
 	for _, lightP:=range lights {
 		if lightP==nil { continue }
-		if lightP.Stats.Location()==medianLoc {
-			return lightP, medianLoc, nil
+		dist:=lightP.Stats.Location()-medianLoc
+		distSq:=dist*dist
+		if distSq<closestDistSq {
+			closestLight=lightP
+			closestDistSq=distSq
 		}
 	}	
+
+	// return closest light if found
+	if closestLight!=nil {
+		return closestLight, medianLoc, nil
+	}
 	return nil, 0, errors.New("Unable to select reference frame with median location")
 }
 
