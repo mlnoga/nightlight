@@ -81,15 +81,23 @@ func (op *OpRGBCombine) Apply(fs []*fits.Image, c *ops.Context) (fOut *fits.Imag
 
 type OpRGBBalance struct {
 	ops.OpUnaryBase
+	Block      int32      `json:"block"`
+	Border     float32    `json:"border"`
+	Shadows    fits.RGB   `json:"shadows"`
+	Highlights fits.RGB   `json:"highlights"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpRGBBalanceDefault() })} // register the operator for JSON decoding
 
-func NewOpRGBBalanceDefault() *OpRGBBalance { return NewOpRGBBalance() }
+func NewOpRGBBalanceDefault() *OpRGBBalance { return NewOpRGBBalance(16, 0.1, fits.RGB{1,1,1}, fits.RGB{1,1,1} ) }
 
-func NewOpRGBBalance() *OpRGBBalance {
+func NewOpRGBBalance(block int32, border float32, shadows, highlights fits.RGB) *OpRGBBalance {
 	op:=&OpRGBBalance{
 		OpUnaryBase : ops.OpUnaryBase{OpBase: ops.OpBase{Type:"rgbBalance"}},
+		Block       : block,
+		Border      : border,
+		Shadows     : shadows,
+		Highlights  : highlights,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -112,8 +120,9 @@ func (op *OpRGBBalance) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, 
 		return nil, errors.New("Cannot balance colors with zero stars detected")
 	} 
 
-	fmt.Fprintf(c.Log, "Setting black point so histogram peaks align and white point so median star color becomes neutral...\n")
-	err=f.SetBlackWhitePoints(c.Log)
+	fmt.Fprintf(c.Log, "Balancing darkest %dx%d block outside %.1f%% border to color tint %s and average star color to %s\n", 
+	            op.Block, op.Block, 100*op.Border, op.Shadows, op.Highlights)
+	err=f.SetBlackWhitePoints(op.Block, op.Border, op.Shadows, op.Highlights, c.Log)
 	return f, err
 }
 
