@@ -16,7 +16,7 @@ endif
 all: $(EXECUTABLE)
 
 install: $(EXECUTABLE)
-	sudo cp $< /usr/local/bin
+	if [[ $< -nt /usr/local/bin/$< ]]; then sudo cp $< /usr/local/bin; fi
 
 install-local: $(EXECUTABLE)
 	cp $< ~/bin/
