@@ -18,6 +18,7 @@ package pre
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/mlnoga/nightlight/internal/ops"
@@ -28,17 +29,19 @@ type OpDebandHoriz struct {
 	ops.OpUnaryBase
 	Percentile      float32     `json:"percentile"`
 	Window          int32       `json:"window"`
+	Sigma           float32     `json:"sigma"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpDebandHorizDefaults() })} // register the operator for JSON decoding
 
-func NewOpDebandHorizDefaults() *OpDebandHoriz { return NewOpDebandHoriz(50, 128) }
+func NewOpDebandHorizDefaults() *OpDebandHoriz { return NewOpDebandHoriz(50, 128, 3.0) }
 
-func NewOpDebandHoriz(percentile float32, window int32) *OpDebandHoriz {
+func NewOpDebandHoriz(percentile float32, window int32, sigma float32) *OpDebandHoriz {
 	op:=&OpDebandHoriz{
 		OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "debandHoriz"}},
 		Percentile  : percentile,
 		Window      : window,
+		Sigma       : sigma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -68,11 +71,25 @@ func (op *OpDebandHoriz) Apply(f *fits.Image, c *ops.Context) (result *fits.Imag
 	rowPercentilesClone:=make([]float32, windowRows)
 	rowBuffer          :=make([]float32, numCols)
 
-	// calculate desired percentile of each row
-	k:=int(float32(numCols)*op.Percentile*0.01)
+	// calculate threshold from global location and scale, if sigma is present
+	threshold:=float32(math.MaxFloat32)
+	if op.Sigma!=0 {
+		loc, scale:=f.Stats.Location(), f.Stats.Scale()
+		threshold=loc + op.Sigma*scale
+	}
+
+	// calculate desired percentile of each row, excluding values above the threshold
 	for row:=int32(0); row<numRows; row++ {
-		copy(rowBuffer, f.Data[row*numCols:row*numCols+numCols])
-		rowPercentiles[row]=qsort.QSelectFloat32(rowBuffer,int(k))
+		ds:=f.Data[row*numCols:row*numCols+numCols]
+		numSamples:=0
+		for _,d:=range(ds) {
+			if d<=threshold {
+				rowBuffer[numSamples]=d
+				numSamples++
+			}
+		}
+		k:=int(float32(numSamples)*op.Percentile*0.01)
+		rowPercentiles[row]=qsort.QSelectFloat32(rowBuffer[:numSamples],int(k))
 	}
 
 	// correct each row
@@ -109,8 +126,8 @@ func (op *OpDebandHoriz) Apply(f *fits.Image, c *ops.Context) (result *fits.Imag
 		}
 	}
 	f.Stats.Clear()
-	fmt.Fprintf(c.Log, "%d: De-banded horizontally with %.3fth percentile and window %d, factors in [%.3f, %.3f]\n", 
-		        f.ID, op.Percentile, op.Window, lowest, highest)
+	fmt.Fprintf(c.Log, "%d: De-banded horizontally with %.3fth percentile, window %d, sigma %.2f, threshold %.2f, factors in [%.3f, %.3f]\n", 
+		        f.ID, op.Percentile, op.Window, op.Sigma, threshold, lowest, highest)
 	return f, nil
 }
 
@@ -148,17 +165,19 @@ type OpDebandVert struct {
 	ops.OpUnaryBase
 	Percentile      float32     `json:"percentile"`
 	Window          int32       `json:"window"`
+	Sigma           float32     `json:"sigma"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpDebandVertDefaults() })} // register the operator for JSON decoding
 
-func NewOpDebandVertDefaults() *OpDebandVert { return NewOpDebandVert(50, 128) }
+func NewOpDebandVertDefaults() *OpDebandVert { return NewOpDebandVert(50, 128, 3.0) }
 
-func NewOpDebandVert(percentile float32, window int32) *OpDebandVert {
+func NewOpDebandVert(percentile float32, window int32, sigma float32) *OpDebandVert {
 	op:=&OpDebandVert{
 		OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "debandVert"}},
 		Percentile  : percentile,
 		Window      : window,
+		Sigma       : sigma,
 	}
 	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
 	return op	
@@ -188,13 +207,25 @@ func (op *OpDebandVert) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 	colPercentilesClone:=make([]float32, windowCols)
 	colBuffer          :=make([]float32, numRows)
 
+	// calculate threshold from global location and scale, if sigma is present
+	threshold:=float32(math.MaxFloat32)
+	if op.Sigma!=0 {
+		loc, scale:=f.Stats.Location(), f.Stats.Scale()
+		threshold=loc + op.Sigma*scale
+	}
+
 	// calculate desired percentile of each column
-	k:=int(float32(numRows)*op.Percentile*0.01)
 	for col:=int32(0); col<numCols; col++ {
+		numSamples:=0
 		for row:=int32(0); row<numRows; row++ {
-			colBuffer[row]=f.Data[row*numCols + col]
+			d:=f.Data[row*numCols + col]
+			if d<=threshold {
+				colBuffer[numSamples]=d
+				numSamples++
+			}
 		}
-		colPercentiles[col]=qsort.QSelectFloat32(colBuffer,int(k))
+		k:=int(float32(numSamples)*op.Percentile*0.01)
+		colPercentiles[col]=qsort.QSelectFloat32(colBuffer[:numSamples],int(k))
 	}
 
 	// calculate median of percentiles
@@ -233,7 +264,7 @@ func (op *OpDebandVert) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 		}
 	}
 	f.Stats.Clear()
-	fmt.Fprintf(c.Log, "%d: De-banded vertically with %.3fth percentile and window %d, factors in [%.3f, %.3f]\n", 
-		        f.ID, op.Percentile, op.Window, lowest, highest)
+	fmt.Fprintf(c.Log, "%d: De-banded vertically with %.3fth percentile, window %d and sigma %.2f, threshold %.2f, factors in [%.3f, %.3f]\n", 
+		        f.ID, op.Percentile, op.Window, op.Sigma, threshold, lowest, highest)
 	return f, nil
 }
