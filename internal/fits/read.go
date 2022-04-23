@@ -145,7 +145,7 @@ func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 		return fits.readFloat64Data(f)
 
 	default:
-		return errors.New(fmt.Sprintf("%d: Unknown BITPIX value %g", fits.ID, int64(fits.Bitpix)))
+		return errors.New(fmt.Sprintf("%d: Unknown BITPIX value %d", fits.ID, fits.Bitpix))
 	}
 
 	return nil
