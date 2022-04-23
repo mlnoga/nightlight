@@ -17,11 +17,9 @@
 package fits
 
 import (
-	"io"
 	"fmt"
 	"math"
 	"strings"
-	"github.com/mlnoga/nightlight/internal/qsort"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/star"
 )
@@ -160,155 +158,6 @@ func (f *Image) DimensionsToString() string {
 	return b.String()
 }
 
-// Combine single color images into one multi-channel image.
-// All images must have the same dimensions, or undefined results occur. 
-func NewRGBFromChannels(chans []*Image, ref *Image, logWriter io.Writer) *Image {
-	naxisn:=make([]int32, len(chans[0].Naxisn)+1)
-	copy(naxisn, chans[0].Naxisn)
-	naxisn[len(chans[0].Naxisn)]=int32(len(chans))
-
-	rgb:=NewImageFromNaxisn(naxisn, nil)
-	rgb.Exposure=chans[0].Exposure+chans[1].Exposure+chans[2].Exposure
-	if ref!=nil { rgb.Stars, rgb.HFR=ref.Stars, ref.HFR }
-
-	pixelsOrig:=chans[0].Pixels
-	min, mult:=getCommonNormalizationFactors(chans)
-	fmt.Fprintf(logWriter, "common normalization factors min=%f mult=%f\n", min, mult)
-	for id, ch:=range chans {
-		dest:=rgb.Data[int32(id)*pixelsOrig : (int32(id)+1)*pixelsOrig]
-		for j,val:=range ch.Data {
-			dest[j]=(val-min)*mult
-		}
-	}
-	return rgb
-} 
-
-// calculate common normalization factors to [0..1] across all channels
-func getCommonNormalizationFactors(chans []*Image) (min, mult float32) {
-	min =chans[0].Stats.Min()
-	max:=chans[0].Stats.Max()
-	for _, ch :=range chans[1:] {
-		if ch.Stats.Min()<min {
-			min=ch.Stats.Min()
-		}
-		if ch.Stats.Max()>max {
-			max=ch.Stats.Max()
-		}
-	}
-	mult=1 / (max - min)
-	return min, mult
-}
-
-
-// Applies luminance to existing 3-channel image with luminance in 3rd channel, all channels in [0,1]. 
-// All images must have the same dimensions, or undefined results occur. 
-func (hsl *Image) ApplyLuminanceToCIExyY(lum *Image) {
-	l:=len(hsl.Data)/3
-	dest:=hsl.Data[2*l:]
-	copy(dest, lum.Data)
-	hsl.Exposure+=lum.Exposure
-}
-
-
-// Set image black point so histogram peaks match the rightmost channel peak,
-// and median star colors are of a neutral tone. 
-func (f *Image) SetBlackWhitePoints(logWriter io.Writer) error {
-	// Estimate location (=histogram peak, background black point) per color channel
-	statsR:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 0, 3)
-	statsG:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 1, 3)
-	statsB:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
-	locR:=statsR.Location()
-	locG:=statsG.Location()
-	locB:=statsB.Location()
-
-	// Pick average histogram peak as new background peak location (avoid degenerated colors)
-	locNew:=(locR+locG+locB)/3
-
-	// Estimate median star color
-	l:=len(f.Data)/3
-	sl:=len(f.Stars)
-	stars:=f.Stars[sl/3:2*sl/3]
-	starR:=medianStarIntensity(f.Data[   :  l], f.Naxisn[0], stars)
-	starG:=medianStarIntensity(f.Data[l  :2*l], f.Naxisn[0], stars)
-	starB:=medianStarIntensity(f.Data[2*l:   ], f.Naxisn[0], stars)
-	fmt.Fprintf(logWriter, "Background peak (%.2f%%, %.2f%%, %.2f%%) and median star color (%.2f%%, %.2f%%, %.2f%%)\n", 
-	  	      locR*100, locG*100, locB*100, starR*100, starG*100, starB*100)
-
-	// Pick average star color as new star color location (avoid degenerated colors)
-	starNew:=(starR+starG+starB)/3
-
-	useStars:=true
-	var alphaR, alphaG, alphaB float32 = 1, 1, 1
-	var betaR, betaG, betaB float32 = 0, 0, 0
-	if useStars  {
-		// Calculate multiplicative correction factors
-		alphaR=(starNew-locNew)/(starR-locR)
-		alphaG=(starNew-locNew)/(starG-locG)
-		alphaB=(starNew-locNew)/(starB-locB)
-
-		// Calculate additive correction factors 
-		betaR=locNew - alphaR * locR
-		betaG=locNew - alphaG * locG
-		betaB=locNew - alphaB * locB
-	} else {
-		// Calculate preliminary additive correction factors 
-		betaR=locNew - locR
-		betaG=locNew - locG
-		betaR=locNew - locB
-
-		// detect clipping
-		max:=statsR.Max()+betaR
-		if   statsG.Max()+betaG > max { max = statsG.Max()+betaG }
-		if   statsB.Max()+betaB > max { max = statsB.Max()+betaB }
-
-		// Calculate final additive correction factors to prevent clipping 
-		if max>1 {
-			alpha:=1.0/max			
-			betaR=locNew - alpha * locR
-			betaG=locNew - alpha * locG
-			betaB=locNew - alpha * locB
-		}
-	}
-
-
-	fmt.Fprintf(logWriter, "r=%.3f*r %+.3f%%, g=%.3f*g %+.3f%%, b=%.3f*b %+.3f%%\n", alphaR, betaR*100, alphaG, betaG*100, alphaB, betaB*100)
-	f.ScaleOffsetClampRGB(alphaR, betaR, alphaG, betaG, alphaB, betaB)
-	return nil
-}
-
-// Returns median intensity value for the stars in the given monochrome image
-func medianStarIntensity(data []float32, width int32, stars []star.Star) float32 {
-	if len(stars)==0 { return 0 }
-
-	height:=int32(len(data))/width
-	// Gather together channel values for all stars
-	gathered:=make([]float32,0,len(data))
-	for _, s:=range stars {
-		starX,starY:=s.Index%width, s.Index/width
-		hfr:=s.HFR*0.5
-		hfrR:=int32(hfr+0.5)
-		hfrSq:=(hfr+0.01)*(hfr+0.01)
-		for offY:=-hfrR; offY<=hfrR; offY++ {
-			y:=starY+offY
-			if y>=0 && y<height {
-				for offX:=-hfrR; offX<=hfrR; offX++ {
-					x:=starX+offX
-					if x>=0 && x<width {
-						distSq:=float32(offX*offX+offY*offY)
-						if distSq<=hfrSq { 
-							d:=data[y*width+x]
-							gathered=append(gathered, d)
-						}
-					}
-				}
-			}
-		}
-	}
-
-	median:=qsort.QSelectMedianFloat32(gathered)
-	gathered=nil
-	return median
-}
 
 // Apply NxN binning to source image and return new resulting image
 func NewImageBinNxN(src *Image, n int32) *Image {
