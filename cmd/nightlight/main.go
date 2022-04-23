@@ -28,6 +28,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"time"
+	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/rest"
 	"github.com/mlnoga/nightlight/internal/ops"
@@ -72,6 +73,8 @@ var debandH = flag.Float64("debandH", 0.0, "deband horizontally with given perce
 var debandV = flag.Float64("debandV", 0.0, "deband vertically with given percentile [0..100], 0=off")
 var debandHWindow = flag.Int64("debandHWindow", 128, "deband horizontally with given window size [1..imageHeight], 0=off")
 var debandVWindow = flag.Int64("debandVWindow", 128, "deband vertically with given window size [1..imageWidth], 0=off")
+var debandHSigma = flag.Float64("debandHSigma", 3.0, "deband horizontally excluding values above location + sigma*scale, 0=off")
+var debandVSigma = flag.Float64("debandVSigma", 3.0, "deband vertically excluding values above location + sigma*scale, 0=off")
 
 var binning= flag.Int64("binning", 0, "apply NxN binning, 0 or 1=no binning")
 
@@ -113,6 +116,15 @@ var refSelMode= flag.Int64("refSelMode", 0, "reference frame selection mode, 0=b
 
 var neutSigmaLow  = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
 var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
+
+var balBlock = flag.Int64("balBlock", 16, "balance darkest NxN block to black")
+var balBorder= flag.Float64("balBorder", 0.1, "balance darkest NxN block to black, excluding this fraction of screen size as a border")
+var balShR   = flag.Float64("balShR", 1, "balance colors by tinting shadows with this red color, range 0.0-1.0")
+var balShG   = flag.Float64("balShG", 1, "balance colors by tinting shadows with this green color, range 0.0-1.0")
+var balShB   = flag.Float64("balShB", 1, "balance colors by tinting shadows with this blue color, range 0.0-1.0")
+var balHiR   = flag.Float64("balHiR", 1, "balance colors by tinting highlights with this red color, range 0.0-1.0")
+var balHiG   = flag.Float64("balHiG", 1, "balance colors by tinting highlights with this green color, range 0.0-1.0")
+var balHiB   = flag.Float64("balHiB", 1, "balance colors by tinting highlights with this blue color, range 0.0-1.0")
 
 var chromaGamma=flag.Float64("chromaGamma", 1.0, "scale LCH chroma curve by given gamma for luminances n sigma above background, 1.0=no op")
 var chromaSigma=flag.Float64("chromaSigma", 1.0, "only scale and add to LCH chroma for luminances n sigma above background")
@@ -260,8 +272,8 @@ Flags:
 		pre.NewOpCalibrate(*dark, *flat),
 		pre.NewOpBadPixel(float32(*bpSigLow), float32(*bpSigHigh), opDebayer),
 		opDebayer,
-		pre.NewOpDebandHoriz(float32(*debandH), int32(*debandHWindow)),
-		pre.NewOpDebandVert(float32(*debandV), int32(*debandVWindow)),
+		pre.NewOpDebandHoriz(float32(*debandH), int32(*debandHWindow), float32(*debandHSigma)),
+		pre.NewOpDebandVert(float32(*debandV), int32(*debandVWindow), float32(*debandVSigma)),
 		pre.NewOpScaleOffset(float32(*preScale), float32(*preOffset)),
 		pre.NewOpBin(int32(*binning)),
 		opStarDetect,
@@ -330,7 +342,9 @@ Flags:
 			ref.NewOpSelectReference(ref.RFMLRGB, "", 0, opStarDetect),
 
 			rgb.NewOpRGBCombine(), 
-			rgb.NewOpRGBBalance(),
+			rgb.NewOpRGBBalance(int32(*balBlock), float32(*balBorder), 
+			                    fits.RGB{float32(*balShR), float32(*balShG), float32(*balShB)},
+								fits.RGB{float32(*balHiR), float32(*balHiG), float32(*balHiB)}  ),
 
 			rgb.NewOpRGBToHSLuv(),
 			hsl.NewOpHSLApplyLum(),
