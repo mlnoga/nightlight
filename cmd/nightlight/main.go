@@ -119,6 +119,8 @@ var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color abo
 
 var balBlock = flag.Int64("balBlock", 16, "balance darkest NxN block to black")
 var balBorder= flag.Float64("balBorder", 0.1, "balance darkest NxN block to black, excluding this fraction of screen size as a border")
+var balSkipBright= flag.Float64("balSkipBright", 0, "balance star colors skipping brightest fraction of stars")
+var balSkipDim= flag.Float64("balSkipDim", 0.5, "balance star colors skipping dimmest fraction of stars")
 var balShR   = flag.Float64("balShR", 1, "balance colors by tinting shadows with this red color, range 0.0-1.0")
 var balShG   = flag.Float64("balShG", 1, "balance colors by tinting shadows with this green color, range 0.0-1.0")
 var balShB   = flag.Float64("balShB", 1, "balance colors by tinting shadows with this blue color, range 0.0-1.0")
@@ -342,7 +344,7 @@ Flags:
 			ref.NewOpSelectReference(ref.RFMLRGB, "", 0, opStarDetect),
 
 			rgb.NewOpRGBCombine(), 
-			rgb.NewOpRGBBalance(int32(*balBlock), float32(*balBorder), 
+			rgb.NewOpRGBBalance(int32(*balBlock), float32(*balBorder), float32(*balSkipBright), float32(*balSkipDim),
 			                    fits.RGB{float32(*balShR), float32(*balShG), float32(*balShB)},
 								fits.RGB{float32(*balHiR), float32(*balHiG), float32(*balHiB)}  ),
 

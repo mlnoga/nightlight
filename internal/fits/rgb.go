@@ -90,7 +90,7 @@ func (hsl *Image) ApplyLuminanceToCIExyY(lum *Image) {
 // Set image black point iteratively. First match histogram scale and location among the channels.
 // Then find the darkest block, and set it to the desired color; and find the average star color,
 // and set it to the desired color  
-func (f *Image) SetBlackWhitePoints(block int32, border float32, shadows, highlights RGB, logWriter io.Writer) error {
+func (f *Image) SetBlackWhitePoints(block int32, border, skipBright, skipDim float32, shadows, highlights RGB, logWriter io.Writer) error {
 	// Estimate location (=histogram peak, background black point) per color channel
 	statsR:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 0, 3)
 	statsG:=stats.NewStatsForChannel(f.Data, f.Naxisn[0], 1, 3)
@@ -110,7 +110,7 @@ func (f *Image) SetBlackWhitePoints(block int32, border float32, shadows, highli
 
 	darkest:= f.findDarkestBlock(block, border)
 	clip   := float32(0.9)
-	stars  := f.meanStarIntensity(RGB{statsR.Max()*clip, statsG.Max()*clip, statsB.Max()*clip})
+	stars  := f.meanStarIntensity(skipBright, skipDim, RGB{statsR.Max()*clip, statsG.Max()*clip, statsB.Max()*clip})
 	fmt.Fprintf(logWriter, "Darkest block is %s and mean star color is %s\n", darkest, stars)
 
 	f.setBlackWhitePoints(darkest, stars, shadows, highlights, logWriter)
@@ -219,8 +219,12 @@ func (f *Image) findDarkestBlock(blockSize int32, border float32) RGB {
 
 
 // Returns mean color for the stars in the given RGB image
-func (f *Image) meanStarIntensity(clip RGB) RGB {
+func (f *Image) meanStarIntensity(skipBright, skipDim float32, clip RGB) RGB {
 	if len(f.Stars)==0 { return RGB{0, 0, 0} }
+
+	sStart:=             int(float32(len(f.Stars))*skipBright)
+	sEnd  :=len(f.Stars)-int(float32(len(f.Stars))*skipDim)
+	if sStart>=sEnd { return RGB{0, 0, 0} }
 
 	width:=f.Naxisn[0]
 	height:=f.Naxisn[1]
@@ -229,7 +233,7 @@ func (f *Image) meanStarIntensity(clip RGB) RGB {
 	totalR, totalG, totalB, totalPixels:=float32(0), float32(0), float32(0), int32(0)
 
 	// For each star
-	for _, s:=range f.Stars[len(f.Stars)/4 : ] { // (len(f.Stars)*3)/4 ] {
+	for _, s:=range f.Stars[sStart:sEnd] { 
 		starX,starY:=s.Index%width, s.Index/width
 		hfr:=s.HFR*0.75
 		hfrR:=int32(hfr+0.5)

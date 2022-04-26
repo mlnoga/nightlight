@@ -83,19 +83,23 @@ type OpRGBBalance struct {
 	ops.OpUnaryBase
 	Block      int32      `json:"block"`
 	Border     float32    `json:"border"`
+	SkipBright float32    `json:"skipBright"`
+	SkipDim    float32    `json:"skipDim"`
 	Shadows    fits.RGB   `json:"shadows"`
 	Highlights fits.RGB   `json:"highlights"`
 }
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpRGBBalanceDefault() })} // register the operator for JSON decoding
 
-func NewOpRGBBalanceDefault() *OpRGBBalance { return NewOpRGBBalance(16, 0.1, fits.RGB{1,1,1}, fits.RGB{1,1,1} ) }
+func NewOpRGBBalanceDefault() *OpRGBBalance { return NewOpRGBBalance(16, 0.1, 0, 0.75, fits.RGB{1,1,1}, fits.RGB{1,1,1} ) }
 
-func NewOpRGBBalance(block int32, border float32, shadows, highlights fits.RGB) *OpRGBBalance {
+func NewOpRGBBalance(block int32, border, skipBright, skipDim float32, shadows, highlights fits.RGB) *OpRGBBalance {
 	op:=&OpRGBBalance{
 		OpUnaryBase : ops.OpUnaryBase{OpBase: ops.OpBase{Type:"rgbBalance"}},
 		Block       : block,
 		Border      : border,
+		SkipBright  : skipBright,
+		SkipDim     : skipDim,
 		Shadows     : shadows,
 		Highlights  : highlights,
 	}
@@ -120,9 +124,9 @@ func (op *OpRGBBalance) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Image, 
 		return nil, errors.New("Cannot balance colors with zero stars detected")
 	} 
 
-	fmt.Fprintf(c.Log, "Balancing darkest %dx%d block outside %.1f%% border to color tint %s and average star color to %s\n", 
-	            op.Block, op.Block, 100*op.Border, op.Shadows, op.Highlights)
-	err=f.SetBlackWhitePoints(op.Block, op.Border, op.Shadows, op.Highlights, c.Log)
+	fmt.Fprintf(c.Log, "Balancing darkest %dx%d block outside %.1f%% border to color tint %s and stars skipping brightest %.1f%% and dimmest %.1f%% to %s\n", 
+	            op.Block, op.Block, 100*op.Border, op.Shadows, 100*op.SkipBright, 100*op.SkipDim, op.Highlights)
+	err=f.SetBlackWhitePoints(op.Block, op.Border, op.SkipBright, op.SkipDim, op.Shadows, op.Highlights, c.Log)
 	return f, err
 }
 
