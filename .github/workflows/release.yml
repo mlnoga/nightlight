@@ -22,11 +22,11 @@ jobs:
     - name: checkout 
       uses: actions/checkout@v3
 
-    - name: run vulnerability check
-      run: govulncheck ./...
-
     - name: build Linux amd64
       run: make nightlight_linux_amd64
+
+    - name: run vulnerability check
+      run: govulncheck ./...
 
     - name: test
       run: make test
@@ -71,3 +71,7 @@ jobs:
         asset_path: ./nightlight.zip
         asset_name: nightlight.zip
         asset_content_type: application/zip
+
+
+
+
