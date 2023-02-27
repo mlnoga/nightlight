@@ -27,7 +27,7 @@ install-local: $(EXECUTABLE)
 	cp $< ~/bin/
 
 web/blockly/%:
-	wget -O $@ $(BLOCKLY_UNPKG)$*
+	wget -O $@ -t 10 --retry-connrefused -c -nv $(BLOCKLY_UNPKG)$*
 
 $(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	$(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
