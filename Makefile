@@ -4,10 +4,13 @@ SRCS=$(wildcard cmd/$(TARGET)/*.go) $(wildcard internal/*.go) $(wildcard interna
      $(wildcard internal/*/*/*.go) $(wildcard internal/*/*/*.asm)
 WEBSRCS=$(wildcard web/*) $(wildcard web/*/*) $(wildcard web/*/*/*)
 
-BLOCKLY=web/blockly/blockly_compressed.js
+BLOCKLY_UNPKG=https://unpkg.com/blockly@9.2.1/
+BLOCKLY_SHORT=blockly.min.js javascript_compressed.js.map media/sprites.png media/click.mp3 media/disconnect.wav media/delete.mp3
+BLOCKLY=$(patsubst %,web/blockly/%,$(BLOCKLY_SHORT))
+
 FLAGS=-v -tags=jsoniter# -gcflags "-m"
 
-GO=/c/Program\ Files/Go/bin/go.exe
+GO=go
 
 ifeq ($(OS),Windows_NT)
   EXECUTABLE=$(TARGET).exe
@@ -23,8 +26,8 @@ install: $(EXECUTABLE)
 install-local: $(EXECUTABLE)
 	cp $< ~/bin/
 
-$(BLOCKLY):
-	cd web && git clone https://github.com/google/blockly.git && cd ..
+web/blockly/%:
+	wget -O $@ $(BLOCKLY_UNPKG)$*
 
 $(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	$(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
@@ -52,3 +55,6 @@ test:
 
 clean:
 	rm -f $(EXECUTABLE) $(TARGET)_*_amd64* $(TARGET)_*_amd64.exe 
+
+realclean: clean
+	rm -f $(BLOCKLY)
