@@ -51,8 +51,8 @@ $(TARGET)_%_arm64: $(SRCS) $(BLOCKLY)
 	GOOS=$* GOARCH=arm64 $(GO) build -o $@ $(FLAGS)  ./cmd/$(TARGET)
 	chmod a+x $@
 
-test:
-	$(GO) test -v ./cmd/$(TARGET) ./internal
+tests:
+	$(GO) test ./...
 
 vulncheck:
 	govulncheck ./...

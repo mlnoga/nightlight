@@ -21,8 +21,8 @@ jobs:
     - name: run vulnerability check
       run: govulncheck ./...
 
-    - name: test
-      run: make test
+    - name: tests
+      run: make tests
 
     - name: upload Linux amd64 build
       uses: actions/upload-artifact@v3

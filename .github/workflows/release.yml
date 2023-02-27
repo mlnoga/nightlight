@@ -28,8 +28,8 @@ jobs:
     - name: run vulnerability check
       run: govulncheck ./...
 
-    - name: test
-      run: make test
+    - name: tests
+      run: make tests
 
     - name: build Linux arm7 (Raspberry Pi 32-bit)
       run: make nightlight_linux_arm7
