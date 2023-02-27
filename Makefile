@@ -28,10 +28,10 @@ install-local: $(EXECUTABLE)
 	cp $< ~/bin/
 
 web/blockly/media/%:
-	wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)media/$*
+	mkdir -p web/blockly && wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)media/$*
 
 web/blockly/%:
-	wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)$*
+	mkdir -p web/blockly/media && wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)$*
 
 $(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	$(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
