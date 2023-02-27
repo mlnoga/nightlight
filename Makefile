@@ -33,7 +33,7 @@ web/blockly/%:
 $(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	$(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
 
-cross-platform: $(TARGET)_linux_amd64 $(TARGET)_darwin_amd64 $(TARGET)_windows_amd64.exe $(TARGET)_linux_arm7 $(TARGET)_linux_arm64
+cross-platform: $(TARGET)_linux_amd64 $(TARGET)_linux_arm7 $(TARGET)_linux_arm64 $(TARGET)_darwin_amd64 $(TARGET)_darwin_arm64 $(TARGET)_windows_amd64.exe 
 
 $(TARGET)_%_amd64: $(SRCS) $(BLOCKLY)
 	GOOS=$* GOARCH=amd64 $(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
@@ -53,6 +53,9 @@ $(TARGET)_%_arm64: $(SRCS) $(BLOCKLY)
 
 test:
 	$(GO) test -v ./cmd/$(TARGET) ./internal
+
+vulncheck:
+	govulncheck ./...
 
 clean:
 	rm -f $(EXECUTABLE) $(TARGET)_*_amd64* $(TARGET)_*_amd64.exe 
