@@ -7,6 +7,7 @@ WEBSRCS=$(wildcard web/*) $(wildcard web/*/*) $(wildcard web/*/*/*)
 BLOCKLY_UNPKG=https://unpkg.com/blockly@9.2.1/
 BLOCKLY_SHORT=blockly.min.js javascript_compressed.js.map media/sprites.png media/click.mp3 media/disconnect.wav media/delete.mp3
 BLOCKLY=$(patsubst %,web/blockly/%,$(BLOCKLY_SHORT))
+BLOCKLY_WGET=-t 10 --retry-connrefused -nv 
 
 FLAGS=-v -tags=jsoniter# -gcflags "-m"
 
@@ -26,8 +27,11 @@ install: $(EXECUTABLE)
 install-local: $(EXECUTABLE)
 	cp $< ~/bin/
 
+web/blockly/media/%:
+	wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)media/$*
+
 web/blockly/%:
-	wget -O $@ -t 10 --retry-connrefused -c -nv $(BLOCKLY_UNPKG)$*
+	wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)$*
 
 $(EXECUTABLE): $(SRCS) $(BLOCKLY) $(WEBSRCS)
 	$(GO) build -o $@ $(FLAGS) ./cmd/$(TARGET)
