@@ -5,36 +5,36 @@ jobs:
     name: run
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@master
+    - uses: actions/checkout@v3
 
     - name: install golang
-      uses: actions/setup-go@v2
+      uses: actions/setup-go@v3
       with:
-        go-version: '1.17.8'
+        go-version: '1.19.3'
 
     - name: build 
       run: make cross-platform
 
     - name: upload linux build
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: dist
         path: nightlight_linux_amd64
 
     - name: upload osx build
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: dist
         path: nightlight_darwin_amd64
 
     - name: upload windows build
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: dist
         path: nightlight_windows_amd64.exe
 
     - name: upload raspi build
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       with:
         name: dist
         path: nightlight_linux_arm7
