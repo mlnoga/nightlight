@@ -57,6 +57,7 @@ var job = flag.String("job", "", "JSON job specification to run")
 
 var out = flag.String("out", "out.fits", "save output to `file`")
 var jpg = flag.String("jpg", "%auto", "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
+var tiff = flag.String("tiff", "", "save 16bit preview of output as TIFF to `file`. `%auto` replaces suffix of output file with .tiff")
 var log = flag.String("log", "%auto", "save log output to `file`. `%auto` replaces suffix of output file with .log")
 var pPre = flag.String("pre", "", "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
 var stars = flag.String("stars", "", "save star detections with given filename pattern, e.g. `stars%04d.fits`")
@@ -213,6 +214,15 @@ Flags:
 		}
 	}
 
+	// Auto-select TIFF output target
+	if *tiff == "%auto" {
+		if *out != "" {
+			*tiff = strings.TrimSuffix(*out, filepath.Ext(*out)) + ".tiff"
+		} else {
+			*tiff = ""
+		}
+	}
+
 	// Enable CPU profiling if flagged
 	if *cpuprofile != "" {
 		f, err := os.Create(*cpuprofile)
@@ -333,6 +343,7 @@ Flags:
 			),
 			opStarDetect,
 			ops.NewOpSave(*out),
+			ops.NewOpSave(*tiff),
 		)
 		err = runOp(opSeq, c)
 
@@ -350,6 +361,7 @@ Flags:
 			post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask(float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops.NewOpSave(*out),
+			ops.NewOpSave(*tiff),
 			ops.NewOpSave(*jpg),
 		)
 		err = runOp(opSeq, c)
@@ -381,6 +393,7 @@ Flags:
 
 			rgb.NewOpHSLuvToRGB(),
 			ops.NewOpSave(*out),
+			ops.NewOpSave(*tiff),
 			ops.NewOpSave(*jpg),
 		)
 		err = runOp(opSeq, c)
