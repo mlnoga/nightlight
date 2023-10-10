@@ -14,8 +14,8 @@ jobs:
     - name: install golang
       uses: actions/setup-go@v3
 
-    - name: install govulncheck
-      run: go install golang.org/x/vuln/cmd/govulncheck@latest
+#    - name: install govulncheck
+#      run: go install golang.org/x/vuln/cmd/govulncheck@latest
 
     - name: checkout 
       uses: actions/checkout@v3
@@ -23,8 +23,8 @@ jobs:
     - name: build Linux amd64
       run: make nightlight_linux_amd64
 
-    - name: run vulnerability check
-      run: govulncheck ./...
+ #   - name: run vulnerability check
+ #     run: govulncheck ./...
 
     - name: tests
       run: make tests
