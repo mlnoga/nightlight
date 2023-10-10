@@ -7,8 +7,6 @@ jobs:
     steps:
     - name: install golang
       uses: actions/setup-go@v3
-      with:
-        go-version: '1.20.1'
 
     - name: install govulncheck
       run: go install golang.org/x/vuln/cmd/govulncheck@latest
