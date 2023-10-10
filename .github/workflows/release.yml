@@ -42,7 +42,7 @@ jobs:
       run: make nightlight_darwin_arm64
 
     - name: build Windows amd64
-      run: make nightlight_windows_amd64
+      run: make nightlight_windows_amd64.exe
 
     - name: zip
       run: |

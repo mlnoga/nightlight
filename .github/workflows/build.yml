@@ -65,7 +65,7 @@ jobs:
         path: nightlight_darwin_arm64
 
     - name: build Windows amd64
-      run: make nightlight_windows_amd64
+      run: make nightlight_windows_amd64.exe
 
     - name: upload windows build
       uses: actions/upload-artifact@v3
