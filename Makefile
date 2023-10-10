@@ -27,6 +27,10 @@ install: $(EXECUTABLE)
 install-local: $(EXECUTABLE)
 	cp $< ~/bin/
 
+upgrade:
+	go get -u ./...
+	go mod tidy
+
 web/blockly/%:
 	mkdir -p $(@D) && wget -O $@ $(BLOCKLY_WGET) $(BLOCKLY_UNPKG)$*
 
