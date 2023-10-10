@@ -15,32 +15,31 @@
 
 package fits
 
-
 import (
 	"compress/gzip"
-	"errors"
 	"fmt"
 	"io"
-	"math" 
+	"math"
 	"os"
 	"path"
 	"regexp"
 	"strconv"
 	"strings"
+
 	"github.com/mlnoga/nightlight/internal/stats"
 )
 
-var reParser *regexp.Regexp=compileRE() // Regexp parser for FITS header lines
+var reParser *regexp.Regexp = compileRE() // Regexp parser for FITS header lines
 
 func NewImageFromFile(fileName string, id int, logWriter io.Writer) (i *Image, err error) {
-	i=NewImage()
-	i.ID=id
+	i = NewImage()
+	i.ID = id
 	return i, i.ReadFile(fileName, true, logWriter)
 }
 
 func NewImageMasterDataFromFile(fileName string, id int, logWriter io.Writer) (i *Image, err error) {
-	i=NewImage()
-	i.ID=id
+	i = NewImage()
+	i.ID = id
 	return i, i.ReadFile(fileName, false, logWriter)
 }
 
@@ -48,82 +47,101 @@ func NewImageMasterDataFromFile(fileName string, id int, logWriter io.Writer) (i
 // Reads metadata only (fast) if readData is false.
 func (fits *Image) ReadFile(fileName string, readData bool, logWriter io.Writer) error {
 	//LogPrintln("Reading from " + fileName + "..." )
-	f, err:=os.Open(fileName)
-	if err!=nil { return err }
+	f, err := os.Open(fileName)
+	if err != nil {
+		return err
+	}
 	defer f.Close()
 
-	var r io.Reader=f
+	var r io.Reader = f
 
 	// Decompress gzip if .gz or .gzip suffix is present
-	ext:=path.Ext(fileName)
-	lExt:=strings.ToLower(ext)
-	if lExt==".gz" || lExt==".gzip" {
-		r, err=gzip.NewReader(f)
-		if err!=nil { return err }
-	} 
+	ext := path.Ext(fileName)
+	lExt := strings.ToLower(ext)
+	if lExt == ".gz" || lExt == ".gzip" {
+		r, err = gzip.NewReader(f)
+		if err != nil {
+			return err
+		}
+	}
 
-	fits.FileName=fileName
+	fits.FileName = fileName
 	return fits.Read(r, readData, logWriter)
 }
 
 func (fits *Image) PopHeaderInt32(key string) (res int32, err error) {
-	if val, ok:=fits.Header.Ints[key] ; ok {
+	if val, ok := fits.Header.Ints[key]; ok {
 		delete(fits.Header.Ints, key)
 		return val, nil
 	}
-	return 0, errors.New(fmt.Sprintf("%d: FITS header does not contain key %s", fits.ID, key))
+	return 0, fmt.Errorf("%d: FITS header does not contain key %s", fits.ID, key)
 }
 
 func (fits *Image) PopHeaderInt32OrFloat(key string) (res float32, err error) {
-	if val, ok:=fits.Header.Ints[key] ; ok {
+	if val, ok := fits.Header.Ints[key]; ok {
 		delete(fits.Header.Ints, key)
 		return float32(val), nil
-	} else if val, ok:=fits.Header.Floats[key] ; ok {
+	} else if val, ok := fits.Header.Floats[key]; ok {
 		delete(fits.Header.Floats, key)
 		return val, nil
 	}
-	return 0, errors.New(fmt.Sprintf("%d: FITS header does not contain key %s", fits.ID, key))
+	return 0, fmt.Errorf("%d: FITS header does not contain key %s", fits.ID, key)
 }
 
 func (fits *Image) Read(f io.Reader, readData bool, logWriter io.Writer) (err error) {
-	err=fits.Header.read(f, fits.ID, logWriter)
-	if err!=nil { return err }
+	err = fits.Header.read(f, fits.ID, logWriter)
+	if err != nil {
+		return err
+	}
 
 	// check mandatory fields as per standard
-	if fits.Header.Bools["SIMPLE"]!=true { 
-		return errors.New(fmt.Sprintf("%d: Not a valid FITS file; SIMPLE=T missing in header.", fits.ID)) 
+	if !fits.Header.Bools["SIMPLE"] {
+		return fmt.Errorf("%d: Not a valid FITS file; SIMPLE=T missing in header", fits.ID)
 	}
 	delete(fits.Header.Bools, "SIMPLE")
 
-	if fits.Bitpix, err =fits.PopHeaderInt32("BITPIX"); err!=nil { return err   }
+	if fits.Bitpix, err = fits.PopHeaderInt32("BITPIX"); err != nil {
+		return err
+	}
 	var naxis int32
-	if naxis,       err =fits.PopHeaderInt32("NAXIS");  err!=nil { return err   } 
-	fits.Naxisn=make([]int32, naxis)
-	fits.Pixels=int32(1)
-	for i:=int32(1); i<=naxis; i++ {
-		name:="NAXIS"+strconv.FormatInt(int64(i),10)
+	if naxis, err = fits.PopHeaderInt32("NAXIS"); err != nil {
+		return err
+	}
+	fits.Naxisn = make([]int32, naxis)
+	fits.Pixels = int32(1)
+	for i := int32(1); i <= naxis; i++ {
+		name := "NAXIS" + strconv.FormatInt(int64(i), 10)
 		var nai int32
-		if nai,err =fits.PopHeaderInt32(name);          err!=nil { return err   } 
-		fits.Naxisn[i-1]=nai
-		fits.Pixels*=int32(nai)
+		if nai, err = fits.PopHeaderInt32(name); err != nil {
+			return err
+		}
+		fits.Naxisn[i-1] = nai
+		fits.Pixels *= int32(nai)
 	}
 
 	// check key optional fields relevant for stacking and image processing
-	if fits.Bzero,       err =fits.PopHeaderInt32OrFloat("BZERO");    err!=nil { fits.Bzero =0   }
-	if fits.Bscale,      err =fits.PopHeaderInt32OrFloat("BSCALE");   err!=nil { fits.Bscale=1   }
-	if fits.Exposure,    err =fits.PopHeaderInt32OrFloat("EXPOSURE"); err!=nil {
-		if fits.Exposure,err =fits.PopHeaderInt32OrFloat("EXPTIME");  err!=nil { fits.Exposure=0 }
+	if fits.Bzero, err = fits.PopHeaderInt32OrFloat("BZERO"); err != nil {
+		fits.Bzero = 0
+	}
+	if fits.Bscale, err = fits.PopHeaderInt32OrFloat("BSCALE"); err != nil {
+		fits.Bscale = 1
+	}
+	if fits.Exposure, err = fits.PopHeaderInt32OrFloat("EXPOSURE"); err != nil {
+		if fits.Exposure, err = fits.PopHeaderInt32OrFloat("EXPTIME"); err != nil {
+			fits.Exposure = 0
+		}
 	}
 
-	if !readData { return nil }
+	if !readData {
+		return nil
+	}
 	return fits.readData(f, logWriter)
 }
-
 
 // Read image data from file, convert to float32 data type, apply BZero offset and set BZero to 0 afterwards.
 func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 	switch fits.Bitpix {
-	case 8: 
+	case 8:
 		return fits.readInt8Data(f)
 
 	case 16:
@@ -133,7 +151,7 @@ func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 		fmt.Fprintf(logWriter, "%d: Warning: loss of precision converting int%d to float32 values\n", fits.ID, fits.Bitpix)
 		return fits.readInt32Data(f)
 
-	case 64: 
+	case 64:
 		fmt.Fprintf(logWriter, "%d: Warning: loss of precision converting int%d to float32 values\n", fits.ID, fits.Bitpix)
 		return fits.readInt64Data(f)
 
@@ -145,269 +163,301 @@ func (fits *Image) readData(f io.Reader, logWriter io.Writer) (err error) {
 		return fits.readFloat64Data(f)
 
 	default:
-		return errors.New(fmt.Sprintf("%d: Unknown BITPIX value %d", fits.ID, fits.Bitpix))
+		return fmt.Errorf("%d: Unknown BITPIX value %d", fits.ID, fits.Bitpix)
 	}
-
-	return nil
 }
 
-
-const bufLen int=16*1024  // input buffer length for reading from file
+const bufLen int = 16 * 1024 // input buffer length for reading from file
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readInt8Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf:=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	dataIndex:=0	
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*1
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	dataIndex := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data) - dataIndex) * 1
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[:bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[:bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		for i, val:=range(buf[:bytesRead]) { 
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+i]=v
+		for i, val := range buf[:bytesRead] {
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+i] = v
 		}
-		dataIndex+=bytesRead
+		dataIndex += bytesRead
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readInt16Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf     :=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	bytesPerValueShift:=uint(1)
-	bytesPerValue:=1<<bytesPerValueShift
-	bytesPerValueMask:=bytesPerValue-1
-	dataIndex:=0	
-	leftoverBytes:=0
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	bytesPerValueShift := uint(1)
+	bytesPerValue := 1 << bytesPerValueShift
+	bytesPerValueMask := bytesPerValue - 1
+	dataIndex := 0
+	leftoverBytes := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data)-dataIndex)*bytesPerValue - leftoverBytes
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[leftoverBytes : leftoverBytes+bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		availableBytes:=leftoverBytes+bytesRead
-		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=int16((uint16(buf[i])<<8) | uint16(buf[i+1]))
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+(i>>bytesPerValueShift)]=v
+		availableBytes := leftoverBytes + bytesRead
+		for i := 0; i < (availableBytes &^ bytesPerValueMask); i += bytesPerValue {
+			val := int16((uint16(buf[i]) << 8) | uint16(buf[i+1]))
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+(i>>bytesPerValueShift)] = v
 		}
-		dataIndex   += availableBytes>>bytesPerValueShift
-		leftoverBytes= availableBytes& bytesPerValueMask
-		for i:=0; i<leftoverBytes; i++ {
-			buf[i]=buf[availableBytes-leftoverBytes+i]
+		dataIndex += availableBytes >> bytesPerValueShift
+		leftoverBytes = availableBytes & bytesPerValueMask
+		for i := 0; i < leftoverBytes; i++ {
+			buf[i] = buf[availableBytes-leftoverBytes+i]
 		}
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readInt32Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf     :=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	bytesPerValueShift:=uint(2)
-	bytesPerValue:=1<<bytesPerValueShift
-	bytesPerValueMask:=bytesPerValue-1
-	dataIndex:=0	
-	leftoverBytes:=0
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	bytesPerValueShift := uint(2)
+	bytesPerValue := 1 << bytesPerValueShift
+	bytesPerValueMask := bytesPerValue - 1
+	dataIndex := 0
+	leftoverBytes := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data)-dataIndex)*bytesPerValue - leftoverBytes
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[leftoverBytes : leftoverBytes+bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		availableBytes:=leftoverBytes+bytesRead
-		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=int32((uint32(buf[i])<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3])))
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+(i>>bytesPerValueShift)]=v
+		availableBytes := leftoverBytes + bytesRead
+		for i := 0; i < (availableBytes &^ bytesPerValueMask); i += bytesPerValue {
+			val := int32((uint32(buf[i]) << 24) | (uint32(buf[i+1]) << 16) | (uint32(buf[i+2]) << 8) | (uint32(buf[i+3])))
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+(i>>bytesPerValueShift)] = v
 		}
-		dataIndex   += availableBytes>>bytesPerValueShift
-		leftoverBytes= availableBytes& bytesPerValueMask
-		for i:=0; i<leftoverBytes; i++ {
-			buf[i]=buf[availableBytes-leftoverBytes+i]
+		dataIndex += availableBytes >> bytesPerValueShift
+		leftoverBytes = availableBytes & bytesPerValueMask
+		for i := 0; i < leftoverBytes; i++ {
+			buf[i] = buf[availableBytes-leftoverBytes+i]
 		}
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readInt64Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf     :=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	bytesPerValueShift:=uint(3)
-	bytesPerValue:=1<<bytesPerValueShift
-	bytesPerValueMask:=bytesPerValue-1
-	dataIndex:=0	
-	leftoverBytes:=0
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	bytesPerValueShift := uint(3)
+	bytesPerValue := 1 << bytesPerValueShift
+	bytesPerValueMask := bytesPerValue - 1
+	dataIndex := 0
+	leftoverBytes := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data)-dataIndex)*bytesPerValue - leftoverBytes
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[leftoverBytes : leftoverBytes+bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		availableBytes:=leftoverBytes+bytesRead
-		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			val:=int64((uint64(buf[i  ])<<56) | (uint64(buf[i+1])<<48) | (uint64(buf[i+2])<<40) | (uint64(buf[i+3])<<32) |
-			           (uint64(buf[i+4])<<24) | (uint64(buf[i+5])<<16) | (uint64(buf[i+6])<< 8) | (uint64(buf[i+7])    )   )
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+(i>>bytesPerValueShift)]=v
+		availableBytes := leftoverBytes + bytesRead
+		for i := 0; i < (availableBytes &^ bytesPerValueMask); i += bytesPerValue {
+			val := int64((uint64(buf[i]) << 56) | (uint64(buf[i+1]) << 48) | (uint64(buf[i+2]) << 40) | (uint64(buf[i+3]) << 32) |
+				(uint64(buf[i+4]) << 24) | (uint64(buf[i+5]) << 16) | (uint64(buf[i+6]) << 8) | (uint64(buf[i+7])))
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+(i>>bytesPerValueShift)] = v
 		}
-		dataIndex   += availableBytes>>bytesPerValueShift
-		leftoverBytes= availableBytes& bytesPerValueMask
-		for i:=0; i<leftoverBytes; i++ {
-			buf[i]=buf[availableBytes-leftoverBytes+i]
+		dataIndex += availableBytes >> bytesPerValueShift
+		leftoverBytes = availableBytes & bytesPerValueMask
+		for i := 0; i < leftoverBytes; i++ {
+			buf[i] = buf[availableBytes-leftoverBytes+i]
 		}
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readFloat32Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf     :=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	bytesPerValueShift:=uint(2)
-	bytesPerValue:=1<<bytesPerValueShift
-	bytesPerValueMask:=bytesPerValue-1
-	dataIndex:=0	
-	leftoverBytes:=0
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	bytesPerValueShift := uint(2)
+	bytesPerValue := 1 << bytesPerValueShift
+	bytesPerValueMask := bytesPerValue - 1
+	dataIndex := 0
+	leftoverBytes := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data)-dataIndex)*bytesPerValue - leftoverBytes
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[leftoverBytes : leftoverBytes+bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		availableBytes:=leftoverBytes+bytesRead
-		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			bits:=((uint32(buf[i]))<<24) | (uint32(buf[i+1])<<16) | (uint32(buf[i+2])<<8) | (uint32(buf[i+3]))
-			val:=math.Float32frombits(bits)
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+(i>>bytesPerValueShift)]=v
+		availableBytes := leftoverBytes + bytesRead
+		for i := 0; i < (availableBytes &^ bytesPerValueMask); i += bytesPerValue {
+			bits := ((uint32(buf[i])) << 24) | (uint32(buf[i+1]) << 16) | (uint32(buf[i+2]) << 8) | (uint32(buf[i+3]))
+			val := math.Float32frombits(bits)
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+(i>>bytesPerValueShift)] = v
 		}
-		dataIndex   += availableBytes>>bytesPerValueShift
-		leftoverBytes= availableBytes& bytesPerValueMask
-		for i:=0; i<leftoverBytes; i++ {
-			buf[i]=buf[availableBytes-leftoverBytes+i]
+		dataIndex += availableBytes >> bytesPerValueShift
+		leftoverBytes = availableBytes & bytesPerValueMask
+		for i := 0; i < leftoverBytes; i++ {
+			buf[i] = buf[availableBytes-leftoverBytes+i]
 		}
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
 // Batched read of data of the given size and type from the file, converting from network byte order and adjusting for Bzero
 func (fits *Image) readFloat64Data(r io.Reader) error {
-	min, max, sum:=float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
-	fits.Data=make([]float32,int(fits.Pixels))
-	buf     :=make([]byte,bufLen)
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+	fits.Data = make([]float32, int(fits.Pixels))
+	buf := make([]byte, bufLen)
 
-	bytesPerValueShift:=uint(3)
-	bytesPerValue:=1<<bytesPerValueShift
-	bytesPerValueMask:=bytesPerValue-1
-	dataIndex:=0	
-	leftoverBytes:=0
-	for ; dataIndex<len(fits.Data) ; {
-		bytesToRead:=(len(fits.Data)-dataIndex)*bytesPerValue-leftoverBytes
-		if bytesToRead>bufLen {
-			bytesToRead=bufLen
+	bytesPerValueShift := uint(3)
+	bytesPerValue := 1 << bytesPerValueShift
+	bytesPerValueMask := bytesPerValue - 1
+	dataIndex := 0
+	leftoverBytes := 0
+	for dataIndex < len(fits.Data) {
+		bytesToRead := (len(fits.Data)-dataIndex)*bytesPerValue - leftoverBytes
+		if bytesToRead > bufLen {
+			bytesToRead = bufLen
 		}
-		bytesRead, err:=r.Read(buf[leftoverBytes:leftoverBytes+bytesToRead])
-		if err!=nil { return errors.New(fmt.Sprintf("%d: %s", fits.ID, err.Error())) }
+		bytesRead, err := r.Read(buf[leftoverBytes : leftoverBytes+bytesToRead])
+		if err != nil {
+			return fmt.Errorf("%d: %s", fits.ID, err.Error())
+		}
 
-		availableBytes:=leftoverBytes+bytesRead
-		for i:=0; i<(availableBytes&^bytesPerValueMask); i+=bytesPerValue { 
-			bits:=((uint64(buf[i  ])<<56) | (uint64(buf[i+1])<<48) | (uint64(buf[i+2])<<40) | (uint64(buf[i+3])<<32) |
-			       (uint64(buf[i+4])<<24) | (uint64(buf[i+5])<<16) | (uint64(buf[i+6])<< 8) | (uint64(buf[i+7])    )   )
-			val:=math.Float64frombits(bits)
-			v:=float32(val)*fits.Bscale + fits.Bzero
-			if v<min { min=v }
-			if v>max { max=v }
-			sum+=float64(v)
-			fits.Data[dataIndex+(i>>bytesPerValueShift)]=v
+		availableBytes := leftoverBytes + bytesRead
+		for i := 0; i < (availableBytes &^ bytesPerValueMask); i += bytesPerValue {
+			bits := ((uint64(buf[i]) << 56) | (uint64(buf[i+1]) << 48) | (uint64(buf[i+2]) << 40) | (uint64(buf[i+3]) << 32) |
+				(uint64(buf[i+4]) << 24) | (uint64(buf[i+5]) << 16) | (uint64(buf[i+6]) << 8) | (uint64(buf[i+7])))
+			val := math.Float64frombits(bits)
+			v := float32(val)*fits.Bscale + fits.Bzero
+			if v < min {
+				min = v
+			}
+			if v > max {
+				max = v
+			}
+			sum += float64(v)
+			fits.Data[dataIndex+(i>>bytesPerValueShift)] = v
 		}
-		dataIndex   += availableBytes>>bytesPerValueShift
-		leftoverBytes= availableBytes& bytesPerValueMask
-		for i:=0; i<leftoverBytes; i++ {
-			buf[i]=buf[availableBytes-leftoverBytes+i]
+		dataIndex += availableBytes >> bytesPerValueShift
+		leftoverBytes = availableBytes & bytesPerValueMask
+		for i := 0; i < leftoverBytes; i++ {
+			buf[i] = buf[availableBytes-leftoverBytes+i]
 		}
 	}
-	fits.Bzero, fits.Bscale=0, 1 // reflect that data values incorporate these now 
-	mean:=float32(sum/float64(len(fits.Data)))
-	fits.Stats=stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
+	fits.Bzero, fits.Bscale = 0, 1 // reflect that data values incorporate these now
+	mean := float32(sum / float64(len(fits.Data)))
+	fits.Stats = stats.NewStatsWithMMM(fits.Data, fits.Naxisn[0], min, max, mean)
 	return nil
 }
 
-
 func (h *Header) read(r io.Reader, id int, logWriter io.Writer) error {
-	buf:=make([]byte, fitsBlockSize)
+	buf := make([]byte, fitsBlockSize)
 
-	myParser:=reParser.Copy() // better (thread-)safe for SubexpNames() than sorry
-
-	for h.Length=0; !h.End ; {
+	for h.Length = 0; !h.End; {
 		// read next header unit
-		bytesRead, err:=io.ReadFull(r, buf)
-		if err!=nil || bytesRead!=fitsBlockSize { return errors.New(fmt.Sprintf("%d: %s", id, err.Error())) }
-		h.Length+=int32(bytesRead)
+		bytesRead, err := io.ReadFull(r, buf)
+		if err != nil || bytesRead != fitsBlockSize {
+			return fmt.Errorf("%d: %s", id, err.Error())
+		}
+		h.Length += int32(bytesRead)
 
 		// parse all lines in this header unit
-		for lineNo:=0; lineNo<fitsBlockSize/HeaderLineSize && !h.End; lineNo++ {
-			line:=buf[lineNo*HeaderLineSize:(lineNo+1)*HeaderLineSize]
-			subValues:=myParser.FindSubmatch(line)
-			if subValues==nil {
+		for lineNo := 0; lineNo < fitsBlockSize/HeaderLineSize && !h.End; lineNo++ {
+			line := buf[lineNo*HeaderLineSize : (lineNo+1)*HeaderLineSize]
+			subValues := reParser.FindSubmatch(line)
+			if subValues == nil {
 				fmt.Fprintf(logWriter, "%d: Warning:Cannot parse '%s', ignoring\n", id, string(line))
 			} else {
-				subNames:=myParser.SubexpNames()
+				subNames := reParser.SubexpNames()
 				h.readLine(subNames, subValues, id, lineNo, logWriter)
 			}
 		}
@@ -415,40 +465,39 @@ func (h *Header) read(r io.Reader, id int, logWriter io.Writer) error {
 	return nil
 }
 
-
 func (h *Header) readLine(subNames []string, subValues [][]byte, id, lineNo int, logWriter io.Writer) {
-	key:=""
+	key := ""
 	// ignore index 0 which is the whole line
-	for i:=1; i<len(subNames); i++ {
-		if subValues[i]!=nil && len(subNames[i])==1 {
-			switch c:=subNames[i][0]; c {
+	for i := 1; i < len(subNames); i++ {
+		if subValues[i] != nil && len(subNames[i]) == 1 {
+			switch c := subNames[i][0]; c {
 			case byte('E'): // end line
-				h.End=true 
+				h.End = true
 			case byte('H'): // history line
-				h.History=append(h.History, string(subValues[i]))
+				h.History = append(h.History, string(subValues[i]))
 			case byte('C'): // comment line
-				h.Comments=append(h.History, string(subValues[i]))
+				h.Comments = append(h.History, string(subValues[i]))
 			case byte('k'): // key
-				key=string(subValues[i])
+				key = string(subValues[i])
 			case byte('b'): // boolean
-				if len(subValues[i])>0 {
-					v:=subValues[i][0]
-					h.Bools[key]=v==byte('t') || v==byte('T')
+				if len(subValues[i]) > 0 {
+					v := subValues[i][0]
+					h.Bools[key] = v == byte('t') || v == byte('T')
 				}
 			case byte('i'): // int
-				val, err:=strconv.ParseInt(string(subValues[i]),10,64)
-				if err==nil {
-					h.Ints[key]=int32(val)
+				val, err := strconv.ParseInt(string(subValues[i]), 10, 64)
+				if err == nil {
+					h.Ints[key] = int32(val)
 				}
 			case byte('f'): // float
-				val, err:=strconv.ParseFloat(string(subValues[i]),64)
-				if err==nil {
-					h.Floats[key]=float32(val)
+				val, err := strconv.ParseFloat(string(subValues[i]), 64)
+				if err == nil {
+					h.Floats[key] = float32(val)
 				}
 			case byte('s'): // string
-				h.Strings[key]=string(subValues[i])
+				h.Strings[key] = string(subValues[i])
 			case byte('d'): // date
-				h.Dates[key]=string(subValues[i])
+				h.Dates[key] = string(subValues[i])
 			case byte('c'): // comment
 				// ignore value comments
 			default:
@@ -469,40 +518,39 @@ func (h *Header) Print() {
 	fmt.Printf("End     : %v\n", h.End)
 }
 
-
 // Build regexp parser for FITS header lines
 func compileRE() *regexp.Regexp {
-	white   :="\\s+"
-	whiteOpt:="\\s*"
-	whiteLine:=white
+	white := "\\s+"
+	whiteOpt := "\\s*"
+	whiteLine := white
 
-	hist    :="HISTORY"
-	rest    :=".*"
-	histLine:=hist + white +"(?P<H>"+ rest +")"
+	hist := "HISTORY"
+	rest := ".*"
+	histLine := hist + white + "(?P<H>" + rest + ")"
 
-	commKey :="COMMENT"
-	commLine:=commKey + white + "(?P<C>"+ rest +")" 
+	commKey := "COMMENT"
+	commLine := commKey + white + "(?P<C>" + rest + ")"
 
-	end     :="(?P<E>END)"
-	endLine :=end + whiteOpt
+	end := "(?P<E>END)"
+	endLine := end + whiteOpt
 
-	key     :="(?P<k>[A-Z0-9_-]+)"
-	equals  :="="
+	key := "(?P<k>[A-Z0-9_-]+)"
+	equals := "="
 
-	boo     :="(?P<b>[TF])"
-	inte    :="(?P<i>[+-]?[0-9]+)"
-    floa    :="(?P<f>[+-]?[0-9]*\\.[0-9]*(?:[ED][-+]?[0-9]+)?)"
-    stri    :="'(?P<s>[^']*)'"
-    date    :="(?P<d>[0-9]{1,4}-?[012][0-9]-?[0123][0-9]T[012][0-9]:?[0-5][0-9]:?[0-5][0-9].?[0-9]*)" // FIXME: other variants possible, see ISO8601
-    val     :="(?:"+ boo +"|"+ inte +"|"+ floa +"|"+ stri +"|"+ date +")"
+	boo := "(?P<b>[TF])"
+	inte := "(?P<i>[+-]?[0-9]+)"
+	floa := "(?P<f>[+-]?[0-9]*\\.[0-9]*(?:[ED][-+]?[0-9]+)?)"
+	stri := "'(?P<s>[^']*)'"
+	date := "(?P<d>[0-9]{1,4}-?[012][0-9]-?[0123][0-9]T[012][0-9]:?[0-5][0-9]:?[0-5][0-9].?[0-9]*)" // FIXME: other variants possible, see ISO8601
+	val := "(?:" + boo + "|" + inte + "|" + floa + "|" + stri + "|" + date + ")"
 
-    // missing: CONTINUE for strings
-    // missing: complex int: (nr, nr)
-    // missing: complex float: (nr, nr)
+	// missing: CONTINUE for strings
+	// missing: complex int: (nr, nr)
+	// missing: complex float: (nr, nr)
 
-    commOpt :="(?:/(?P<c>.*))?"
-    keyLine :=key + whiteOpt + equals + whiteOpt + val + whiteOpt + commOpt
+	commOpt := "(?:/(?P<c>.*))?"
+	keyLine := key + whiteOpt + equals + whiteOpt + val + whiteOpt + commOpt
 
-    lineRe  :="^(?:" + whiteLine +"|"+ histLine +"|"+ commLine +"|"+ keyLine +"|"+ endLine +")$"
-    return regexp.MustCompile(lineRe)
+	lineRe := "^(?:" + whiteLine + "|" + histLine + "|" + commLine + "|" + keyLine + "|" + endLine + ")$"
+	return regexp.MustCompile(lineRe)
 }
