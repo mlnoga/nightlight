@@ -333,21 +333,35 @@ func (op *OpLoadMany) MakePromises(ins []Promise, c *Context) (outs []Promise, e
 	return outs, nil
 }
 
+// Value range for exporting data to 16-bit TIFF or JPEG
+type ExportMode int
+
+const (
+	EMMinMax ExportMode = iota
+	EM0_1
+	EM0_255
+	EM0_65535
+)
+
 // Saves given promise under a given filename, with pattern expansion for %d based on the image id.
 // Takes one input, produces one output (the materialized but unchanged input)
 type OpSave struct {
 	OpUnaryBase
-	FilePattern string `json:"filePattern"`
+	FilePattern string     `json:"filePattern"`
+	ExportMode  ExportMode `json:"saveMode"`
+	Gamma       float32    `json:"gamma"`
 }
 
 func init() { SetOperatorFactory(func() Operator { return NewOpSaveDefault() }) } // register the operator for JSON decoding
 
-func NewOpSaveDefault() *OpSave { return NewOpSave("") }
+func NewOpSaveDefault() *OpSave { return NewOpSave("", EMMinMax, 1) }
 
-func NewOpSave(filenamePattern string) *OpSave {
+func NewOpSave(filenamePattern string, exportMode ExportMode, gamma float32) *OpSave {
 	op := &OpSave{
 		OpUnaryBase: OpUnaryBase{OpBase: OpBase{Type: "save"}},
 		FilePattern: filenamePattern,
+		ExportMode:  exportMode,
+		Gamma:       gamma,
 	}
 	op.OpUnaryBase.Apply = op.Apply // assign class method to superclass abstract method
 	return op
@@ -382,6 +396,21 @@ func (op *OpSave) Apply(f *fits.Image, c *Context) (result *fits.Image, err erro
 	if err != nil {
 		return nil, err
 	}
+	var min, max float32
+	switch op.ExportMode {
+	case EMMinMax:
+		min = f.Stats.Min()
+		max = f.Stats.Max()
+	case EM0_1:
+		min = 0
+		max = 1
+	case EM0_255:
+		min = 0
+		max = 255
+	case EM0_65535:
+		min = 0
+		max = 65535
+	}
 
 	if strings.HasSuffix(fnLower, ".fits") || strings.HasSuffix(fnLower, ".fit") || strings.HasSuffix(fnLower, ".fts") ||
 		strings.HasSuffix(fnLower, ".fits.gz") || strings.HasSuffix(fnLower, ".fit.gz") || strings.HasSuffix(fnLower, ".fts.gz") ||
@@ -390,21 +419,25 @@ func (op *OpSave) Apply(f *fits.Image, c *Context) (result *fits.Image, err erro
 		err = f.WriteFile(fileName)
 	} else if strings.HasSuffix(fnLower, ".tiff") || strings.HasSuffix(fnLower, ".tif") {
 		if len(f.Naxisn) == 2 {
-			fmt.Fprintf(c.Log, "%d: Writing %s pixel mono 16-bit TIFF to %s ...\n", f.ID, f.DimensionsToString(), fileName)
-			f.WriteMonoTIFF16ToFile(fileName)
+			fmt.Fprintf(c.Log, "%d: Writing %s pixel mono 16-bit TIFF to %s with min=%g max=%g...\n",
+				f.ID, f.DimensionsToString(), fileName, min, max)
+			f.WriteMonoTIFF16ToFile(fileName, min, max, op.Gamma)
 		} else if len(f.Naxisn) == 3 && f.Naxisn[2] == 3 {
-			fmt.Fprintf(c.Log, "%d: Writing %s pixel color 16-bit TIFF to %s ...\n", f.ID, f.DimensionsToString(), fileName)
-			f.WriteTIFF16ToFile(fileName)
+			fmt.Fprintf(c.Log, "%d: Writing %s pixel color 16-bit TIFF to %s with min=%g max=%g...\n",
+				f.ID, f.DimensionsToString(), fileName, min, max)
+			f.WriteTIFF16ToFile(fileName, min, max, op.Gamma)
 		} else {
 			return nil, fmt.Errorf("%d: unable to write %s pixel image as 16-bit TIFF to %s", f.ID, f.DimensionsToString(), fileName)
 		}
 	} else if strings.HasSuffix(fnLower, ".jpeg") || strings.HasSuffix(fnLower, ".jpg") {
 		if len(f.Naxisn) == 2 {
-			fmt.Fprintf(c.Log, "%d: Writing %s pixel mono JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
-			f.WriteMonoJPGToFile(fileName, 95)
+			fmt.Fprintf(c.Log, "%d: Writing %s pixel mono JPEG to %s with min=%g max=%g gamma=%g...\n",
+				f.ID, f.DimensionsToString(), fileName, min, max, op.Gamma)
+			f.WriteMonoJPGToFile(fileName, min, max, op.Gamma, 95)
 		} else if len(f.Naxisn) == 3 && f.Naxisn[2] == 3 {
-			fmt.Fprintf(c.Log, "%d: Writing %s pixel color JPEG to %s ...\n", f.ID, f.DimensionsToString(), fileName)
-			f.WriteJPGToFile(fileName, 95)
+			fmt.Fprintf(c.Log, "%d: Writing %s pixel color JPEG to %s with min=%g max=%g gamma=%g...\n",
+				f.ID, f.DimensionsToString(), fileName, min, max, op.Gamma)
+			f.WriteJPGToFile(fileName, min, max, op.Gamma, 95)
 		} else {
 			return nil, fmt.Errorf("%d: unable to write %s pixel image as JPEG to %s", f.ID, f.DimensionsToString(), fileName)
 		}

@@ -20,7 +20,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -57,6 +56,7 @@ var job = flag.String("job", "", "JSON job specification to run")
 
 var out = flag.String("out", "out.fits", "save output to `file`")
 var jpg = flag.String("jpg", "%auto", "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
+var jpgGamma = flag.Float64("jpgGamma", 1.0, "gamma correction for JPG output, 1.0=off")
 var tiff = flag.String("tiff", "", "save 16bit preview of output as TIFF to `file`. `%auto` replaces suffix of output file with .tiff")
 var log = flag.String("log", "%auto", "save log output to `file`. `%auto` replaces suffix of output file with .log")
 var pPre = flag.String("pre", "", "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
@@ -167,7 +167,7 @@ func main() {
 	debug.SetGCPercent(10)
 	start := time.Now()
 	flag.Usage = func() {
-		fmt.Fprintf(logWriter, `Nightlight Copyright (c) 2020 Markus L. Noga
+		fmt.Fprintf(logWriter, `Nightlight Copyright (c) 2020-23 Markus L. Noga
 This program comes with ABSOLUTELY NO WARRANTY.
 This is free software, and you are welcome to redistribute it under certain conditions.
 Refer to https://www.gnu.org/licenses/gpl-3.0.en.html for details.
@@ -190,13 +190,7 @@ Flags:
 	flag.Parse()
 
 	// Initialize logging to file in addition to stdout, if selected
-	if *log == "%auto" {
-		if *out != "" {
-			*log = strings.TrimSuffix(*out, filepath.Ext(*out)) + ".log"
-		} else {
-			*log = ""
-		}
-	}
+	autoFill(log, *out, ".log")
 	if *log != "" {
 		logFile, err := os.Create(*log)
 		if err != nil {
@@ -205,23 +199,9 @@ Flags:
 		logWriter = io.MultiWriter(logWriter, logFile)
 	}
 
-	// Auto-select JPEG output target
-	if *jpg == "%auto" {
-		if *out != "" {
-			*jpg = strings.TrimSuffix(*out, filepath.Ext(*out)) + ".jpg"
-		} else {
-			*jpg = ""
-		}
-	}
-
-	// Auto-select TIFF output target
-	if *tiff == "%auto" {
-		if *out != "" {
-			*tiff = strings.TrimSuffix(*out, filepath.Ext(*out)) + ".tiff"
-		} else {
-			*tiff = ""
-		}
-	}
+	// auto-fill filenames for secondary targets
+	autoFill(jpg, *out, ".jpg")
+	autoFill(tiff, *out, ".tiff")
 
 	// Enable CPU profiling if flagged
 	if *cpuprofile != "" {
@@ -308,7 +288,7 @@ Flags:
 		opStarDetect,
 		pre.NewOpBackExtract(int32(*backGrid), float32(*backHFRFactor), float32(*backSigma), int32(*backClip), *back),
 		ref.NewOpExportStats(*exportStats),
-		ops.NewOpSave(*pPre),
+		ops.NewOpSave(*pPre, ops.EMMinMax, 1),
 	)
 
 	// run actions
@@ -330,7 +310,7 @@ Flags:
 					ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, 0, opStarDetect),
 					post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
 					post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeNaN),
-					ops.NewOpSave(*pPost),
+					ops.NewOpSave(*pPost, ops.EMMinMax, 1),
 					stack.NewOpStack(
 						stack.StackMode(*stMode),
 						stack.StackWeighting(*stWeight),
@@ -338,12 +318,13 @@ Flags:
 						float32(*stSigHigh),
 					),
 					opStarDetect,
-					ops.NewOpSave(*batch),
+					ops.NewOpSave(*batch, ops.EMMinMax, 1),
 				),
 			),
 			opStarDetect,
-			ops.NewOpSave(*out),
-			ops.NewOpSave(*tiff),
+			ops.NewOpSave(*out, ops.EMMinMax, 1),
+			ops.NewOpSave(*tiff, ops.EM0_65535, 1),
+			ops.NewOpSave(*jpg, ops.EM0_65535, float32(*jpgGamma)),
 		)
 		err = runOp(opSeq, c)
 
@@ -360,9 +341,9 @@ Flags:
 			ref.NewOpSelectReference(ref.RFMFileName, *alignTo, 0, opStarDetect),
 			post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask(float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
-			ops.NewOpSave(*out),
-			ops.NewOpSave(*tiff),
-			ops.NewOpSave(*jpg),
+			ops.NewOpSave(*out, ops.EMMinMax, 1),
+			ops.NewOpSave(*tiff, ops.EM0_1, 1),
+			ops.NewOpSave(*jpg, ops.EM0_1, float32(*jpgGamma)),
 		)
 		err = runOp(opSeq, c)
 
@@ -392,15 +373,15 @@ Flags:
 			hsl.NewOpHSLScaleBlack(float32(*scaleBlack/100)),
 
 			rgb.NewOpHSLuvToRGB(),
-			ops.NewOpSave(*out),
-			ops.NewOpSave(*tiff),
-			ops.NewOpSave(*jpg),
+			ops.NewOpSave(*out, ops.EMMinMax, 1),
+			ops.NewOpSave(*tiff, ops.EM0_1, 1),
+			ops.NewOpSave(*jpg, ops.EM0_1, float32(*jpgGamma)),
 		)
 		err = runOp(opSeq, c)
 
 	case "run":
 		var content []byte
-		content, err = ioutil.ReadFile(*job) // don't use := here, or the last error in this block is discarded
+		content, err = os.ReadFile(*job) // don't use := here, or the last error in this block is discarded
 		if err != nil {
 			panic(fmt.Sprintf("Error opening %s: %s\n", *job, err.Error()))
 		}
@@ -447,6 +428,17 @@ Flags:
 		if err := pprof.Lookup("allocs").WriteTo(f, 0); err != nil {
 			fmt.Fprintf(logWriter, "Could not write allocation profile: %s\n", err)
 			os.Exit(-1)
+		}
+	}
+}
+
+// if the value is equal to %auto, replace it with the base filename modified with the given extension
+func autoFill(val *string, base, extension string) {
+	if *val == "%auto" {
+		if base != "" {
+			*val = strings.TrimSuffix(base, filepath.Ext(base)) + extension
+		} else {
+			*val = ""
 		}
 	}
 }
