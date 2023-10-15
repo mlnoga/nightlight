@@ -73,7 +73,7 @@ func (op *OpRGBCombine) Apply(fs []*fits.Image, c *ops.Context) (fOut *fits.Imag
 		c.LumFrame=fs[3]
 	}
 	fmt.Fprintf(c.Log, "\nCombining RGB color channels...\n")
-	fOut=fits.NewRGBFromChannels(fs[:3], c.RefFrame, c.Log)
+	fOut=fits.NewRGBFromChannels(fs[:3], c.AlignStars, c.AlignHFR, c.Log)
 	return fOut, nil
 }
 

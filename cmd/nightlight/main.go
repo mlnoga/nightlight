@@ -57,7 +57,7 @@ var job = flag.String("job", "", "JSON job specification to run")
 var out = flag.String("out", "out.fits", "save output to `file`")
 var jpg = flag.String("jpg", "%auto", "save 8bit preview of output as JPEG to `file`. `%auto` replaces suffix of output file with .jpg")
 var jpgGamma = flag.Float64("jpgGamma", 1.0, "gamma correction for JPG output, 1.0=off")
-var tiff = flag.String("tiff", "", "save 16bit preview of output as TIFF to `file`. `%auto` replaces suffix of output file with .tiff")
+var tiff = flag.String("tiff", "", "save 16bit preview of output as TIFF to `file`. `%auto` replaces suffix of output file with .tif")
 var log = flag.String("log", "%auto", "save log output to `file`. `%auto` replaces suffix of output file with .log")
 var pPre = flag.String("pre", "", "save pre-processed frames with given filename pattern, e.g. `pre%04d.fits`")
 var stars = flag.String("stars", "", "save star detections with given filename pattern, e.g. `stars%04d.fits`")
@@ -112,7 +112,8 @@ var stSigHigh = flag.Float64("stSigHigh", -1, "high sigma for stacking as multip
 var stWeight = flag.Int64("stWeight", 0, "weights for stacking. 0=unweighted (default), 1=by exposure, 2=by inverse noise")
 var stMemory = flag.Int64("stMemory", int64((totalMiBs*7)/10), "total MiB of memory to use for stacking, default=0.7x physical memory")
 
-var refSelMode = flag.Int64("refSelMode", 0, "reference frame selection mode, 0=best #stars/HFR (default), 1=median HFR (for master flats)")
+var histoRef = flag.String("histoRef", "%starsHFR", "histogram reference, %starsHFR= best #stars/HFR (default), %location=median location, any int=image ID, filename=image filename")
+var alignRef = flag.String("alignRef", "%starsHFR", "alignment reference, %starsHFR= best #stars/HFR (default), %location=median location, any int=image ID, filename=image filename")
 
 var neutSigmaLow = flag.Float64("neutSigmaLow", -1, "neutralize background color below this threshold, <0 = no op")
 var neutSigmaHigh = flag.Float64("neutSigmaHigh", -1, "keep background color above this threshold, interpolate in between, <0 = no op")
@@ -201,7 +202,7 @@ Flags:
 
 	// auto-fill filenames for secondary targets
 	autoFill(jpg, *out, ".jpg")
-	autoFill(tiff, *out, ".tiff")
+	autoFill(tiff, *out, ".tif")
 
 	// Enable CPU profiling if flagged
 	if *cpuprofile != "" {
@@ -307,7 +308,8 @@ Flags:
 			stack.NewOpStackBatches(
 				ops.NewOpSequence(
 					opPreProc,
-					ref.NewOpSelectReference(ref.RefSelMode(*refSelMode), *alignTo, 0, opStarDetect),
+					ref.NewOpSelectReference(ref.SRHisto, *histoRef, opStarDetect),
+					ref.NewOpSelectReference(ref.SRAlign, *alignRef, opStarDetect),
 					post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
 					post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeNaN),
 					ops.NewOpSave(*pPost, ops.EMMinMax, 1),
@@ -338,7 +340,7 @@ Flags:
 			stretch.NewOpGammaPP(float32(*ppGamma), float32(*ppSigma)),
 			stretch.NewOpScaleBlack(float32(*scaleBlack/100)),
 			opStarDetect,
-			ref.NewOpSelectReference(ref.RFMFileName, *alignTo, 0, opStarDetect),
+			ref.NewOpSelectReference(ref.SRAlign, *alignRef, opStarDetect),
 			post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
 			stretch.NewOpUnsharpMask(float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops.NewOpSave(*out, ops.EMMinMax, 1),
@@ -351,7 +353,7 @@ Flags:
 		opSeq := ops.NewOpSequence(
 			opLoadMany,
 			opStarDetect,
-			ref.NewOpSelectReference(ref.RFMLRGB, "", 0, opStarDetect),
+			ref.NewOpSelectReference(ref.SRAlign, "%rgb", opStarDetect),
 
 			rgb.NewOpRGBCombine(),
 			rgb.NewOpRGBBalance(int32(*balBlock), float32(*balBorder), float32(*balSkipBright), float32(*balSkipDim),

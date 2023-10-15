@@ -71,16 +71,16 @@ func (op *OpMatchHistogram) UnmarshalJSON(data []byte) error {
 
 func (op *OpMatchHistogram) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
 	if op.Mode==HNMNone { return f, nil }
-	if c.RefFrame==nil { return nil, errors.New("missing histogram reference frame")}
+	if c.MatchHisto==nil { return nil, errors.New("missing histogram reference")}
 	switch op.Mode {
 		case HNMLocation:
-			f.MatchLocation(c.RefFrame.Stats.Location())
+			f.MatchLocation(c.MatchHisto.Location())
 		case HNMLocScale:
-			f.MatchHistogram(c.RefFrame.Stats)
+			f.MatchHistogram(c.MatchHisto)
 		case HNMLocBlack:
-	    	f.ShiftBlackToMove(f.Stats.Location(), c.RefFrame.Stats.Location())
+	    	f.ShiftBlackToMove(f.Stats.Location(), c.MatchHisto.Location())
 	}
-	fmt.Fprintf(c.Log, "%d: %s after matching histogram of reference %d\n", f.ID, f.Stats, c.RefFrame.ID)
+	fmt.Fprintf(c.Log, "%d: %s after matching reference histogram %v\n", f.ID, f.Stats, c.MatchHisto)
 	return f, nil
 }
 
@@ -147,8 +147,8 @@ func (op *OpAlign) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err
 		var outOfBounds float32
 		switch(op.OobMode) {
 			case OOBModeNaN:         outOfBounds=float32(math.NaN())
-			case OOBModeRefLocation: outOfBounds=c.RefFrame.Stats.Location()
-			case OOBModeOwnLocation: outOfBounds=f         .Stats.Location()
+			case OOBModeRefLocation: outOfBounds=c.MatchHisto.Location()
+			case OOBModeOwnLocation: outOfBounds=f     .Stats.Location()
 		}
 
 		// Determine alignment of the image to the reference frame
@@ -172,12 +172,12 @@ func (op *OpAlign) init(c *ops.Context) error {
 	defer op.mutex.Unlock()
 	if op.K<=0 || op.Aligner!=nil { return nil }
 
-	if c.RefFrame==nil {
+	if c.AlignNaxisn==nil || c.AlignStars==nil {
 		return errors.New("Unable to align without reference frame")
-	} else if len(c.RefFrame.Stars)==0 {
+	} else if len(c.AlignStars)==0 {
 		return errors.New("Unable to align without star detections in reference frame")
 	}
-	op.Aligner=star.NewAligner(c.RefFrame.Naxisn, c.RefFrame.Stars, op.K)
+	op.Aligner=star.NewAligner(c.AlignNaxisn, c.AlignStars, op.K)
 	return nil
 }
 

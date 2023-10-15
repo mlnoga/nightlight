@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/star"
 )
 
 // A RGB color in float32
@@ -39,14 +40,14 @@ func (rgb RGB) String() string {
 
 // Combine single color images into one multi-channel image.
 // All images must have the same dimensions, or undefined results occur. 
-func NewRGBFromChannels(chans []*Image, ref *Image, logWriter io.Writer) *Image {
+func NewRGBFromChannels(chans []*Image, alignStars []star.Star, alignHFR float32, logWriter io.Writer) *Image {
 	naxisn:=make([]int32, len(chans[0].Naxisn)+1)
 	copy(naxisn, chans[0].Naxisn)
 	naxisn[len(chans[0].Naxisn)]=int32(len(chans))
 
 	rgb:=NewImageFromNaxisn(naxisn, nil)
 	rgb.Exposure=chans[0].Exposure+chans[1].Exposure+chans[2].Exposure
-	if ref!=nil { rgb.Stars, rgb.HFR=ref.Stars, ref.HFR }
+	if alignStars!=nil { rgb.Stars, rgb.HFR=alignStars, alignHFR }
 
 	pixelsOrig:=chans[0].Pixels
 	min, mult:=getCommonNormalizationFactors(chans)

@@ -92,7 +92,7 @@ func (op *OpStackBatches) Apply(ins []ops.Promise, c *ops.Context) (fOut *fits.I
 	}
 
 	// Free more memory; primary frames already freed after stacking
-	c.DarkFrame, c.FlatFrame, c.RefFrame = nil, nil, nil
+	c.DarkFrame, c.FlatFrame = nil, nil
 	debug.FreeOSMemory()
 
 	if numBatches>1 {

@@ -27,6 +27,7 @@ import (
 
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/stats"
+	"github.com/mlnoga/nightlight/internal/star"
 	"github.com/pbnjay/memory"
 )
 
@@ -39,8 +40,11 @@ type Context struct {
 	MaxThreads      int `json:"maxThreads"`
 	DarkFrame       *fits.Image
 	FlatFrame       *fits.Image
-	RefFrame        *fits.Image
-	RefFrameError   error
+	AlignNaxisn     []int32
+	AlignStars      []star.Star
+	AlignHFR        float32
+	MatchHisto      *stats.Stats
+	RefFrameError 	error
 	LumFrame        *fits.Image
 }
 

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strconv"
 	"sync"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/qsort"
@@ -29,22 +30,19 @@ import (
 )
 
 
-
-// Reference frame selection mode
-type RefSelMode int
+// Reference frame selection target
+type SelRefTarget int
 const (
-	RFMStarsOverHFR RefSelMode = iota // Pick frame with highest ratio of stars over HFR (for lights)
-	RFMMedianLoc                      // Pick frame with median location (for multiplicative correction when integrating master flats)
-	RFMFileName                       // Load from given filename
-	RFMFileID                         // Load from given frame ID
-	RFMLRGB                           // (L)RGB mode. Uses luminance if present (id=3), else the RGB frame with the best stars/HFR ratio
+	SRAlign SelRefTarget = iota // Select star alignment frame
+	SRHisto                     // Selct histogram matching frame
 )
+
+var srTargetStrings=[]string{"alignemnt", "histogram"}
 
 type OpSelectReference struct {
 	ops.OpBase
-	Mode            RefSelMode         `json:"mode"`
-	FileName        string             `json:"fileName"`
-	FileID          int                `json:"fileID"`
+	Target          SelRefTarget       `json:"target"`
+	Mode            string             `json:"mode"`
 	StarDetect     *pre.OpStarDetect   `json:"starDetect"`
 	mutex           sync.Mutex         `json:"-"`
 	materialized    []*fits.Image      `json:"-"` 
@@ -52,15 +50,14 @@ type OpSelectReference struct {
 
 func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpSelectReferenceDefault() })} // register the operator for JSON decoding
 
-func NewOpSelectReferenceDefault() *OpSelectReference { return NewOpSelectReference(RFMStarsOverHFR, "", 0, pre.NewOpStarDetectDefault() )}
+func NewOpSelectReferenceDefault() *OpSelectReference { return NewOpSelectReference(SRAlign, "%starsHFR", pre.NewOpStarDetectDefault() )}
 
 // Preprocess all light frames with given global settings, limiting concurrency to the number of available CPUs
-func NewOpSelectReference(mode RefSelMode, fileName string, fileID int, opStarDetect *pre.OpStarDetect) *OpSelectReference {
+func NewOpSelectReference(target SelRefTarget, mode string,opStarDetect *pre.OpStarDetect) *OpSelectReference {
 	op:=OpSelectReference{
 		OpBase    : ops.OpBase{Type:"selectRef"},
+		Target: 	target,
 		Mode:       mode,
-		FileName:   fileName,
-		FileID:     fileID,
 		StarDetect: opStarDetect,
 	}
 	return &op	
@@ -97,7 +94,8 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 			op.mutex.Unlock()           // return immediately with the same error
 			return nil, errors.New("same error") 
 		}
-		if c.RefFrame!=nil {            // if a reference frame already exists
+		if (op.Target==SRAlign && c.AlignStars!=nil) ||
+		   (op.Target==SRHisto && c.MatchHisto!=nil) {            // if a reference frame already exists
 			op.mutex.Unlock()           // unlock immediately to allow ...
 			if op.materialized==nil || op.materialized[i]==nil {
 				return ins[i]()         // ... materializations to be parallelized by the caller
@@ -109,12 +107,16 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 		}
 		defer op.mutex.Unlock()		    // else release lock later when reference frame is computed
 
+		mode:=op.Mode
+		fileID, atoiErr:=strconv.Atoi(op.Mode) // reference frame ID, if given 
+
 		// if reference image is given in a file, load it and detect stars w/o materializing all input promises
-		if op.Mode==RFMFileName {
-			if op.FileName=="" { return ins[i]() }
+		if mode!="%starsHFR" && mode!="%location" && mode!="%rgb" && atoiErr!=nil {
+			refFileName:=op.Mode
+			if refFileName=="" { return ins[i]() }
 
 			var promises []ops.Promise
-			promises, c.RefFrameError=ops.NewOpLoad(-3, op.FileName).MakePromises(nil, c)
+			promises, c.RefFrameError=ops.NewOpLoad(-3, refFileName).MakePromises(nil, c)
 			if c.RefFrameError!=nil { return nil, c.RefFrameError }
 			if len(promises)!=1 {
 				c.RefFrameError=errors.New("load operator did not create exactly one promise") 
@@ -127,9 +129,12 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 				c.RefFrameError=errors.New("star detect did not return exactly one promise") 
 				return nil, c.RefFrameError
 			} 
-			c.RefFrame, c.RefFrameError=promises[0]()
+			var refFrame *fits.Image
+			refFrame, c.RefFrameError = promises[0]()
 			if c.RefFrameError!=nil { return nil, c.RefFrameError }
+			op.assignResults(c, refFrame)
 
+			fmt.Fprintf(c.Log, "using loaded image %d as %s reference\n", refFrame.ID, srTargetStrings[op.Target])
 			return ins[i]()
 		}
 
@@ -138,39 +143,52 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 		if c.RefFrameError!=nil { return nil, c.RefFrameError }
 
 		// Auto-select mode for (L)RGB
-		mode, fileID :=op.Mode, op.FileID
-		if mode == RFMLRGB {
+		if mode == "%rgb" {
 			if len(op.materialized)>3 {
-				mode, fileID=RFMFileID, 3
+				mode, fileID, atoiErr="3", 3, nil
 			} else {
-				mode=RFMStarsOverHFR
+				mode="%starsHFR"
 			}
 		}
 
 		// select reference with given mode
 		var refScore float32
-		if mode==RFMStarsOverHFR {
-			c.RefFrame, refScore, c.RefFrameError=selectReferenceStarsOverHFR(op.materialized)
-		} else if mode==RFMMedianLoc {
-			c.RefFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized, c)
-		} else if mode==RFMFileID {
+		var refFrame *fits.Image
+		if mode=="%starsHFR" {
+			refFrame, refScore, c.RefFrameError=selectReferenceStarsOverHFR(op.materialized)
+		} else if mode=="%location" {
+			refFrame, refScore, c.RefFrameError=selectReferenceMedianLoc(op.materialized, c)
+		} else if atoiErr==nil {
 			if fileID<0 || fileID>=len(op.materialized) {
 				c.RefFrameError=errors.New(fmt.Sprintf("invalid reference file ID %d", fileID))
 				return nil, c.RefFrameError
 			}
-			c.RefFrame=op.materialized[fileID]
+			refFrame=op.materialized[fileID]
 		} else {
 			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
 		}
-		if c.RefFrame==nil { c.RefFrameError=errors.New("Unable to select reference image.") }
+		if refFrame==nil { c.RefFrameError=errors.New("Unable to select reference image.") }
 		if c.RefFrameError!=nil { return nil, c.RefFrameError }
-		fmt.Fprintf(c.Log, "Using image %d with score %.4g as reference frame.\n", c.RefFrame.ID, refScore)
+		fmt.Fprintf(c.Log, "Using image %d with score %.4g as %s reference.\n", refFrame.ID, refScore, srTargetStrings[op.Target])
+		op.assignResults(c, refFrame)
 
 		// return promise for the materialized image of this instance
 		mat:=op.materialized[i]
 		op.materialized[i]=nil // remove reference
 		return mat, nil
 	}
+}
+
+func (op * OpSelectReference) assignResults(c *ops.Context, refFrame *fits.Image) {
+		if op.Target==SRAlign {
+			c.AlignNaxisn=refFrame.Naxisn
+			c.AlignStars =refFrame.Stars
+			c.AlignHFR   =refFrame.HFR
+		}  else if op.Target==SRHisto {
+			c.MatchHisto=refFrame.Stats
+		} else {
+			fmt.Fprintf(c.Log, "Invalid reference selection target %d, skipping.\n", op.Target)
+		}
 }
 
 func selectReferenceStarsOverHFR(lights []*fits.Image) (refFrame *fits.Image, refScore float32, err error) {
