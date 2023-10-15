@@ -86,7 +86,7 @@ func (f *Image) WriteTIFF16(writer io.Writer, min, max, gamma float32) error {
 		}
 	}
 
-	return tiff.Encode(writer, img, &tiff.Options{Compression: tiff.Deflate, Predictor: true})
+	return tiff.Encode(writer, img, &tiff.Options{Compression: tiff.Uncompressed, Predictor: false})
 }
 
 // Write a grayscale FITS image to 16-bit TIFF, using the given min, max and gamma.
@@ -130,5 +130,5 @@ func (f *Image) WriteMonoTIFF16(writer io.Writer, min, max, gamma float32) error
 		}
 	}
 
-	return tiff.Encode(writer, img, &tiff.Options{Compression: tiff.Deflate, Predictor: true})
+	return tiff.Encode(writer, img, &tiff.Options{Compression: tiff.Uncompressed, Predictor: false})
 }
