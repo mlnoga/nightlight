@@ -165,7 +165,7 @@ func (op *OpSelectReference) applySingle(i int, ins []ops.Promise, c *ops.Contex
 			}
 			refFrame=op.materialized[fileID]
 		} else {
-			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode %d", op.Mode))
+			c.RefFrameError=errors.New(fmt.Sprintf("Unknown refrence selection mode '%s'", op.Mode))
 		}
 		if refFrame==nil { c.RefFrameError=errors.New("Unable to select reference image.") }
 		if c.RefFrameError!=nil { return nil, c.RefFrameError }
