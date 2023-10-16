@@ -23,6 +23,7 @@ import (
 	"math"
 	"os"
 
+	"github.com/mlnoga/nightlight/internal/stats"
 	"golang.org/x/image/tiff"
 )
 
@@ -143,50 +144,108 @@ func (f *Image) ReadTIFF(fileName string) error {
 	defer file.Close()
 	reader := bufio.NewReader(file)
 
-	// read TIFF from reader
+	// decode TIFF file into golang image
 	t, err := tiff.Decode(reader)
 	if err != nil {
 		return err
 	}
 
-	// determine number of channels
-	channels := 3
-	if t.ColorModel() == color.GrayModel || t.ColorModel() == color.Gray16Model {
-		channels = 1
-	}
-
-	// determine width and height, and set naxisn
+	// determine width, height, color depth and number of color channels
 	width, height := t.Bounds().Dx(), t.Bounds().Dy()
+	bitpix, channels := colorModelToBitpixAndChannels(t.ColorModel())
+
+	// set FITS metadata
+	f.Bitpix = bitpix
 	f.Naxisn = make([]int32, 3)
 	f.Naxisn[0] = int32(width)
 	f.Naxisn[1] = int32(height)
 	f.Naxisn[2] = int32(channels)
+	if channels == 1 {
+		f.Naxisn = f.Naxisn[:2]
+	}
+	f.Pixels = int32(width) * int32(height) * channels
+	f.Bzero, f.Bscale = 0, 1
 
-	// allocate bitmap memory
-	size := int(width) * int(height) * int(channels)
-	f.Data = make([]float32, size)
-	sizeThird := int(size / 3)
-	sizeTwoThirds := int(sizeThird * 2)
+	// allocate FITS image bitmap
+	f.Data = make([]float32, f.Pixels)
+	sizeThird := int(f.Pixels / 3)
+	sizeTwoThirds := int(f.Pixels * 2)
+
+	// keep running stats
+	min, max, sum := float32(math.MaxFloat32), float32(-math.MaxFloat32), float64(0)
+
 	// read and convert pixels
 	if channels == 1 {
 		// greyscale case
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
+				// convert pixel
 				c := t.At(x, y).(color.Gray16)
-				f.Data[y*width+x] = float32(c.Y)
+				gray := float32(c.Y)
+				f.Data[y*width+x] = gray
+
+				// update stats
+				if gray < min {
+					min = gray
+				}
+				if gray > max {
+					max = gray
+				}
+				sum += float64(gray)
 			}
 		}
 	} else {
 		// RGB case
 		for y := 0; y < height; y++ {
 			for x := 0; x < width; x++ {
+				// convert pixel
 				c := t.At(x, y).(color.RGBA64)
-				f.Data[y*width+x] = float32(c.R)
-				f.Data[y*width+x+sizeThird] = float32(c.G)
-				f.Data[y*width+x+sizeTwoThirds] = float32(c.B)
+				r, g, b := float32(c.R), float32(c.G), float32(c.B)
+				f.Data[y*width+x] = r
+				f.Data[y*width+x+sizeThird] = g
+				f.Data[y*width+x+sizeTwoThirds] = b
+
+				// convert r, g, b to greyscale value
+				gray := 0.2126*r + 0.7152*g + 0.0722*b
+
+				// update stats
+				if gray < min {
+					min = gray
+				}
+				if gray > max {
+					max = gray
+				}
+				sum += float64(gray)
 			}
 		}
 	}
 
+	// finalize stats
+	mean := float32(sum / float64(width) / float64(height))
+	f.Stats = stats.NewStatsWithMMM(f.Data, f.Naxisn[0], min, max, mean)
+
 	return nil
+}
+
+func colorModelToBitpixAndChannels(m color.Model) (bitpix, channels int32) {
+	switch m {
+	case color.RGBAModel:
+		return 8, 3
+	case color.RGBA64Model:
+		return 16, 3
+	case color.NRGBAModel:
+		return 8, 3
+	case color.NRGBA64Model:
+		return 16, 3
+	case color.AlphaModel:
+		return 8, 1
+	case color.Alpha16Model:
+		return 16, 1
+	case color.GrayModel:
+		return 8, 1
+	case color.Gray16Model:
+		return 16, 1
+	default:
+		return 0, 0
+	}
 }
