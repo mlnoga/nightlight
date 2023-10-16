@@ -26,8 +26,8 @@ import (
 	"strings"
 
 	"github.com/mlnoga/nightlight/internal/fits"
-	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/mlnoga/nightlight/internal/star"
+	"github.com/mlnoga/nightlight/internal/stats"
 	"github.com/pbnjay/memory"
 )
 
@@ -44,7 +44,7 @@ type Context struct {
 	AlignStars      []star.Star
 	AlignHFR        float32
 	MatchHisto      *stats.Stats
-	RefFrameError 	error
+	RefFrameError   error
 	LumFrame        *fits.Image
 }
 
