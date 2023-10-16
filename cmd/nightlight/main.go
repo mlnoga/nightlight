@@ -97,10 +97,8 @@ var usmSigma = flag.Float64("usmSigma", 1, "unsharp masking sigma, ~1/3 radius")
 var usmGain = flag.Float64("usmGain", 0, "unsharp masking gain, 0=no op")
 var usmThresh = flag.Float64("usmThresh", 1, "unsharp masking threshold, in standard deviations above background")
 
-var align = flag.Int64("align", 1, "1=align frames, 0=do not align")
-var alignK = flag.Int64("alignK", 20, "use triangles fromed from K brightest stars for initial alignment")
+var alignK = flag.Int64("alignK", 20, "use triangles formed from K brightest stars for initial alignment")
 var alignT = flag.Float64("alignT", 1.0, "skip frames if alignment to reference frame has residual greater than this")
-var alignTo = flag.String("alignTo", "", "use given `file` as alignment reference")
 
 var lsEst = flag.Int64("lsEst", 3, "location and scale estimators 0=mean/stddev, 1=median/MAD, 2=IKSS, 3=iterative sigma-clipped sampled median and sampled Qn (standard), 4=histogram peak")
 var normRange = flag.Int64("normRange", 0, "normalize range: 1=normalize to [0,1], 0=do not normalize")
@@ -161,7 +159,7 @@ var lumOffset = flag.Float64("lumOffset", 0, "offset luminance with this factor"
 
 var scaleBlack = flag.Float64("scaleBlack", 0, "move black point so histogram peak location is given value in %%, 0=don't")
 
-var exportStats = flag.String("exportStats", "", "export statistics to file, default=don't")
+var exportStats = flag.String("exportStats", "%auto", "export statistics to file, %auto replaces output file extension with .stats, default=%auto")
 
 func main() {
 	var logWriter io.Writer = os.Stdout
@@ -203,6 +201,7 @@ Flags:
 	// auto-fill filenames for secondary targets
 	autoFill(jpg, *out, ".jpg")
 	autoFill(tiff, *out, ".tif")
+	autoFill(exportStats, *out, ".html")
 
 	// Enable CPU profiling if flagged
 	if *cpuprofile != "" {
@@ -269,6 +268,7 @@ Flags:
 	default:
 	}
 
+	// create context
 	c := ops.NewContext(logWriter, stats.LSEstimatorMode(*lsEst))
 
 	// glob filename arguments into an opLoadMany operator

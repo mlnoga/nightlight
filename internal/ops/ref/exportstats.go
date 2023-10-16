@@ -13,125 +13,110 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 package ref
 
 import (
+	"bufio"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"sync"
+
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
 )
 
-
-
 type OpExportStats struct {
-	ops.OpBase
-    FileName        string             `json:"fileName"`
-		mutex           sync.Mutex         `json:"-"`
-		materialized    []*fits.Image      `json:"-"`
-		opError         error              `json:"-"`          
+	ops.OpUnaryBase
+	FileName     string        `json:"fileName"`
+	mutex        sync.Mutex    `json:"-"`
+	materialized []*fits.Image `json:"-"`
+	opError      error         `json:"-"`
 }
 
-func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpExportStatsDefault() })} // register the operator for JSON decoding
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpExportStatsDefault() }) } // register the operator for JSON decoding
 
 func NewOpExportStatsDefault() *OpExportStats { return NewOpExportStats("out.html") }
 
-func NewOpExportStats(fileName string) *OpExportStats {  
-	op:=&OpExportStats{
-	  	OpBase   : ops.OpBase{Type: "exportStats"},
-	    FileName : fileName,
+func NewOpExportStats(fileName string) *OpExportStats {
+	op := &OpExportStats{
+		OpUnaryBase: ops.OpUnaryBase{OpBase: ops.OpBase{Type: "exportStats"}},
+		FileName:    fileName,
 	}
-	return op	
+	op.OpUnaryBase.Apply = op.Apply // assign class method to superclass abstract method
+	return op
 }
 
 // Unmarshal the type from JSON with default values for missing entries
 func (op *OpExportStats) UnmarshalJSON(data []byte) error {
 	type defaults OpExportStats
-	def:=defaults( *NewOpExportStatsDefault() )
-	err:=json.Unmarshal(data, &def)
-	if err!=nil { return err }
-	*op=OpExportStats(def)
+	def := defaults(*NewOpExportStatsDefault())
+	err := json.Unmarshal(data, &def)
+	if err != nil {
+		return err
+	}
+	*op = OpExportStats(def)
+	op.OpUnaryBase.Apply = op.Apply // make method receiver point to op, not def
 	return nil
 }
 
-// Selects a reference for all given input promises using the specified mode.
-// This creates separate output promises for each input promise.
-// The first of them to acquire the reference mutex evaluates all images
-func (op *OpExportStats) MakePromises(ins []ops.Promise, c *ops.Context) (outs []ops.Promise, err error) {
-	if len(ins)==0 { return nil, errors.New(fmt.Sprintf("%s operator needs inputs", op.Type)) }
-
-	outs=make([]ops.Promise, len(ins))
-	for i,_:=range(ins) {
-		outs[i]=op.makePromise(i, ins, c)
+func (op *OpExportStats) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if op.FileName == "" {
+		fmt.Fprintf(c.Log, "%d: exportStats empty fileName\n", f.ID)
+		return f, nil
 	}
-	return outs, nil
+
+	op.mutex.Lock()         // lock so a single thread is active
+	defer op.mutex.Unlock() // always release lock on exit
+
+	// write stats
+	if c.StatsProcessed == 0 {
+		err = op.writeHeader(c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	op.writeStats(f, c)
+	c.StatsProcessed++
+	if c.StatsProcessed == c.StatsTotal {
+		op.writeFooter(c)
+	}
+
+	return f, nil
 }
 
-func (op *OpExportStats) makePromise(i int, ins []ops.Promise, c *ops.Context) ops.Promise {
-	return func() (f *fits.Image, err error) {
-		if op.FileName=="" { return ins[i]() }
-
-		op.mutex.Lock()                 // lock so a single thread is active
-		if op.opError!=nil {            // if failed in a prior thread
-			op.mutex.Unlock()             // return immediately with the same error
-			return nil, errors.New("same error") 
-		}
-		if op.materialized!=nil {
-			op.mutex.Unlock()           // unlock immediately to allow ...
-			if op.materialized[i]==nil {
-				return ins[i]()           // ... materializations to be parallelized by the caller
-			} else {
-				mat:=op.materialized[i]
-				op.materialized[i]=nil    // remove reference to free memory
-				return mat, nil
-			}
-		}
-		defer op.mutex.Unlock()		    // else release lock later when reference frame is computed
-
-		// otherwise, materialize the input promises
-		op.materialized,op.opError=ops.MaterializeAll(ins, c.MaxThreads, false)
-		if op.opError!=nil { return nil, op.opError }
-
-		// write stats
-		err=op.writeStats(c)
-
-		// return promise for the materialized image of this instance
-		mat:=op.materialized[i]
-		op.materialized[i]=nil // remove reference
-		return mat, err
+func (op *OpExportStats) writeHeader(c *ops.Context) (err error) {
+	fmt.Fprintf(c.Log, "Writing statistics header to file %s ...\n", op.FileName)
+	c.StatsFile, err = os.Create(op.FileName)
+	if err != nil {
+		return fmt.Errorf("error creating file %s: %s", op.FileName, err.Error())
 	}
-}
+	c.StatsBufWriter = bufio.NewWriter(c.StatsFile)
 
-
-func (op *OpExportStats) writeStats(c *ops.Context) (err error) {
-	fmt.Fprintf(c.Log, "Writing statistics to file %s ...\n", op.FileName)
-	f,err :=os.Create(op.FileName)
-	if err!=nil { return errors.New(fmt.Sprintf("error creating file %s: %s", op.FileName, err.Error())) }
-	defer f.Close()
-
-	f.WriteString(sessionStatsHeader)
-	fmt.Fprintf(f, "[ ['ID','Min','Mean','Max','Location','Scale','Stars','HFR'],\n")
-
-	for id,mat:=range(op.materialized) {
-		s:=mat.Stats
-		separator:=","
-		if id==len(op.materialized)-1 { separator="" }
-		fmt.Fprintf(f, "  [%d,%f,%f,%f,%f,%f,%d,%f]%s\n", 
-			          mat.ID, s.Min(), s.Mean(), s.Max(), s.Location(), s.Scale(), len(mat.Stars), mat.HFR, separator)
-	}
-
-	fmt.Fprintf(f,"]")
-	f.WriteString(sessionStatsTrailer)
+	c.StatsBufWriter.WriteString(sessionStatsHeader)
+	fmt.Fprintf(c.StatsBufWriter, "[  ['ID','Min','Mean','Max','Location','Scale','Stars','HFR']\n")
 
 	return nil
 }
 
+func (op *OpExportStats) writeStats(f *fits.Image, c *ops.Context) {
+	fmt.Fprintf(c.Log, "%d: writing statistics to file %s ...\n", f.ID, op.FileName)
+	s := f.Stats
+	fmt.Fprintf(c.StatsBufWriter, "  ,[%d,%f,%f,%f,%f,%f,%d,%f]\n",
+		f.ID, s.Min(), s.Mean(), s.Max(), s.Location(), s.Scale(), len(f.Stars), f.HFR)
+}
 
-const sessionStatsHeader=`<html>
+func (op *OpExportStats) writeFooter(c *ops.Context) {
+	fmt.Fprintf(c.Log, "Writing statistics footer to file %s ...\n", op.FileName)
+	fmt.Fprintf(c.StatsBufWriter, "]")
+	c.StatsBufWriter.WriteString(sessionStatsTrailer)
+	c.StatsBufWriter.Flush()
+	c.StatsBufWriter = nil
+	c.StatsFile.Close()
+	c.StatsFile = nil
+}
+
+const sessionStatsHeader = `<html>
   <head>
     <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
   </head>
@@ -146,10 +131,17 @@ google.charts.load('current', {'packages':['corechart']});
 google.charts.setOnLoadCallback(drawChart);
 
 var dataArray =
-`;
+`
 
+const sessionStatsTrailer = `;
 
-const sessionStatsTrailer=`;
+function sortByFirstElement(a, b) {
+	return a[0] - b[0];
+}
+dataHeader=dataArray[0];
+dataRows=dataArray.slice(1);
+dataRows.sort(sortByFirstElement);
+dataArray = [dataHeader].concat(dataRows);
 
 var columnMedians=calcColumnMedians(dataArray);
 

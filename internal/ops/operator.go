@@ -16,11 +16,13 @@
 package ops
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -46,6 +48,11 @@ type Context struct {
 	MatchHisto      *stats.Stats
 	RefFrameError   error
 	LumFrame        *fits.Image
+
+	StatsTotal     int
+	StatsProcessed int
+	StatsFile      *os.File      `json:"-"` // the output file being written to. do not use directly
+	StatsBufWriter *bufio.Writer `json:"-"` // buffered writer for the output file. use this
 }
 
 func NewContext(log io.Writer, lsEstimatorMode stats.LSEstimatorMode) *Context {
