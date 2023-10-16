@@ -227,6 +227,7 @@ func (f *Image) ReadTIFF(fileName string) error {
 	return nil
 }
 
+// Convert a golang image color model to FITS bitpix and number of channels.
 func colorModelToBitpixAndChannels(m color.Model) (bitpix, channels int32) {
 	switch m {
 	case color.RGBAModel:
