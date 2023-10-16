@@ -55,17 +55,20 @@ func (fits *Image) ReadFile(fileName string, readData bool, logWriter io.Writer)
 
 	var r io.Reader = f
 
-	// Decompress gzip if .gz or .gzip suffix is present
+	fits.FileName = fileName
 	ext := path.Ext(fileName)
 	lExt := strings.ToLower(ext)
-	if lExt == ".gz" || lExt == ".gzip" {
+
+	if lExt == ".tif" || lExt == ".tiff" {
+		return fits.ReadTIFF(fileName)
+	} else if lExt == ".gz" || lExt == ".gzip" {
+		// Decompress gzip if .gz or .gzip suffix is present
 		r, err = gzip.NewReader(f)
 		if err != nil {
 			return err
 		}
 	}
 
-	fits.FileName = fileName
 	return fits.Read(r, readData, logWriter)
 }
 

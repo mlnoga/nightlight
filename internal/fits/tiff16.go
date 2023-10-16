@@ -132,3 +132,61 @@ func (f *Image) WriteMonoTIFF16(writer io.Writer, min, max, gamma float32) error
 
 	return tiff.Encode(writer, img, &tiff.Options{Compression: tiff.Uncompressed, Predictor: false})
 }
+
+// Read a color or grayscale TIFF image into a FITS image.
+func (f *Image) ReadTIFF(fileName string) error {
+	// open file and create buffered reader
+	file, err := os.Open(fileName)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+	reader := bufio.NewReader(file)
+
+	// read TIFF from reader
+	t, err := tiff.Decode(reader)
+	if err != nil {
+		return err
+	}
+
+	// determine number of channels
+	channels := 3
+	if t.ColorModel() == color.GrayModel || t.ColorModel() == color.Gray16Model {
+		channels = 1
+	}
+
+	// determine width and height, and set naxisn
+	width, height := t.Bounds().Dx(), t.Bounds().Dy()
+	f.Naxisn = make([]int32, 3)
+	f.Naxisn[0] = int32(width)
+	f.Naxisn[1] = int32(height)
+	f.Naxisn[2] = int32(channels)
+
+	// allocate bitmap memory
+	size := int(width) * int(height) * int(channels)
+	f.Data = make([]float32, size)
+	sizeThird := int(size / 3)
+	sizeTwoThirds := int(sizeThird * 2)
+	// read and convert pixels
+	if channels == 1 {
+		// greyscale case
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				c := t.At(x, y).(color.Gray16)
+				f.Data[y*width+x] = float32(c.Y)
+			}
+		}
+	} else {
+		// RGB case
+		for y := 0; y < height; y++ {
+			for x := 0; x < width; x++ {
+				c := t.At(x, y).(color.RGBA64)
+				f.Data[y*width+x] = float32(c.R)
+				f.Data[y*width+x+sizeThird] = float32(c.G)
+				f.Data[y*width+x+sizeTwoThirds] = float32(c.B)
+			}
+		}
+	}
+
+	return nil
+}
