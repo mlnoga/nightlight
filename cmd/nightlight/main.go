@@ -93,7 +93,9 @@ var backHFRFactor = flag.Float64("backHFRFactor", 4.0, "automated background ext
 var backSigma = flag.Float64("backSigma", 1.5, "automated background extraction: sigma for detecting foreground objects")
 var backClip = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
-var usmSigma = flag.Float64("usmSigma", 1, "unsharp masking sigma, ~1/3 radius")
+var blurSigma = flag.Float64("blurSigma", 0, "gaussian blurring sigma, ~1/3 radius, 0=no op")
+
+var usmSigma = flag.Float64("usmSigma", 1, "unsharp masking sigma, ~1/3 radius, 0=no op")
 var usmGain = flag.Float64("usmGain", 0, "unsharp masking gain, 0=no op")
 var usmThresh = flag.Float64("usmThresh", 1, "unsharp masking threshold, in standard deviations above background")
 
@@ -342,6 +344,7 @@ Flags:
 			opStarDetect,
 			ref.NewOpSelectReference(ref.SRAlign, *alignRef, opStarDetect),
 			post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeOwnLocation),
+			stretch.NewOpGaussianBlur(float32(*blurSigma)),
 			stretch.NewOpUnsharpMask(float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 			ops.NewOpSave(*out, ops.EMMinMax, 1),
 			ops.NewOpSave(*tiff, ops.EM0_1, 1),

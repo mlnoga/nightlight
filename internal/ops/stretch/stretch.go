@@ -335,6 +335,48 @@ func (op *OpScaleBlack) Apply(f *fits.Image, c *ops.Context) (result *fits.Image
 }
 
 
+// An operator to apply gaussian blurring to an image
+type OpGaussianBlur struct {
+	ops.OpUnaryBase
+	Sigma     float32 `json:"sigma"`
+}
+
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpGaussianBlurDefault() })} // register the operator for JSON decoding
+
+func NewOpGaussianBlurDefault() *OpGaussianBlur { return NewOpGaussianBlur(2) }
+
+func NewOpGaussianBlur(sigma float32) *OpGaussianBlur {
+	op:=&OpGaussianBlur{
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "gaussianBlur"}},
+		Sigma       : sigma, 
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpGaussianBlur) UnmarshalJSON(data []byte) error {
+	type defaults OpGaussianBlur
+	def:=defaults( *NewOpGaussianBlurDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpGaussianBlur(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
+	return nil
+}
+
+func (op *OpGaussianBlur) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if op.Sigma==0 { return f, nil }
+
+	kernel:=GaussianKernel1D(op.Sigma)
+	fmt.Fprintf(c.Log, "%d: Gaussian blur kernel sigma %.2f size %d: %v\n", 
+		        f.ID, op.Sigma, len(kernel), kernel)
+	f.Data=GaussianBlur(f.Data, int(f.Naxisn[0]), op.Sigma)
+	return f, nil
+}
+
+
+// An operator to apply unsharp masking to an image. Based on subtraction of a gaussian blur from the original image
 type OpUnsharpMask struct {
 	ops.OpUnaryBase
 	Sigma     float32 `json:"sigma"`
@@ -369,7 +411,7 @@ func (op *OpUnsharpMask) UnmarshalJSON(data []byte) error {
 }
 
 func (op *OpUnsharpMask) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
-	if op.Gain==0 { return f, nil }
+	if op.Sigma==0 || op.Gain==0 { return f, nil }
 
 	absThresh:=f.Stats.Location() + f.Stats.Scale()*op.Threshold
 	fmt.Fprintf(c.Log, "%d: Unsharp masking with sigma %.3g gain %.3g thresh %.3g absThresh %.3g\n", 

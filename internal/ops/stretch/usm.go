@@ -121,6 +121,14 @@ func GaussFilter2D(res, tmp, data []float32, width int, sigma float32) {
 	Convolve1DY(res, tmp, width, kernel)
 }
 
+// Applies gaussian blur to 2D image given by data and width, using provided radius for Gauss filter.
+// Overwrites data, and returns that array
+func GaussianBlur(data []float32, width int, sigma float32) []float32 {
+	tmp := make([]float32, len(data))
+	GaussFilter2D(data, tmp, data, width, sigma)
+	return data
+}
+
 // Applies unsharp mask to 2D image given bz data and width, using provided radius for Gauss filter and gain for combination.
 // Results are clipped to min..max. Pixels below the threshold are left unchanged. Overwrites tmp, and returns the result in res
 func ApplyUnsharpMask(res, data, blurred []float32, gain float32, min, max, absThreshold float32) {
@@ -140,12 +148,13 @@ func ApplyUnsharpMask(res, data, blurred []float32, gain float32, min, max, absT
 	}
 }
 
-// Applies unsharp mask to 2D image given bz data and width, using provided radius for Gauss filter and gain for combination.
+// Applies unsharp mask to 2D image given by data and width, using provided radius for Gauss filter and gain for combination.
 // Results are clipped to min..max. Pixels below the threshold are left unchanged. Returns results in a newly allocated array
-func UnsharpMask(data []float32, width int, sigma float32, gain float32, min, max, absThreshold float32) []float32 {
+func UnsharpMask(data []float32, width int, sigma, gain, min, max, absThreshold float32) []float32 {
 	tmp := make([]float32, len(data))
 	blurred := make([]float32, len(data))
 	GaussFilter2D(blurred, tmp, data, width, sigma)
 	ApplyUnsharpMask(tmp, data, blurred, gain, min, max, absThreshold)
 	return tmp
 }
+
