@@ -93,6 +93,8 @@ var backHFRFactor = flag.Float64("backHFRFactor", 4.0, "automated background ext
 var backSigma = flag.Float64("backSigma", 1.5, "automated background extraction: sigma for detecting foreground objects")
 var backClip = flag.Int64("backClip", 0, "automated background extraction: clip the k brightest grid cells and replace with local median")
 
+var minStars = flag.Int64("minStars", 0, "minimum number of stars for an image to be included in stacking, 0=don't filter")
+
 var blurSigma = flag.Float64("blurSigma", 0, "gaussian blurring sigma, ~1/3 radius, 0=no op")
 
 var usmSigma = flag.Float64("usmSigma", 1, "unsharp masking sigma, ~1/3 radius, 0=no op")
@@ -312,6 +314,7 @@ Flags:
 					opPreProc,
 					ref.NewOpSelectReference(ref.SRHisto, *histoRef, opStarDetect),
 					ref.NewOpSelectReference(ref.SRAlign, *alignRef, opStarDetect),
+					ref.NewOpFilter(int(*minStars)),
 					post.NewOpMatchHistogram(post.HistoNormMode(*normHist)),
 					post.NewOpAlign(int32(*alignK), float32(*alignT), post.OOBModeNaN),
 					ops.NewOpSave(*pPost, ops.EMMinMax, 1),
@@ -365,6 +368,8 @@ Flags:
 
 			rgb.NewOpRGBToHSLuv(),
 			hsl.NewOpHSLApplyLum(),
+
+			hsl.NewOpHSLUnsharpMask(float32(*usmSigma), float32(*usmGain), float32(*usmThresh)),
 
 			hsl.NewOpHSLNeutralizeBackground(float32(*neutSigmaLow), float32(*neutSigmaHigh)),
 			hsl.NewOpHSLSaturationGamma(float32(*chromaGamma), float32(*chromaSigma)),
