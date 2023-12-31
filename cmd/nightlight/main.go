@@ -273,7 +273,7 @@ Flags:
 	}
 
 	// create context
-	c := ops.NewContext(logWriter, stats.LSEstimatorMode(*lsEst))
+	c := ops.NewContext(logWriter, int(*stMemory), stats.LSEstimatorMode(*lsEst))
 
 	// glob filename arguments into an opLoadMany operator
 	var err error
@@ -300,7 +300,7 @@ Flags:
 	switch args[0] {
 	case "serve":
 		rest.MakeSandbox(*chroot, int(*setuid))
-		rest.Serve(int(*port))
+		rest.Serve(int(*port), int(*stMemory))
 
 	case "stats":
 		opSeq := ops.NewOpSequence(opLoadMany, opPreProc)

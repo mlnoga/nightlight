@@ -55,13 +55,13 @@ type Context struct {
 	StatsBufWriter *bufio.Writer `json:"-"` // buffered writer for the output file. use this
 }
 
-func NewContext(log io.Writer, lsEstimatorMode stats.LSEstimatorMode) *Context {
+func NewContext(log io.Writer, stMemory int, lsEstimatorMode stats.LSEstimatorMode) *Context {
 	memoryMB := int(memory.TotalMemory() / 1024 / 1024)
 	return &Context{
 		Log:             log,
 		LSEstimatorMode: lsEstimatorMode,
 		MemoryMB:        memoryMB,
-		StackMemoryMB:   memoryMB * 7 / 10,
+		StackMemoryMB:   stMemory,
 		MaxThreads:      runtime.GOMAXPROCS(0),
 	}
 }

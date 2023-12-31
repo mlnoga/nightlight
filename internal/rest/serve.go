@@ -13,16 +13,16 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-
 package rest
 
 import (
-	"encoding/json"
 	_ "embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"runtime/debug"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/mlnoga/nightlight/internal/ops"
@@ -30,17 +30,20 @@ import (
 	"github.com/mlnoga/nightlight/web"
 )
 
+var stMemory int // memory limit in MB for stacking. Not thread safe
 
 // Serve APIs and static files via HTTP
-func Serve(port int) {
+func Serve(port, theStMemory int) {
+	stMemory = theStMemory
+
 	r := gin.Default()
 	r.Use(CORSMiddleware())
 	// web content
 	r.GET("/", func(c *gin.Context) {
-	    c.Data(http.StatusOK, "text/html", web.IndexHTML)
+		c.Data(http.StatusOK, "text/html", web.IndexHTML)
 	})
 	r.GET("/index.html", func(c *gin.Context) {
-	    c.Data(http.StatusOK, "text/html", web.IndexHTML)
+		c.Data(http.StatusOK, "text/html", web.IndexHTML)
 	})
 	r.StaticFS("/js", web.JavascriptFS())
 	r.StaticFS("/blockly", web.BlocklyFS())
@@ -50,29 +53,28 @@ func Serve(port int) {
 	{
 		v1 := api.Group("/v1")
 		{
-			v1.GET ("/ping",    getPing)
-			v1.POST("/job",     postJob)
-			v1.StaticFS("/files",http.Dir(".") )
+			v1.GET("/ping", getPing)
+			v1.POST("/job", postJob)
+			v1.StaticFS("/files", http.Dir("."))
 		}
 	}
 	r.Run(fmt.Sprintf(":%d", port)) // listen and serve on 0.0.0.0:port
 }
 
-
 func CORSMiddleware() gin.HandlerFunc {
-    return func(c *gin.Context) {
-        c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-        c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
-        c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
-        c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
 
-        if c.Request.Method == "OPTIONS" {
-            c.AbortWithStatus(204)
-            return
-        }
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
 
-        c.Next()
-    }
+		c.Next()
+	}
 }
 
 func getPing(c *gin.Context) {
@@ -82,21 +84,23 @@ func getPing(c *gin.Context) {
 }
 
 func printOp(logWriter io.Writer, prefix, suffix string, op interface{}) error {
-	m,err:=json.MarshalIndent(op, "", "  ")
-	if err!=nil { return err }
+	m, err := json.MarshalIndent(op, "", "  ")
+	if err != nil {
+		return err
+	}
 	fmt.Fprintf(logWriter, "%s%s%s", prefix, string(m), suffix)
 	return nil
 }
 
-func postJob(c *gin.Context)  {
+func postJob(c *gin.Context) {
 	{
 		// raw,_:=c.GetRawData()
 		// fmt.Printf("Raw data: %s\n", string(raw))
 
 		// bind POST arguments to a sequence operator
 		var op ops.OpSequence
-		if err:=c.ShouldBind(&op); err!=nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error() } )
+		if err := c.ShouldBind(&op); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 
@@ -108,29 +112,28 @@ func postJob(c *gin.Context)  {
 		logWriter.WriteHeader(http.StatusOK)
 
 		// play back arguments for debugging
-		if err:=printOp(logWriter, "Arguments:\n", "\n", op); err!=nil {
+		if err := printOp(logWriter, "Arguments:\n", "\n", op); err != nil {
 			fmt.Fprintf(logWriter, "Error printing arguments: %s\n", err.Error())
 			return
 		}
 
 		// create promises for the given command sequence
-		oc:=ops.NewContext(logWriter, stats.LSESCMedianQn)
-		promises, err:=op.MakePromises(nil, oc)
-		if err!=nil { 
+		oc := ops.NewContext(logWriter, stMemory, stats.LSESCMedianQn)
+		promises, err := op.MakePromises(nil, oc)
+		if err != nil {
 			fmt.Fprintf(logWriter, "Error making promises: %s\n", err.Error())
 			return
 		}
 
-		// materialize all promises for their side effects, and forget the values 
-		_, err=ops.MaterializeAll(promises, oc.MaxThreads, true)
-		if err!=nil { 
+		// materialize all promises for their side effects, and forget the values
+		_, err = ops.MaterializeAll(promises, oc.MaxThreads, true)
+		if err != nil {
 			fmt.Fprintf(logWriter, "Error materializing promises: %s\n", err.Error())
 			return
 		}
 		logWriter.(http.Flusher).Flush()
 	}
-	debug.FreeOSMemory()	
+	debug.FreeOSMemory()
 
 	return
 }
-
