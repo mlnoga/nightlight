@@ -72,8 +72,12 @@ func (op *OpCalibrate) Apply(f *fits.Image, c *ops.Context) (result *fits.Image,
 
 	if c.DarkFrame != nil {
 		if !fits.EqualInt32Slice(f.Naxisn, c.DarkFrame.Naxisn) {
-			return nil, fmt.Errorf("%d: Light dimensions %v differ from dark dimensions %v",
-				f.ID, f.Naxisn, c.DarkFrame.Naxisn)
+			if f.Pixels!=c.DarkFrame.Pixels {
+				return nil, fmt.Errorf("%d: Light dimensions %v differ from dark dimensions %v",
+					f.ID, f.Naxisn, c.DarkFrame.Naxisn)
+			}
+			fmt.Printf("%d: Warning: light dimensions %v differ from dark dimensions %v but same product, ignoring for Seestar",
+					f.ID, f.Naxisn, c.DarkFrame.Naxisn)
 		}
 		Subtract(f.Data, f.Data, c.DarkFrame.Data)
 		f.Stats.Clear()
@@ -81,8 +85,12 @@ func (op *OpCalibrate) Apply(f *fits.Image, c *ops.Context) (result *fits.Image,
 
 	if c.FlatFrame != nil {
 		if !fits.EqualInt32Slice(f.Naxisn, c.FlatFrame.Naxisn) {
-			return nil, fmt.Errorf("%d: Light dimensions %v differ from flat dimensions %v",
-				f.ID, f.Naxisn, c.FlatFrame.Naxisn)
+			if f.Pixels!=c.FlatFrame.Pixels {
+				return nil, fmt.Errorf("%d: Light dimensions %v differ from flat dimensions %v",
+					f.ID, f.Naxisn, c.FlatFrame.Naxisn)
+			}
+			fmt.Printf("%d: Warning: light dimensions %v differ from flat dimensions %v but same product, ignoring for Seestar",
+					f.ID, f.Naxisn, c.FlatFrame.Naxisn)
 		}
 		Divide(f.Data, f.Data, c.FlatFrame.Data, c.FlatFrame.Stats.Max())
 		f.Stats.Clear()

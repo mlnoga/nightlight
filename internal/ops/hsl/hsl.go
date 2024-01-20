@@ -18,7 +18,8 @@ package hsl
 import (
 	"encoding/json"
 	"fmt"
-
+	"math"
+	
 	colorful "github.com/lucasb-eyer/go-colorful"
 	"github.com/mlnoga/nightlight/internal/fits"
 	"github.com/mlnoga/nightlight/internal/ops"
@@ -604,6 +605,99 @@ func (op *OpHSLScaleBlack) Apply(f *fits.Image, c *ops.Context) (fOut *fits.Imag
 		f.ShiftBlackToMoveChannel(2, loc, targetBlack)
 	} else {
 		fmt.Fprintf(c.Log, "cannot move to location %.2f%% by scaling black\n", targetBlack*100.0)
+	}
+	return f, nil
+}
+
+
+type OpHSLStretchIterative struct {
+	ops.OpUnaryBase
+	Location    float32   `json:"location"`
+	Scale       float32   `json:"scale"`
+}
+
+var _ ops.Operator = (*OpHSLStretchIterative)(nil) // this type is an Operator
+func init() { ops.SetOperatorFactory(func() ops.Operator { return NewOpHSLStretchIterativeDefault() })} // register the operator for JSON decoding
+
+func NewOpHSLStretchIterativeDefault() *OpHSLStretchIterative { return NewOpHSLStretchIterative(0.1, 0.004) }
+
+// must be called /100
+func NewOpHSLStretchIterative(loc float32, scale float32) (*OpHSLStretchIterative) {
+	op:=&OpHSLStretchIterative{ 
+	  	OpUnaryBase : ops.OpUnaryBase{OpBase : ops.OpBase{Type: "hslStretch"}},
+		Location    : loc, 
+		Scale       : scale,
+	}
+	op.OpUnaryBase.Apply=op.Apply // assign class method to superclass abstract method
+	return op	
+}
+
+// Unmarshal the type from JSON with default values for missing entries
+func (op *OpHSLStretchIterative) UnmarshalJSON(data []byte) error {
+	type defaults OpHSLStretchIterative
+	def:=defaults( *NewOpHSLStretchIterativeDefault() )
+	err:=json.Unmarshal(data, &def)
+	if err!=nil { return err }
+	*op=OpHSLStretchIterative(def)
+	op.OpUnaryBase.Apply=op.Apply // make method receiver point to op, not def
+	return nil
+}
+
+func (op *OpHSLStretchIterative) Apply(f *fits.Image, c *ops.Context) (result *fits.Image, err error) {
+	if op.Location==0 && op.Scale==0 { return f, nil }
+	fmt.Fprintf(c.Log, "%d: Auto-stretching HSL loc to %.2f%% and scale to %.2f%% ...\n", f.ID, op.Location*100, op.Scale*100)
+
+	for i:=0; ; i++ {
+		if i==50 { 
+			fmt.Fprintf(c.Log, "%d: Warning: did not converge after %d iterations\n", f.ID, i)
+			break
+		}
+
+		st := stats.NewStatsForChannel(f.Data, f.Naxisn[0], 2, 3)
+		loc, scale := st.Location(), st.Scale()
+
+		fmt.Fprintf(c.Log, "%d: Linear location %.2f%% and scale %.2f%%, ", f.ID, loc*100, scale*100)
+
+		if loc<=op.Location*1.01 && scale<op.Scale {
+			idealGamma:=float32(1)
+			idealGammaDelta:=float32(math.Abs(float64(op.Scale)-float64(scale)))
+
+			maxGamma:=float32(5.0)
+			for gamma:=float32(1.0); gamma<=maxGamma; gamma+=0.01 {
+				exponent:=1.0/float64(gamma)
+				newLocLower:=float32(math.Pow(float64(loc-scale), exponent))
+				newLoc     :=float32(math.Pow(float64(loc        ), exponent))
+				newLocUpper:=float32(math.Pow(float64(loc+scale), exponent))
+
+				black:=(op.Location-newLoc)/(op.Location-1)
+    			scale:=1/(1-black)
+
+				scaledNewLocLower:=float32(math.Max(0, float64((newLocLower - black) * scale)))
+				scaledNewLocUpper:=float32(math.Max(0, float64((newLocUpper - black) * scale)))
+
+				newScale:=float32(scaledNewLocUpper-scaledNewLocLower)/2
+				delta:=float32(math.Abs(float64(op.Scale)-float64(newScale)))
+				if delta<idealGammaDelta {
+					idealGamma=gamma
+					idealGammaDelta=delta
+				}
+			}
+
+			if idealGamma<=1.01 { 
+				fmt.Fprintf(c.Log, "done\n")
+				break
+			}
+
+			fmt.Fprintf(c.Log, "applying gamma %.3g\n", idealGamma)
+			f.ApplyGammaToChannel(2, idealGamma)
+			//f.ApplyPartialGamma(0, 0.95, idealGamma)
+		} else if loc>op.Location*0.99 && scale<op.Scale {
+			fmt.Fprintf(c.Log, "scaling black to move location to %.2f%%...\n", op.Location*100)
+			f.ShiftBlackToMoveChannel(2, loc, op.Location)
+		} else {
+			fmt.Fprintf(c.Log, "done\n")
+			break
+		}
 	}
 	return f, nil
 }

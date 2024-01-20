@@ -376,6 +376,8 @@ Flags:
 			hsl.NewOpHSLSelectiveSaturation(float32(*chromaFrom), float32(*chromaTo), float32(*chromaBy)),
 			hsl.NewOpHSLRotateHue(float32(*rotFrom), float32(*rotTo), float32(*rotBy), float32(*rotSigma)),
 			hsl.NewOpHSLSCNR(float32(*scnr)),
+
+			hsl.NewOpHSLStretchIterative(float32(*autoLoc/100), float32(*autoScale/100)),
 			hsl.NewOpHSLMidtones(float32(*midtone), float32(*midBlack)),
 			hsl.NewOpHSLGamma(float32(*gamma)),
 			hsl.NewOpHSLGammaPP(float32(*ppGamma), float32(*ppSigma)),
